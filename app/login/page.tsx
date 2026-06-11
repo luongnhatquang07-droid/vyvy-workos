@@ -71,19 +71,23 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F4F6F9] px-4">
-      <div className="w-full max-w-sm">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F172A] to-[#1B2A4A] px-4">
+      {/* Decorative glow */}
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-96 w-[600px] -translate-x-1/2 rounded-full bg-[#1B4FD8]/20 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -right-20 h-80 w-80 rounded-full bg-[#3B82F6]/10 blur-3xl" />
+
+      <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0F172A] text-2xl font-extrabold text-white">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3B82F6] to-[#1B4FD8] text-2xl font-extrabold text-white shadow-xl shadow-blue-900/40">
             V
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-extrabold text-[#0F172A]">VyVy WorkOS</h1>
-            <p className="mt-1 text-sm text-[#64748B]">COO Operating System · VyVyHaircare</p>
+            <h1 className="text-2xl font-extrabold text-white">VyVy WorkOS</h1>
+            <p className="mt-1 text-sm text-slate-400">COO Operating System · VyVyHaircare</p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
+        <div className="rounded-2xl border border-white/10 bg-white shadow-2xl shadow-black/30">
           <div className="flex border-b border-[#E2E8F0]">
             <button
               type="button"
@@ -145,7 +149,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#1B4FD8] text-sm font-extrabold text-white disabled:opacity-60"
+                  className="h-12 w-full rounded-xl bg-gradient-to-r from-[#1B4FD8] to-[#2563EB] text-sm font-extrabold text-white shadow-lg shadow-blue-600/30 hover:shadow-xl hover:shadow-blue-600/35 disabled:opacity-60"
                 >
                   {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
                 </button>
@@ -205,6 +209,10 @@ export default function LoginPage() {
             )}
           </div>
         </div>
+
+        <p className="mt-6 text-center text-xs text-slate-500">
+          © {new Date().getFullYear()} VyVyHaircare · Internal Operations Platform
+        </p>
       </div>
     </main>
   )

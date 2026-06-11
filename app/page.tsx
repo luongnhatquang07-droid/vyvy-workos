@@ -1690,14 +1690,14 @@ export default function Home() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen bg-[#0F172A] text-white transition-all duration-200
+        className={`fixed left-0 top-0 z-50 h-screen bg-gradient-to-b from-[#0B1220] via-[#0F172A] to-[#101A30] text-white transition-all duration-200
           ${mobileNavOpen ? 'w-[260px]' : 'w-0 overflow-hidden'}
           md:w-[64px] md:overflow-visible ${collapsed ? 'md:w-[64px]' : 'md:w-[240px]'}`}
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-center border-b border-white/10 p-3 md:justify-between md:p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1B4FD8] font-extrabold">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#3B82F6] to-[#1B4FD8] font-extrabold shadow-lg shadow-blue-900/40">
                 V
               </div>
               {!collapsed && (
@@ -1722,8 +1722,10 @@ export default function Home() {
                 key={item.key}
                 onClick={() => { setView(item.key); setMobileNavOpen(false) }}
                 title={item.label}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-bold justify-start ${
-                  view === item.key ? 'bg-[#1B4FD8] text-white' : 'text-slate-300 hover:bg-white/10'
+                className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold justify-start ${
+                  view === item.key
+                    ? 'bg-gradient-to-r from-[#1B4FD8] to-[#2563EB] text-white shadow-lg shadow-blue-900/30'
+                    : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'
                 } md:justify-start`}
               >
                 <span className="shrink-0 text-base">{item.icon}</span>
@@ -1760,7 +1762,7 @@ export default function Home() {
       </aside>
 
       <section className={`min-h-screen min-w-0 md:ml-[64px] ${collapsed ? 'md:ml-[64px]' : 'md:ml-[240px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] bg-white px-3 py-3 sm:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#E8EDF4] bg-white/85 px-3 py-3 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -1922,7 +1924,7 @@ export default function Home() {
             </div>
             <button type="button"
               onClick={() => setCreateOpen(true)}
-              className="rounded-xl bg-[#1B4FD8] px-3 py-2 text-sm font-extrabold text-white sm:px-4"
+              className="rounded-xl bg-gradient-to-r from-[#1B4FD8] to-[#2563EB] px-3 py-2 text-sm font-extrabold text-white shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/30 sm:px-4"
             >
               + Tạo mới
             </button>
@@ -4294,7 +4296,7 @@ function TaskDetailDrawer(props: {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">{children}</div>
+  return <div className="rounded-2xl border border-[#E8EDF4] bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
 }
 
 function MetricCard(props: {
@@ -4304,19 +4306,26 @@ function MetricCard(props: {
   tone: 'blue' | 'green' | 'purple' | 'red'
 }) {
   const toneMap = {
-    blue: 'bg-blue-50 text-[#1B4FD8]',
-    green: 'bg-green-50 text-green-700',
-    purple: 'bg-purple-50 text-purple-700',
-    red: 'bg-red-50 text-red-700',
+    blue: 'bg-gradient-to-br from-blue-50 to-blue-100/60 text-[#1B4FD8]',
+    green: 'bg-gradient-to-br from-emerald-50 to-emerald-100/60 text-emerald-700',
+    purple: 'bg-gradient-to-br from-purple-50 to-purple-100/60 text-purple-700',
+    red: 'bg-gradient-to-br from-red-50 to-red-100/60 text-red-700',
+  }
+  const accentMap = {
+    blue: 'before:bg-[#1B4FD8]',
+    green: 'before:bg-emerald-500',
+    purple: 'before:bg-purple-500',
+    red: 'before:bg-red-500',
   }
 
   return (
-    <div className="card-hover rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
+    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[#E8EDF4] bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]
+      before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
       <div className="flex items-center justify-between">
-        <p className="text-sm font-bold text-[#64748B]">{props.label}</p>
+        <p className="text-[13px] font-bold text-[#64748B]">{props.label}</p>
         <span className={`rounded-xl px-3 py-2 ${toneMap[props.tone]}`}>{props.icon}</span>
       </div>
-      <p className="mt-4 text-3xl font-extrabold tabular-nums">{props.value}</p>
+      <p className="mt-3 text-3xl font-extrabold tracking-tight tabular-nums">{props.value}</p>
     </div>
   )
 }
@@ -4514,7 +4523,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function Avatar({ name }: { name: string }) {
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1B4FD8] text-sm font-extrabold text-white">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#3B82F6] to-[#1B4FD8] text-sm font-extrabold text-white ring-2 ring-white/20">
       {(name || 'U').slice(0, 1).toUpperCase()}
     </div>
   )
