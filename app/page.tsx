@@ -288,6 +288,7 @@ export default function Home() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [inboxOpen, setInboxOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Ctrl+K / Cmd+K focus tìm kiếm
@@ -1614,6 +1615,20 @@ export default function Home() {
     )
   }, [currentEmployee, projects, visibleTasks])
 
+  // Các bước đang chờ chính user này duyệt (inbox duyệt nhanh)
+  const pendingForMe = useMemo(() => {
+    if (!currentEmployee?.id) return []
+    return steps.filter((step) => {
+      if (step.approval_status !== 'pending') return false
+      const stage = step.approval_stage || 'department'
+      const approverId =
+        stage === 'coo' ? step.coo_approver_id :
+        stage === 'ceo' ? step.ceo_approver_id :
+        (step.department_approver_id || step.approver_id)
+      return approverId === currentEmployee.id
+    })
+  }, [steps, currentEmployee])
+
   // Tìm kiếm nhanh toàn cục: dự án + đầu việc
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1820,6 +1835,69 @@ export default function Home() {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            <div className="relative">
+              <button type="button"
+                onClick={() => setInboxOpen((v) => !v)}
+                title="Chờ tôi duyệt"
+                className="relative rounded-xl border border-[#E2E8F0] bg-white p-2.5 hover:bg-[#F8FAFC]"
+              >
+                <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9"/></svg>
+                {pendingForMe.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
+                    {pendingForMe.length}
+                  </span>
+                )}
+              </button>
+
+              {inboxOpen && (
+                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[#E2E8F0] bg-white p-2 shadow-xl">
+                  <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#94A3B8]">
+                    Chờ tôi duyệt ({pendingForMe.length})
+                  </p>
+                  {pendingForMe.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-[#64748B]">Không có bước nào chờ duyệt. 🎉</p>
+                  ) : (
+                    <div className="max-h-80 space-y-1 overflow-y-auto">
+                      {pendingForMe.map((step) => {
+                        const task = tasks.find((item) => item.id === step.task_id)
+                        return (
+                          <div key={step.id} className="rounded-lg border border-[#F1F5F9] p-2">
+                            <button type="button"
+                              onClick={() => {
+                                if (task) setSelectedTask(task)
+                                setInboxOpen(false)
+                              }}
+                              className="block w-full text-left"
+                            >
+                              <p className="truncate text-sm font-bold">{step.step_title}</p>
+                              <p className="truncate text-[11px] text-[#64748B]">{task?.title || 'Đầu việc'}</p>
+                            </button>
+                            <div className="mt-1.5 flex gap-1.5">
+                              <button type="button"
+                                onClick={() => approveCurrentStage(step)}
+                                className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-extrabold text-white"
+                              >
+                                ✓ Duyệt ngay
+                              </button>
+                              <button type="button"
+                                onClick={() => {
+                                  if (task) setSelectedTask(task)
+                                  setInboxOpen(false)
+                                }}
+                                className="rounded-lg border border-[#E2E8F0] px-2.5 py-1 text-[11px] font-bold"
+                              >
+                                Xem chi tiết
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div
               title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
