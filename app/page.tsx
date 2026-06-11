@@ -1615,6 +1615,18 @@ export default function Home() {
     )
   }, [currentEmployee, projects, visibleTasks])
 
+  // Cảnh báo trễ hạn tự động một lần sau khi dữ liệu tải xong
+  const overdueWarnedRef = useRef(false)
+  useEffect(() => {
+    if (overdueWarnedRef.current || loading || !authChecked || visibleTasks.length === 0) return
+    overdueWarnedRef.current = true
+    const overdueCount = visibleTasks.filter((task) => isTaskOverdue(task)).length
+    if (overdueCount > 0) {
+      toast(`Có ${overdueCount} đầu việc đang trễ deadline — cần xử lý.`, 'warning')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, authChecked, visibleTasks])
+
   // Các bước đang chờ chính user này duyệt (inbox duyệt nhanh)
   const pendingForMe = useMemo(() => {
     if (!currentEmployee?.id) return []
@@ -3576,9 +3588,67 @@ function TasksView(props: {
   updateTaskStatus: (taskId: string, status: string) => void
   getStatusLabel: (status: string) => string
 }) {
+  const [statusFilter, setStatusFilter] = useState('all')
+  const filteredTasks = statusFilter === 'all'
+    ? props.tasks
+    : statusFilter === 'overdue'
+      ? props.tasks.filter((task) => isTaskOverdue(task))
+      : props.tasks.filter((task) => task.status === statusFilter)
+
+  function exportCsv() {
+    const header = ['Công việc', 'Cấp', 'Head', 'Dự án', 'Deadline', 'Trạng thái', '% Tiến độ', 'Trễ hạn']
+    const rows = filteredTasks.map((task) => {
+      const head = props.employeeMap.get(task.head_id || task.assignee_id || '')
+      const project = props.projectMap.get(task.project_id || '')
+      return [
+        task.title,
+        task.task_level === 'workstream' || !task.parent_task_id ? 'Đầu việc lớn' : 'Đầu việc con',
+        head?.full_name || '',
+        project?.name || '',
+        task.due_date || '',
+        props.getStatusLabel(task.status),
+        String(task.progress_percent || 0),
+        isTaskOverdue(task) ? 'Có' : '',
+      ]
+    })
+    const csv = [header, ...rows]
+      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
+      .join('\r\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `bao-cao-cong-viec-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast(`Đã xuất ${filteredTasks.length} công việc ra file CSV.`)
+  }
+
   return (
     <Card>
-      <h3 className="mb-5 text-lg font-extrabold">Danh sách toàn bộ công việc</h3>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-extrabold">Danh sách toàn bộ công việc</h3>
+        <div className="flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="h-9 rounded-xl border border-[#E2E8F0] bg-white px-3 text-xs font-bold outline-none"
+          >
+            <option value="all">Tất cả ({props.tasks.length})</option>
+            <option value="not_started">Chưa bắt đầu</option>
+            <option value="in_progress">Đang làm</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Hoàn thành</option>
+            <option value="overdue">Trễ deadline</option>
+          </select>
+          <button type="button"
+            onClick={exportCsv}
+            className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-xs font-bold hover:bg-[#F8FAFC]"
+          >
+            ⬇ Xuất CSV
+          </button>
+        </div>
+      </div>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1000px] text-left text-sm">
@@ -3595,7 +3665,7 @@ function TasksView(props: {
             </tr>
           </thead>
           <tbody>
-            {props.tasks.map((task) => {
+            {filteredTasks.map((task) => {
               const head = props.employeeMap.get(task.head_id || task.assignee_id || '')
               const project = props.projectMap.get(task.project_id || '')
               const overdue = isTaskOverdue(task)
