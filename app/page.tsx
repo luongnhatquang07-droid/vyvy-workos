@@ -1,8 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+
+// ─── Module-level toast (no prop drilling needed) ───────────────────────────
+type ToastType = 'success' | 'error' | 'info' | 'warning'
+type ToastItem = { id: string; message: string; type: ToastType }
+let _showToast: ((msg: string, type?: ToastType) => void) | null = null
+function toast(msg: string, type: ToastType = 'success') { _showToast?.(msg, type) }
 
 type Department = {
   id: string
@@ -183,6 +189,19 @@ export default function Home() {
   const router = useRouter()
   const [authChecked, setAuthChecked] = useState(false)
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null)
+
+  // ─── Toast system ──────────────────────────────────────────────────────────
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const showToast = useCallback((msg: string, type: ToastType = 'success') => {
+    const id = Math.random().toString(36).slice(2)
+    setToasts((prev) => [...prev.slice(-4), { id, message: msg, type }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500)
+  }, [])
+  useEffect(() => { _showToast = showToast; return () => { _showToast = null } }, [showToast])
+
+  // ─── Realtime sync ─────────────────────────────────────────────────────────
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'off'>('connecting')
+  const fetchAllRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null)
 
   const [view, setView] = useState<ViewKey>('coo')
   const [collapsed, setCollapsed] = useState(false)
@@ -428,12 +447,36 @@ export default function Home() {
   ])
 
   useEffect(() => {
-    const loadTimer = window.setTimeout(() => {
-      fetchAll()
-    }, 0)
+    fetchAllRef.current = fetchAll
+  }, [fetchAll])
 
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => { fetchAll() }, 0)
     return () => window.clearTimeout(loadTimer)
   }, [fetchAll])
+
+  // Supabase Realtime
+  useEffect(() => {
+    if (!authChecked) return
+    const channel = supabase
+      .channel('workos-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+        fetchAllRef.current?.({ silent: true })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_steps' }, () => {
+        fetchAllRef.current?.({ silent: true })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, () => {
+        fetchAllRef.current?.({ silent: true })
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'task_supporters' }, () => {
+        fetchAllRef.current?.({ silent: true })
+      })
+      .subscribe((status) => {
+        setRealtimeStatus(status === 'SUBSCRIBED' ? 'live' : status === 'CLOSED' ? 'off' : 'connecting')
+      })
+    return () => { supabase.removeChannel(channel) }
+  }, [authChecked])
 
   const refreshDataSilent = useCallback(async () => {
     // Only refresh data that can change during small updates
@@ -449,7 +492,7 @@ export default function Home() {
 
   async function createProject() {
     if (!projectName.trim()) {
-      alert('Nhập tên dự án trước.')
+      toast('Nhập tên dự án trước.', 'warning')
       return
     }
 
@@ -471,10 +514,11 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Tạo dự án bị lỗi.')
+      toast('Tạo dự án bị lỗi.', 'error')
       return
     }
 
+    toast('Đã tạo dự án thành công.')
     setProjectName('')
     setProjectCode('')
     setProjectDesc('')
@@ -483,12 +527,12 @@ export default function Home() {
 
   async function createWorkstream() {
     if (!workTitle.trim()) {
-      alert('Nhập tên đầu việc lớn trước.')
+      toast('Nhập tên đầu việc lớn trước.', 'warning')
       return
     }
 
     if (!workProjectId) {
-      alert('Chọn dự án trước.')
+      toast('Chọn dự án trước.', 'warning')
       return
     }
 
@@ -515,7 +559,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Tạo đầu việc lớn bị lỗi.')
+      toast('Tạo đầu việc lớn bị lỗi.', 'error')
       return
     }
 
@@ -540,7 +584,7 @@ export default function Home() {
 
   async function createSubtask(parent: Task) {
     if (!subtaskForm.title.trim()) {
-      alert('Nhập tên đầu việc con trước.')
+      toast('Nhập tên đầu việc con trước.', 'warning')
       return
     }
 
@@ -563,7 +607,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Tạo đầu việc con bị lỗi.')
+      toast('Tạo đầu việc con bị lỗi.', 'error')
       return
     }
 
@@ -585,7 +629,7 @@ export default function Home() {
 
   async function createStep(taskId: string) {
     if (!stepForm.title.trim()) {
-      alert('Nhập tên bước trước.')
+      toast('Nhập tên bước trước.', 'warning')
       return
     }
 
@@ -618,7 +662,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Tạo bước bị lỗi.')
+      toast('Tạo bước bị lỗi.', 'error')
       return
     }
 
@@ -637,7 +681,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Cập nhật trạng thái lỗi.')
+      toast('Cập nhật trạng thái lỗi.', 'error')
       return
     }
 
@@ -649,7 +693,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Cập nhật tình trạng lỗi.')
+      toast('Cập nhật tình trạng lỗi.', 'error')
       return
     }
 
@@ -661,7 +705,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Cập nhật bước bị lỗi.')
+      toast('Cập nhật bước bị lỗi.', 'error')
       return
     }
 
@@ -757,7 +801,7 @@ export default function Home() {
     const note = revisionDrafts[step.id]?.trim()
 
     if (!note) {
-      alert('Nhập lý do cần làm lại trước.')
+      toast('Nhập lý do cần làm lại trước.', 'warning')
       return
     }
 
@@ -781,7 +825,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Yêu cầu làm lại bị lỗi.')
+      toast('Yêu cầu làm lại bị lỗi.', 'error')
       return
     }
 
@@ -802,7 +846,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Lưu yêu cầu hỗ trợ bị lỗi.')
+      toast('Lưu yêu cầu hỗ trợ bị lỗi.', 'error')
       return
     }
 
@@ -826,7 +870,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Gửi bình luận bị lỗi.')
+      toast('Gửi bình luận bị lỗi.', 'error')
       return
     }
 
@@ -838,7 +882,7 @@ export default function Home() {
     const employeeId = supporterDrafts[taskId]
 
     if (!employeeId) {
-      alert('Chọn người hỗ trợ trước.')
+      toast('Chọn người hỗ trợ trước.', 'warning')
       return
     }
 
@@ -850,7 +894,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Người này đã là hỗ trợ hoặc thêm bị lỗi.')
+      toast('Người này đã là hỗ trợ hoặc thêm bị lỗi.', 'error')
       return
     }
 
@@ -873,7 +917,7 @@ export default function Home() {
 
     if (uploadError) {
       console.error(uploadError)
-      alert('Upload file bước bị lỗi.')
+      toast('Upload file bước bị lỗi.', 'error')
       setUploading(false)
       return
     }
@@ -892,7 +936,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Lưu file bước bị lỗi.')
+      toast('Lưu file bước bị lỗi.', 'error')
       return
     }
 
@@ -914,7 +958,7 @@ export default function Home() {
 
     if (uploadError) {
       console.error(uploadError)
-      alert('Upload file bị lỗi.')
+      toast('Upload file bị lỗi.', 'error')
       setUploading(false)
       return
     }
@@ -934,7 +978,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Lưu file bị lỗi.')
+      toast('Lưu file bị lỗi.', 'error')
       return
     }
 
@@ -948,7 +992,7 @@ export default function Home() {
 
     if (tasksError) {
       console.error(tasksError)
-      alert('Xóa các đầu việc thuộc dự án bị lỗi.')
+      toast('Xóa các đầu việc thuộc dự án bị lỗi.', 'error')
       return
     }
 
@@ -956,7 +1000,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Xóa dự án bị lỗi.')
+      toast('Xóa dự án bị lỗi.', 'error')
       return
     }
 
@@ -979,7 +1023,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert(`Xóa ${label} bị lỗi.`)
+      toast(`Xóa ${label} bị lỗi.`, 'error')
       return
     }
 
@@ -1001,7 +1045,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Xóa bước bị lỗi.')
+      toast('Xóa bước bị lỗi.', 'error')
       return
     }
 
@@ -1016,7 +1060,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Xóa người hỗ trợ bị lỗi.')
+      toast('Xóa người hỗ trợ bị lỗi.', 'error')
       return
     }
 
@@ -1030,7 +1074,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Xóa file báo cáo bị lỗi.')
+      toast('Xóa file báo cáo bị lỗi.', 'error')
       return
     }
 
@@ -1050,7 +1094,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Xóa file trong bước bị lỗi.')
+      toast('Xóa file trong bước bị lỗi.', 'error')
       return
     }
 
@@ -1068,7 +1112,7 @@ export default function Home() {
     const rows = parseNotexText(meetingRaw, departments, employees)
 
     if (rows.length === 0) {
-      alert('Chưa tách được đầu việc từ nội dung Notex.')
+      toast('Chưa tách được đầu việc từ nội dung Notex.', 'warning')
       return
     }
 
@@ -1080,12 +1124,12 @@ export default function Home() {
     const projectName = notexProjectName.trim()
 
     if (!projectName) {
-      alert('Nhập tên dự án import trước.')
+      toast('Nhập tên dự án import trước.', 'warning')
       return
     }
 
     if (notexRows.length === 0) {
-      alert('Chưa có dòng preview để import.')
+      toast('Chưa có dòng preview để import.', 'warning')
       return
     }
 
@@ -1114,7 +1158,7 @@ export default function Home() {
 
         if (error) {
           console.error(error)
-          alert('Tạo dự án từ Notex bị lỗi.')
+          toast('Tạo dự án từ Notex bị lỗi.', 'error')
           setImporting(false)
           return
         }
@@ -1153,7 +1197,7 @@ export default function Home() {
 
           if (error) {
             console.error(error)
-            alert(`Tạo đầu việc lớn "${workstreamTitle}" bị lỗi.`)
+            toast(`Tạo đầu việc lớn "${workstreamTitle}" bị lỗi.`, 'error')
             setImporting(false)
             return
           }
@@ -1185,7 +1229,7 @@ export default function Home() {
 
         if (subtaskError) {
           console.error(subtaskError)
-          alert(`Tạo đầu việc con "${row.subtaskTitle}" bị lỗi.`)
+          toast(`Tạo đầu việc con "${row.subtaskTitle}" bị lỗi.`, 'error')
           setImporting(false)
           return
         }
@@ -1222,7 +1266,7 @@ export default function Home() {
 
         if (stepsError) {
           console.error(stepsError)
-          alert(`Tạo bước cho "${row.subtaskTitle}" bị lỗi.`)
+          toast(`Tạo bước cho "${row.subtaskTitle}" bị lỗi.`, 'error')
           setImporting(false)
           return
         }
@@ -1232,7 +1276,7 @@ export default function Home() {
       setNotexRows([])
       setView('coo')
       setSelectedProjectId(projectId)
-      alert('Import Notex vào COO Board thành công.')
+      toast('Import Notex vào COO Board thành công.')
     } finally {
       setImporting(false)
     }
@@ -1240,7 +1284,7 @@ export default function Home() {
 
   async function saveMeeting() {
     if (!meetingRaw.trim()) {
-      alert('Dán biên bản họp trước.')
+      toast('Dán biên bản họp trước.', 'warning')
       return
     }
 
@@ -1252,12 +1296,12 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      alert('Lưu biên bản bị lỗi.')
+      toast('Lưu biên bản bị lỗi.', 'error')
       return
     }
 
     setMeetingRaw('')
-    alert('Đã lưu biên bản họp.')
+    toast('Đã lưu biên bản họp.')
   }
 
   async function saveAssistantReport(type: string, title: string, content: string) {
@@ -1592,13 +1636,17 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="flex shrink-0 gap-2">
-            <button type="button"
-              onClick={() => fetchAll()}
-              className="rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-bold sm:px-4"
+          <div className="flex shrink-0 items-center gap-2">
+            <div
+              title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
+              className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
+                ${realtimeStatus === 'live' ? 'bg-emerald-50 text-emerald-700' :
+                  realtimeStatus === 'connecting' ? 'bg-amber-50 text-amber-700' :
+                  'bg-red-50 text-red-700'}`}
             >
-              🔄 Làm mới
-            </button>
+              <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-emerald-500' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
+              {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
+            </div>
             <button type="button"
               onClick={() => setCreateOpen(true)}
               className="rounded-xl bg-[#1B4FD8] px-3 py-2 text-sm font-extrabold text-white sm:px-4"
@@ -1809,6 +1857,26 @@ export default function Home() {
           getStatusLabel={getStatusLabel}
         />
       )}
+
+      {/* Toast notifications */}
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
+              transition-all duration-300 max-w-[340px]
+              ${t.type === 'error' ? 'bg-red-600 text-white' :
+                t.type === 'warning' ? 'bg-amber-500 text-white' :
+                t.type === 'info' ? 'bg-blue-600 text-white' :
+                'bg-emerald-600 text-white'}`}
+          >
+            <span className="shrink-0 mt-0.5">
+              {t.type === 'error' ? '✕' : t.type === 'warning' ? '⚠' : t.type === 'info' ? 'ℹ' : '✓'}
+            </span>
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
     </main>
   )
 }
