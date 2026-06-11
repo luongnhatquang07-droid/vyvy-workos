@@ -10,6 +10,12 @@ type ToastItem = { id: string; message: string; type: ToastType }
 let _showToast: ((msg: string, type?: ToastType) => void) | null = null
 function toast(msg: string, type: ToastType = 'success') { _showToast?.(msg, type) }
 
+// ─── Module-level confirm dialog (thay window.confirm) ──────────────────────
+let _confirm: ((msg: string) => Promise<boolean>) | null = null
+function confirmDialog(msg: string): Promise<boolean> {
+  return _confirm ? _confirm(msg) : Promise.resolve(window.confirm(msg))
+}
+
 type Department = {
   id: string
   code: string
@@ -198,6 +204,19 @@ export default function Home() {
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500)
   }, [])
   useEffect(() => { _showToast = showToast; return () => { _showToast = null } }, [showToast])
+
+  // ─── Confirm dialog ────────────────────────────────────────────────────────
+  const [confirmState, setConfirmState] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null)
+  useEffect(() => {
+    _confirm = (message: string) => new Promise<boolean>((resolve) => setConfirmState({ message, resolve }))
+    return () => { _confirm = null }
+  }, [])
+  const answerConfirm = useCallback((ok: boolean) => {
+    setConfirmState((current) => {
+      current?.resolve(ok)
+      return null
+    })
+  }, [])
 
   // ─── Realtime sync ─────────────────────────────────────────────────────────
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'off'>('connecting')
@@ -1061,7 +1080,7 @@ export default function Home() {
   }
 
   async function deleteProject(project: Project) {
-    if (!window.confirm(`Xóa dự án "${project.name}" và toàn bộ đầu việc thuộc dự án này?`)) return
+    if (!(await confirmDialog(`Xóa dự án "${project.name}" và toàn bộ đầu việc thuộc dự án này?`))) return
 
     const { error: tasksError } = await supabase.from('tasks').delete().eq('project_id', project.id)
 
@@ -1087,12 +1106,13 @@ export default function Home() {
       setSelectedTask(null)
     }
 
+    toast('Đã xóa dự án.')
     await fetchAll({ silent: true })
   }
 
   async function deleteTask(task: Task) {
     const label = task.task_level === 'workstream' || !task.parent_task_id ? 'đầu việc lớn' : 'đầu việc con'
-    if (!window.confirm(`Xóa ${label} "${task.title}"?`)) return
+    if (!(await confirmDialog(`Xóa ${label} "${task.title}"?`))) return
 
     const { error } = await supabase.from('tasks').delete().eq('id', task.id)
 
@@ -1110,11 +1130,12 @@ export default function Home() {
       setSelectedTask(null)
     }
 
+    toast(`Đã xóa ${label}.`)
     await refreshDataSilent()
   }
 
   async function deleteStep(step: TaskStep) {
-    if (!window.confirm(`Xóa bước "${step.step_title}"?`)) return
+    if (!(await confirmDialog(`Xóa bước "${step.step_title}"?`))) return
 
     const { error } = await supabase.from('task_steps').delete().eq('id', step.id)
 
@@ -1130,7 +1151,7 @@ export default function Home() {
 
   async function deleteSupporter(supporter: TaskSupporter) {
     const name = supporter.employees?.full_name || 'người hỗ trợ này'
-    if (!window.confirm(`Xóa ${name} khỏi danh sách hỗ trợ?`)) return
+    if (!(await confirmDialog(`Xóa ${name} khỏi danh sách hỗ trợ?`))) return
 
     const { error } = await supabase.from('task_supporters').delete().eq('id', supporter.id)
 
@@ -1144,7 +1165,7 @@ export default function Home() {
   }
 
   async function deleteTaskReport(report: TaskReport) {
-    if (!window.confirm(`Xóa file báo cáo "${report.file_name}"?`)) return
+    if (!(await confirmDialog(`Xóa file báo cáo "${report.file_name}"?`))) return
 
     const { error } = await supabase.from('task_reports').delete().eq('id', report.id)
 
@@ -1158,7 +1179,7 @@ export default function Home() {
   }
 
   async function clearStepFile(step: TaskStep) {
-    if (!window.confirm(`Xóa file báo cáo của bước "${step.step_title}"?`)) return
+    if (!(await confirmDialog(`Xóa file báo cáo của bước "${step.step_title}"?`))) return
 
     const { error } = await supabase
       .from('task_steps')
@@ -1932,6 +1953,34 @@ export default function Home() {
           uploading={uploading}
           getStatusLabel={getStatusLabel}
         />
+      )}
+
+      {/* Confirm dialog */}
+      {confirmState && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/40 p-4" onClick={() => answerConfirm(false)}>
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-red-50 text-lg">⚠️</div>
+            <p className="text-sm font-bold text-[#0F172A]">{confirmState.message}</p>
+            <p className="mt-1 text-xs text-[#64748B]">Hành động này không thể hoàn tác.</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button"
+                onClick={() => answerConfirm(false)}
+                className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-bold"
+              >
+                Hủy
+              </button>
+              <button type="button"
+                onClick={() => answerConfirm(true)}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-extrabold text-white"
+              >
+                Xóa
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast notifications */}
