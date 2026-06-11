@@ -837,6 +837,7 @@ export default function Home() {
   async function saveStepLink(step: TaskStep) {
     const link = linkDrafts[step.id] ?? step.report_link ?? ''
     await updateStep(step, { report_link: link } as Partial<TaskStep>)
+    toast('Đã lưu link báo cáo.', 'info')
   }
 
   async function saveSupportRequest(step: TaskStep) {
@@ -854,6 +855,7 @@ export default function Home() {
       await addComment(step.id, request, 'support_request')
     }
 
+    toast('Đã gửi yêu cầu hỗ trợ.', 'info')
     await refreshDataSilent()
   }
 
@@ -1863,7 +1865,7 @@ export default function Home() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
+            className={`toast-enter pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
               transition-all duration-300 max-w-[340px]
               ${t.type === 'error' ? 'bg-red-600 text-white' :
                 t.type === 'warning' ? 'bg-amber-500 text-white' :
@@ -3048,7 +3050,7 @@ function StepWorkflowCard(props: {
           <div className="mt-3 flex gap-2">
             <input
               className="h-9 flex-1 rounded-lg border border-[#E2E8F0] px-3 text-xs outline-none"
-              placeholder="Dán link báo cáo..."
+              placeholder="Dán link báo cáo... (tự lưu khi rời ô)"
               value={props.linkDrafts[props.step.id] ?? props.step.report_link ?? ''}
               onChange={(event) =>
                 props.setLinkDrafts({
@@ -3056,6 +3058,15 @@ function StepWorkflowCard(props: {
                   [props.step.id]: event.target.value,
                 })
               }
+              onBlur={() => {
+                const draft = props.linkDrafts[props.step.id]
+                if (draft !== undefined && draft !== (props.step.report_link ?? '')) {
+                  props.saveStepLink(props.step)
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+              }}
             />
             <button type="button"
               onClick={() => props.saveStepLink(props.step)}
@@ -3083,7 +3094,7 @@ function StepWorkflowCard(props: {
           <div className="mb-3 flex gap-2">
             <input
               className="h-9 flex-1 rounded-lg border border-[#E2E8F0] px-3 text-xs outline-none"
-              placeholder="VD: Em cần công cụ hỗ trợ..."
+              placeholder="VD: Em cần công cụ hỗ trợ... (Enter để lưu)"
               value={props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''}
               onChange={(event) =>
                 props.setSupportDrafts({
@@ -3091,6 +3102,9 @@ function StepWorkflowCard(props: {
                   [props.step.id]: event.target.value,
                 })
               }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') props.saveSupportRequest(props.step)
+              }}
             />
             <button type="button"
               onClick={() => props.saveSupportRequest(props.step)}
@@ -3937,12 +3951,12 @@ function MetricCard(props: {
   }
 
   return (
-    <div className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
+    <div className="card-hover rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <p className="text-sm font-bold text-[#64748B]">{props.label}</p>
         <span className={`rounded-xl px-3 py-2 ${toneMap[props.tone]}`}>{props.icon}</span>
       </div>
-      <p className="mt-4 text-3xl font-extrabold">{props.value}</p>
+      <p className="mt-4 text-3xl font-extrabold tabular-nums">{props.value}</p>
     </div>
   )
 }
@@ -3951,7 +3965,7 @@ function ProgressBar({ value }: { value: number }) {
   return (
     <div className="h-3 overflow-hidden rounded-full bg-[#E2E8F0]">
       <div
-        className="h-full rounded-full bg-[#1B4FD8]"
+        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[#1B4FD8] to-[#3B82F6] transition-[width] duration-500"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
