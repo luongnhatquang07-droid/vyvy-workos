@@ -667,6 +667,7 @@ export default function Home() {
     }
 
     setStepOpenFor('')
+    await syncTaskProgress(taskId)
     await refreshDataSilent()
   }
 
@@ -700,6 +701,68 @@ export default function Home() {
     await refreshDataSilent()
   }
 
+  // Tự động tính % tiến độ + trạng thái đầu việc từ các bước (automation)
+  async function syncTaskProgress(taskId: string) {
+    const { data } = await supabase
+      .from('task_steps')
+      .select('id, is_done, approval_status')
+      .eq('task_id', taskId)
+
+    const rows = (data || []) as Pick<TaskStep, 'id' | 'is_done' | 'approval_status'>[]
+    if (rows.length === 0) return
+
+    const done = rows.filter((row) => row.is_done).length
+    const percent = Math.round((done / rows.length) * 100)
+    const hasActivity = rows.some((row) => row.is_done || (row.approval_status && row.approval_status !== 'not_submitted'))
+
+    const task = tasks.find((item) => item.id === taskId)
+    const patch: Record<string, unknown> = { progress_percent: percent }
+
+    if (percent === 100) {
+      patch.status = 'completed'
+      patch.completed_date = new Date().toISOString().slice(0, 10)
+    } else if (hasActivity && (task?.status === 'not_started' || !task?.status)) {
+      patch.status = 'in_progress'
+    } else if (percent < 100 && task?.status === 'completed') {
+      patch.status = 'in_progress'
+      patch.completed_date = null
+    }
+
+    await supabase.from('tasks').update(patch).eq('id', taskId)
+
+    // Cascade: workstream cha tự tính % từ các đầu việc con
+    if (task?.parent_task_id) {
+      const { data: siblings } = await supabase
+        .from('tasks')
+        .select('id, progress_percent, status')
+        .eq('parent_task_id', task.parent_task_id)
+
+      const subRows = (siblings || []) as Pick<Task, 'id' | 'progress_percent' | 'status'>[]
+      if (subRows.length > 0) {
+        const avg = Math.round(subRows.reduce((sum, row) => sum + (row.progress_percent || 0), 0) / subRows.length)
+        const allDone = subRows.every((row) => row.status === 'completed')
+        await supabase.from('tasks').update({
+          progress_percent: avg,
+          ...(allDone ? { status: 'completed', completed_date: new Date().toISOString().slice(0, 10) } : {}),
+        }).eq('id', task.parent_task_id)
+      }
+    }
+
+    // Cascade: dự án tự tính % từ toàn bộ đầu việc
+    if (task?.project_id) {
+      const { data: projectTasks } = await supabase
+        .from('tasks')
+        .select('id, progress_percent')
+        .eq('project_id', task.project_id)
+
+      const projRows = (projectTasks || []) as Pick<Task, 'id' | 'progress_percent'>[]
+      if (projRows.length > 0) {
+        const avg = Math.round(projRows.reduce((sum, row) => sum + (row.progress_percent || 0), 0) / projRows.length)
+        await supabase.from('projects').update({ progress_percent: avg }).eq('id', task.project_id)
+      }
+    }
+  }
+
   async function updateStep(step: TaskStep, patch: Partial<TaskStep>) {
     const { error } = await supabase.from('task_steps').update(patch).eq('id', step.id)
 
@@ -709,6 +772,7 @@ export default function Home() {
       return
     }
 
+    await syncTaskProgress(step.task_id)
     await refreshDataSilent()
   }
 
@@ -721,6 +785,7 @@ export default function Home() {
       ceo_approval_status: step.requires_ceo_approval ? 'not_submitted' : 'not_required',
       submitted_at: new Date().toISOString(),
     } as Partial<TaskStep>)
+    toast('Đã gửi duyệt.', 'info')
   }
 
   async function approveCurrentStage(step: TaskStep) {
@@ -737,6 +802,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        toast('Đã duyệt cấp phòng ban — chuyển lên COO.', 'info')
         return
       }
 
@@ -749,6 +815,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        toast('Đã duyệt cấp phòng ban — chuyển lên CEO.', 'info')
         return
       }
 
@@ -760,6 +827,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
+      toast('Đã duyệt bước hoàn tất.')
       return
     }
 
@@ -773,6 +841,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        toast('COO đã duyệt — chuyển lên CEO.', 'info')
         return
       }
 
@@ -784,6 +853,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
+      toast('COO đã duyệt — bước hoàn tất.')
       return
     }
 
@@ -795,6 +865,7 @@ export default function Home() {
       is_done: true,
       approved_at: now,
     } as Partial<TaskStep>)
+    toast('CEO đã duyệt — bước hoàn tất.')
   }
 
   async function requestRevision(step: TaskStep) {
@@ -831,6 +902,8 @@ export default function Home() {
 
     await addComment(step.id, note, 'revision')
     setRevisionDrafts((current) => ({ ...current, [step.id]: '' }))
+    toast('Đã gửi yêu cầu làm lại.', 'info')
+    await syncTaskProgress(step.task_id)
     await refreshDataSilent()
   }
 
@@ -1051,6 +1124,7 @@ export default function Home() {
       return
     }
 
+    await syncTaskProgress(step.task_id)
     await refreshDataSilent()
   }
 
@@ -3130,7 +3204,7 @@ function StepWorkflowCard(props: {
           <div className="flex gap-2">
             <input
               className="h-9 flex-1 rounded-lg border border-[#E2E8F0] px-3 text-xs outline-none"
-              placeholder="Nhập bình luận..."
+              placeholder="Nhập bình luận... (Enter để gửi)"
               value={props.commentDrafts[props.step.id] || ''}
               onChange={(event) =>
                 props.setCommentDrafts({
@@ -3138,6 +3212,9 @@ function StepWorkflowCard(props: {
                   [props.step.id]: event.target.value,
                 })
               }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') props.addComment(props.step.id)
+              }}
             />
             <button type="button"
               onClick={() => props.addComment(props.step.id)}
