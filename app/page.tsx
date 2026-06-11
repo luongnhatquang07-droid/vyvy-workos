@@ -286,6 +286,22 @@ export default function Home() {
   const [linkDrafts, setLinkDrafts] = useState<Record<string, string>>({})
   const [supportDrafts, setSupportDrafts] = useState<Record<string, string>>({})
 
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Ctrl+K / Cmd+K focus tìm kiếm
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const [meetingTitle, setMeetingTitle] = useState('Biên bản họp vận hành')
   const [meetingRaw, setMeetingRaw] = useState('')
   const [notexProjectName, setNotexProjectName] = useState('')
@@ -1598,6 +1614,16 @@ export default function Home() {
     )
   }, [currentEmployee, projects, visibleTasks])
 
+  // Tìm kiếm nhanh toàn cục: dự án + đầu việc
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    if (query.length < 2) return { projects: [] as Project[], tasks: [] as Task[] }
+    return {
+      projects: visibleProjects.filter((p) => p.name.toLowerCase().includes(query)).slice(0, 4),
+      tasks: visibleTasks.filter((t) => t.title.toLowerCase().includes(query)).slice(0, 6),
+    }
+  }, [searchQuery, visibleProjects, visibleTasks])
+
   const canManageAll =
     currentEmployee?.role === 'ceo' ||
     currentEmployee?.role === 'coo' ||
@@ -1731,6 +1757,66 @@ export default function Home() {
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
             </p>
             </div>
+          </div>
+
+          <div className="relative hidden min-w-0 flex-1 max-w-md lg:block">
+            <input
+              ref={searchInputRef}
+              className="h-10 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] pl-9 pr-12 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
+              placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
+              value={searchQuery}
+              onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true) }}
+              onFocus={() => setSearchOpen(true)}
+              onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
+            />
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]">
+              <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path strokeLinecap="round" d="m20 20-3.5-3.5"/></svg>
+            </span>
+
+            {searchOpen && (searchResults.projects.length > 0 || searchResults.tasks.length > 0) && (
+              <div className="absolute left-0 right-0 top-12 z-30 max-h-96 overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white p-2 shadow-xl">
+                {searchResults.projects.length > 0 && (
+                  <>
+                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#94A3B8]">Dự án</p>
+                    {searchResults.projects.map((project) => (
+                      <button type="button"
+                        key={project.id}
+                        onMouseDown={() => {
+                          setView('coo')
+                          setSelectedProjectId(project.id)
+                          setSearchQuery('')
+                          setSearchOpen(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold hover:bg-[#F1F5F9]"
+                      >
+                        <span>📁</span>
+                        <span className="truncate">{project.name}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+                {searchResults.tasks.length > 0 && (
+                  <>
+                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#94A3B8]">Đầu việc</p>
+                    {searchResults.tasks.map((task) => (
+                      <button type="button"
+                        key={task.id}
+                        onMouseDown={() => {
+                          setSelectedTask(task)
+                          setSearchQuery('')
+                          setSearchOpen(false)
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-[#F1F5F9]"
+                      >
+                        <span>{task.status === 'completed' ? '✅' : '⏳'}</span>
+                        <span className="min-w-0 flex-1 truncate font-bold">{task.title}</span>
+                        <span className="shrink-0 text-[10px] text-[#94A3B8]">{task.progress_percent || 0}%</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
