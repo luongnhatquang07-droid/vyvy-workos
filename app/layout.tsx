@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans, Oswald, EB_Garamond } from "next/font/google";
+import { Inter, Oswald, EB_Garamond } from "next/font/google";
 import "./globals.css";
 
-const jakarta = Plus_Jakarta_Sans({
+// Body — thay thế HN Light/Text (brand book ch.05): thân bài, luôn ≥14px
+const inter = Inter({
   subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-jakarta",
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-body",
   display: "swap",
 });
 
-// Display — thay thế HN Condensed Bold (brand book ch.05): tiếng hô, một lần mỗi màn
+// Display — thay thế HN Condensed Bold: tiếng hô, một lần mỗi màn
 const oswald = Oswald({
   subsets: ["latin", "vietnamese"],
   weight: ["500", "600", "700"],
@@ -37,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`h-full antialiased ${jakarta.variable} ${oswald.variable} ${garamond.variable}`}>
+    <html lang="vi" className={`h-full antialiased ${inter.variable} ${oswald.variable} ${garamond.variable}`}>
       <body className="min-h-full flex flex-col font-sans">{children}</body>
     </html>
   );

@@ -23,14 +23,15 @@
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--text);
-  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", Inter, Arial, sans-serif;
+  --font-sans: var(--font-body), Inter, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-jakarta), "Plus Jakarta Sans", Inter, Arial, sans-serif;
+  font-family: var(--font-body), Inter, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
