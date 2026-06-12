@@ -16,6 +16,22 @@ function confirmDialog(msg: string): Promise<boolean> {
   return _confirm ? _confirm(msg) : Promise.resolve(window.confirm(msg))
 }
 
+// ─── Gửi thông báo trong app (bảng notifications) ───────────────────────────
+async function pushNotify(rows: Array<{
+  recipient_id: string
+  actor_id?: string | null
+  type?: string
+  title: string
+  body?: string | null
+  task_id?: string | null
+  project_id?: string | null
+}>) {
+  const valid = rows.filter((r) => r.recipient_id)
+  if (valid.length === 0) return
+  const { error } = await supabase.from('notifications').insert(valid.map((r) => ({ type: 'info', ...r })))
+  if (error) console.warn('pushNotify failed (bảng notifications đã tạo chưa?):', error.message)
+}
+
 type Department = {
   id: string
   code: string
@@ -189,6 +205,19 @@ type NotexRow = {
   assigneeId: string
   dueDate: string
   priority: string
+}
+
+type AppNotification = {
+  id: string
+  recipient_id: string
+  actor_id: string | null
+  type: string
+  title: string
+  body: string | null
+  task_id: string | null
+  project_id: string | null
+  is_read: boolean
+  created_at: string
 }
 
 // ─── SVG Icon Library ─────────────────────────────────────────────────────────
@@ -585,11 +614,42 @@ export default function Home() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'task_supporters' }, () => {
         fetchAllRef.current?.({ silent: true })
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        fetchNotificationsRef.current?.()
+      })
       .subscribe((status) => {
         setRealtimeStatus(status === 'SUBSCRIBED' ? 'live' : status === 'CLOSED' ? 'off' : 'connecting')
       })
     return () => { supabase.removeChannel(channel) }
   }, [authChecked])
+
+  // ─── Thông báo trong app ───────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+  const fetchNotificationsRef = useRef<(() => void) | null>(null)
+
+  const fetchNotifications = useCallback(async () => {
+    if (!currentEmployee?.id) return
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('recipient_id', currentEmployee.id)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (error) return // bảng chưa tạo — bỏ qua êm
+    setNotifications((data || []) as AppNotification[])
+  }, [currentEmployee?.id])
+
+  useEffect(() => { fetchNotificationsRef.current = fetchNotifications }, [fetchNotifications])
+  useEffect(() => { fetchNotifications() }, [fetchNotifications])
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length
+
+  async function markNotificationsRead() {
+    const unread = notifications.filter((n) => !n.is_read).map((n) => n.id)
+    if (unread.length === 0) return
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+    await supabase.from('notifications').update({ is_read: true }).in('id', unread)
+  }
 
   const refreshDataSilent = useCallback(async () => {
     // Only refresh data that can change during small updates
@@ -898,7 +958,33 @@ export default function Home() {
       ceo_approval_status: step.requires_ceo_approval ? 'not_submitted' : 'not_required',
       submitted_at: new Date().toISOString(),
     } as Partial<TaskStep>)
+    const approverId = step.department_approver_id || step.approver_id
+    if (approverId && approverId !== currentEmployee?.id) {
+      pushNotify([{
+        recipient_id: approverId,
+        actor_id: currentEmployee?.id || null,
+        type: 'step_submitted',
+        title: 'Có bước chờ bạn duyệt',
+        body: step.step_title,
+        task_id: step.task_id,
+      }])
+    }
     toast('Đã gửi duyệt.', 'info')
+  }
+
+  function notifyStepResult(step: TaskStep, title: string, extraRecipient?: string | null) {
+    const recipients = new Set<string>()
+    if (step.owner_id) recipients.add(step.owner_id)
+    if (extraRecipient) recipients.add(extraRecipient)
+    recipients.delete(currentEmployee?.id || '')
+    pushNotify(Array.from(recipients).map((recipient_id) => ({
+      recipient_id,
+      actor_id: currentEmployee?.id || null,
+      type: 'step_update',
+      title,
+      body: step.step_title,
+      task_id: step.task_id,
+    })))
   }
 
   async function approveCurrentStage(step: TaskStep) {
@@ -915,6 +1001,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        notifyStepResult(step, 'Bước qua cấp phòng ban — chờ COO duyệt', step.coo_approver_id)
         toast('Đã duyệt cấp phòng ban — chuyển lên COO.', 'info')
         return
       }
@@ -928,6 +1015,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        notifyStepResult(step, 'Bước qua cấp phòng ban — chờ CEO duyệt', step.ceo_approver_id)
         toast('Đã duyệt cấp phòng ban — chuyển lên CEO.', 'info')
         return
       }
@@ -940,6 +1028,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
+      notifyStepResult(step, 'Bước của bạn đã được duyệt hoàn tất ✓')
       toast('Đã duyệt bước hoàn tất.')
       return
     }
@@ -954,6 +1043,7 @@ export default function Home() {
           approval_status: 'pending',
           is_done: false,
         } as Partial<TaskStep>)
+        notifyStepResult(step, 'COO đã duyệt — chờ CEO duyệt', step.ceo_approver_id)
         toast('COO đã duyệt — chuyển lên CEO.', 'info')
         return
       }
@@ -966,6 +1056,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
+      notifyStepResult(step, 'COO đã duyệt — bước của bạn hoàn tất ✓')
       toast('COO đã duyệt — bước hoàn tất.')
       return
     }
@@ -978,6 +1069,7 @@ export default function Home() {
       is_done: true,
       approved_at: now,
     } as Partial<TaskStep>)
+    notifyStepResult(step, 'CEO đã duyệt — bước của bạn hoàn tất ✓')
     toast('CEO đã duyệt — bước hoàn tất.')
   }
 
@@ -1014,6 +1106,7 @@ export default function Home() {
     }
 
     await addComment(step.id, note, 'revision')
+    notifyStepResult(step, `Bước cần làm lại: ${note.slice(0, 80)}`)
     setRevisionDrafts((current) => ({ ...current, [step.id]: '' }))
     toast('Đã gửi yêu cầu làm lại.', 'info')
     await syncTaskProgress(step.task_id)
@@ -1358,6 +1451,7 @@ export default function Home() {
       }
 
       const workstreamIds = new Map<string, string>()
+      const approvalNotices: Array<{ recipient_id: string; title: string; body: string; task_id: string; project_id: string }> = []
 
       for (const row of notexRows) {
         const workstreamTitle = normalizeWorkstreamTitle(row.workstreamTitle)
@@ -1404,7 +1498,7 @@ export default function Home() {
             description: buildNotexDescription(row),
             parent_task_id: workstreamId,
             task_level: 'subtask',
-            status: 'not_started',
+            status: 'pending_approval',
             priority: row.priority || 'medium',
             progress_percent: 0,
             due_date: row.dueDate || null,
@@ -1461,13 +1555,28 @@ export default function Home() {
           setImporting(false)
           return
         }
+
+        // Gom thông báo cho người duyệt phân công (trưởng bộ phận / head)
+        const approverId = row.headId || departmentApproverId
+        if (approverId && approverId !== currentEmployee?.id) {
+          approvalNotices.push({
+            recipient_id: approverId,
+            title: 'Phân công mới chờ bạn duyệt',
+            body: row.subtaskTitle.trim(),
+            task_id: subtaskId,
+            project_id: projectId,
+          })
+        }
       }
+
+      // Gửi thông báo duyệt phân công
+      await pushNotify(approvalNotices.map((n) => ({ ...n, actor_id: currentEmployee?.id || null, type: 'assignment_approval' })))
 
       await fetchAll({ silent: true })
       setNotexRows([])
       setView('coo')
       setSelectedProjectId(projectId)
-      toast('Import Notex vào COO Board thành công.')
+      toast(`Import thành công — ${approvalNotices.length} việc đã gửi cấp trên duyệt phân công.`)
     } finally {
       setImporting(false)
     }
@@ -1554,6 +1663,7 @@ export default function Home() {
       not_started: 'Chưa bắt đầu',
       in_progress: 'Đang làm',
       pending: 'Pending',
+      pending_approval: 'Chờ duyệt phân công',
       completed: 'Hoàn thành',
       overdue: 'Trễ deadline',
     }
@@ -1720,6 +1830,35 @@ export default function Home() {
     })
   }, [steps, currentEmployee])
 
+  async function approveAssignment(task: Task) {
+    const { error } = await supabase.from('tasks').update({ status: 'not_started' }).eq('id', task.id)
+    if (error) { toast('Duyệt phân công bị lỗi.', 'error'); return }
+    const notices = []
+    if (task.assignee_id && task.assignee_id !== currentEmployee?.id) {
+      notices.push({
+        recipient_id: task.assignee_id,
+        actor_id: currentEmployee?.id || null,
+        type: 'assigned',
+        title: 'Bạn được giao việc mới',
+        body: task.title,
+        task_id: task.id,
+        project_id: task.project_id,
+      })
+    }
+    await pushNotify(notices)
+    toast('Đã duyệt — việc được chia xuống người làm.')
+    await fetchAll({ silent: true })
+  }
+
+  async function rejectAssignment(task: Task) {
+    const ok = await confirmDialog(`Trả lại việc "${task.title}"? Việc sẽ bỏ người được giao, chờ phân công lại.`)
+    if (!ok) return
+    const { error } = await supabase.from('tasks').update({ status: 'not_started', assignee_id: null }).eq('id', task.id)
+    if (error) { toast('Trả lại bị lỗi.', 'error'); return }
+    toast('Đã trả lại — việc chưa giao cho ai.')
+    await fetchAll({ silent: true })
+  }
+
   // Tìm kiếm nhanh toàn cục: dự án + đầu việc
   const searchResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
@@ -1762,6 +1901,19 @@ export default function Home() {
     if (currentEmployee?.id && (task.assignee_id === currentEmployee.id || task.head_id === currentEmployee.id)) return true
     return false
   }
+
+  // Phân công chờ tôi duyệt (task import từ biên bản, chưa chia xuống người làm)
+  const assignmentsForMe = useMemo(() => {
+    if (!currentEmployee?.id) return []
+    return tasks.filter((t) => {
+      if (t.status !== 'pending_approval') return false
+      if (canManageAll) return true
+      if (t.head_id === currentEmployee.id) return true
+      if (isDeptHead && t.department_id && t.department_id === currentEmployee.department_id) return true
+      return false
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, currentEmployee, canManageAll, isDeptHead])
 
   const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; hide?: boolean }[] = [
     { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
@@ -1958,22 +2110,66 @@ export default function Home() {
           <div className="flex shrink-0 items-center gap-2">
             <div className="relative">
               <button type="button"
-                onClick={() => setInboxOpen((v) => !v)}
-                title="Chờ tôi duyệt"
+                onClick={() => {
+                  setInboxOpen((v) => {
+                    if (!v) markNotificationsRead()
+                    return !v
+                  })
+                }}
+                title="Thông báo & chờ duyệt"
                 className="relative rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2.5 hover:bg-[#faf7f0]"
               >
                 <Ico d={IC.bell} size={17}/>
-                {pendingForMe.length > 0 && (
+                {(pendingForMe.length + assignmentsForMe.length + unreadCount) > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#dadf21] px-1 text-[10px] font-extrabold text-[#262219]">
-                    {pendingForMe.length}
+                    {pendingForMe.length + assignmentsForMe.length + unreadCount}
                   </span>
                 )}
               </button>
 
               {inboxOpen && (
                 <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2 shadow-xl">
+
+                  {/* Phân công chờ duyệt */}
+                  {assignmentsForMe.length > 0 && (
+                    <>
+                      <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
+                        Phân công chờ duyệt ({assignmentsForMe.length})
+                      </p>
+                      <div className="max-h-64 space-y-1 overflow-y-auto">
+                        {assignmentsForMe.map((task) => (
+                          <div key={task.id} className="rounded-lg border border-[#ede8df] bg-[#faf7f0] p-2">
+                            <button type="button"
+                              onClick={() => { setSelectedTask(task); setInboxOpen(false) }}
+                              className="block w-full text-left"
+                            >
+                              <p className="truncate text-sm font-bold">{task.title}</p>
+                              <p className="truncate text-[11px] text-[#5c564a]">
+                                Giao cho: {employeeMap.get(task.assignee_id || '')?.full_name || 'Chưa có người'}
+                              </p>
+                            </button>
+                            <div className="mt-1.5 flex gap-1.5">
+                              <button type="button"
+                                onClick={() => approveAssignment(task)}
+                                className="rounded-lg bg-[#262219] px-2.5 py-1 text-[11px] font-extrabold text-[#dadf21]"
+                              >
+                                Duyệt & chia việc
+                              </button>
+                              <button type="button"
+                                onClick={() => rejectAssignment(task)}
+                                className="rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-bold text-red-600"
+                              >
+                                Trả lại
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
                   <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
-                    Chờ tôi duyệt ({pendingForMe.length})
+                    Bước chờ tôi duyệt ({pendingForMe.length})
                   </p>
                   {pendingForMe.length === 0 ? (
                     <p className="px-2 py-3 text-sm text-[#5c564a]">Không có bước nào chờ duyệt. 🎉</p>
@@ -2011,6 +2207,35 @@ export default function Home() {
                               </button>
                             </div>
                           </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Thông báo */}
+                  <p className="mt-1 border-t border-[#ede8df] px-2 pb-1 pt-2 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
+                    Thông báo
+                  </p>
+                  {notifications.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-[#5c564a]">Chưa có thông báo.</p>
+                  ) : (
+                    <div className="max-h-64 space-y-1 overflow-y-auto">
+                      {notifications.map((n) => {
+                        const relTask = n.task_id ? tasks.find((t) => t.id === n.task_id) : null
+                        return (
+                          <button key={n.id} type="button"
+                            onClick={() => {
+                              if (relTask) { setSelectedTask(relTask); setInboxOpen(false) }
+                            }}
+                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[#faf7f0]`}
+                          >
+                            <p className="truncate text-sm font-bold">{n.title}</p>
+                            {n.body && <p className="truncate text-[11px] text-[#5c564a]">{n.body}</p>}
+                            <p className="text-[10px] text-[#b4ab99]">
+                              {new Date(n.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              {n.actor_id && employeeMap.get(n.actor_id) ? ` · ${employeeMap.get(n.actor_id)?.full_name}` : ''}
+                            </p>
+                          </button>
                         )
                       })}
                     </div>
@@ -5739,7 +5964,11 @@ function filterTasksByRole(
       .map((s) => s.task_id)
   )
 
+  const isHead = role === 'department_head' || Boolean(emp.is_department_head)
+
   return tasks.filter((task) => {
+    // Việc chưa được cấp trên duyệt phân công → người làm chưa thấy
+    if (task.status === 'pending_approval' && !isHead && task.head_id !== emp.id) return false
     if (task.assignee_id === emp.id || task.head_id === emp.id) return true
     if (supportedTaskIds.has(task.id)) return true
     if (stepTaskIds.has(task.id)) return true
