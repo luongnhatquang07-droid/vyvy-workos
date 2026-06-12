@@ -70,32 +70,37 @@ export default function LoginPage() {
     }
   }
 
+  const inputCls = "h-12 w-full rounded-xl border border-[#e0d9cb] bg-[#faf7f0] px-4 text-sm text-[#262219] outline-none focus:border-[#aeb300] focus:bg-white placeholder:text-[#b4ab99]"
+  const labelCls = "mb-1.5 block text-sm font-bold text-[#262219]"
+
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#0B1220] via-[#0F172A] to-[#1B2A4A] px-4">
-      {/* Decorative glow */}
-      <div className="pointer-events-none absolute -top-32 left-1/2 h-96 w-[600px] -translate-x-1/2 rounded-full bg-[#1B4FD8]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 -right-20 h-80 w-80 rounded-full bg-[#3B82F6]/10 blur-3xl" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f1ede4] px-4">
+      {/* Warm decorative blobs */}
+      <div className="pointer-events-none absolute -top-20 -left-20 h-80 w-80 rounded-full bg-[#dadf21]/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-[#262219]/5 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
+        {/* Logo + brand */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#3B82F6] to-[#1B4FD8] text-2xl font-extrabold text-white shadow-xl shadow-blue-900/40">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#262219] text-2xl font-extrabold text-[#dadf21] shadow-xl shadow-[#262219]/25">
             V
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-extrabold text-white">VyVy WorkOS</h1>
-            <p className="mt-1 text-sm text-slate-400">COO Operating System · VyVyHaircare</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[#262219]">VyVy WorkOS</h1>
+            <p className="mt-1 text-sm text-[#5c564a]">COO Operating System · VyVyHaircare</p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white shadow-2xl shadow-black/30">
-          <div className="flex border-b border-[#E2E8F0]">
+        {/* Card */}
+        <div className="rounded-2xl border border-[#e0d9cb] bg-white shadow-[0_4px_32px_-8px_rgba(38,34,25,0.12)]">
+          <div className="flex border-b border-[#e0d9cb]">
             <button
               type="button"
               onClick={() => { setTab('login'); setError(''); setSuccess('') }}
               className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${
                 tab === 'login'
-                  ? 'border-b-2 border-[#1B4FD8] text-[#1B4FD8]'
-                  : 'text-[#64748B] hover:text-[#0F172A]'
+                  ? 'border-b-2 border-[#262219] text-[#262219]'
+                  : 'text-[#5c564a] hover:text-[#262219]'
               }`}
             >
               Đăng nhập
@@ -105,8 +110,8 @@ export default function LoginPage() {
               onClick={() => { setTab('signup'); setError(''); setSuccess('') }}
               className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${
                 tab === 'signup'
-                  ? 'border-b-2 border-[#1B4FD8] text-[#1B4FD8]'
-                  : 'text-[#64748B] hover:text-[#0F172A]'
+                  ? 'border-b-2 border-[#262219] text-[#262219]'
+                  : 'text-[#5c564a] hover:text-[#262219]'
               }`}
             >
               Tạo tài khoản
@@ -117,100 +122,66 @@ export default function LoginPage() {
             {tab === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Email</label>
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-12 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
-                    placeholder="email@vyvyhaircare.com"
-                  />
+                  <label className={labelCls}>Email</label>
+                  <input type="email" required autoComplete="email"
+                    value={email} onChange={(e) => setEmail(e.target.value)}
+                    className={inputCls} placeholder="email@vyvyhaircare.com" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Mật khẩu</label>
-                  <input
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="h-12 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
-                    placeholder="••••••••"
-                  />
+                  <label className={labelCls}>Mật khẩu</label>
+                  <input type="password" required autoComplete="current-password"
+                    value={password} onChange={(e) => setPassword(e.target.value)}
+                    className={inputCls} placeholder="••••••••" />
                 </div>
                 {error && (
-                  <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
                 )}
                 {success && (
-                  <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{success}</div>
+                  <div className="rounded-xl border border-[#e0d9cb] bg-[#f6f9d4] px-4 py-3 text-sm font-bold text-[#6f7400]">{success}</div>
                 )}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="h-12 w-full rounded-xl bg-gradient-to-r from-[#1B4FD8] to-[#2563EB] text-sm font-extrabold text-white shadow-lg shadow-blue-600/30 hover:shadow-xl hover:shadow-blue-600/35 disabled:opacity-60"
+                <button type="submit" disabled={loading}
+                  className="h-12 w-full rounded-xl bg-[#262219] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#262219]/20 hover:bg-[#1a1710] disabled:opacity-50"
                 >
-                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập →'}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleSignup} className="space-y-4">
-                <div className="rounded-xl bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+                <div className="rounded-xl border border-[#e0d9cb] bg-[#faf7f0] px-4 py-3 text-xs font-bold text-[#5c564a]">
                   Dùng để tạo tài khoản Admin đầu tiên. Sau khi setup xong, Admin sẽ cấp tài khoản cho nhân viên.
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Họ và tên</label>
-                  <input
-                    type="text"
-                    required
-                    value={fullName}
+                  <label className={labelCls}>Họ và tên</label>
+                  <input type="text" required value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="h-12 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
-                    placeholder="Nguyễn Văn A"
-                  />
+                    className={inputCls} placeholder="Nguyễn Văn A" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Email</label>
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="h-12 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
-                    placeholder="email@vyvyhaircare.com"
-                  />
+                  <label className={labelCls}>Email</label>
+                  <input type="email" required autoComplete="email"
+                    value={email} onChange={(e) => setEmail(e.target.value)}
+                    className={inputCls} placeholder="email@vyvyhaircare.com" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-bold text-[#0F172A]">Mật khẩu</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="h-12 w-full rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] px-4 text-sm outline-none focus:border-[#1B4FD8] focus:bg-white"
-                    placeholder="Tối thiểu 6 ký tự"
-                  />
+                  <label className={labelCls}>Mật khẩu</label>
+                  <input type="password" required minLength={6} autoComplete="new-password"
+                    value={password} onChange={(e) => setPassword(e.target.value)}
+                    className={inputCls} placeholder="Tối thiểu 6 ký tự" />
                 </div>
                 {error && (
-                  <div className="rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
                 )}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#0F172A] text-sm font-extrabold text-white disabled:opacity-60"
+                <button type="submit" disabled={loading}
+                  className="h-12 w-full rounded-xl bg-[#262219] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#262219]/20 hover:bg-[#1a1710] disabled:opacity-50"
                 >
-                  {loading ? 'Đang tạo...' : 'Tạo tài khoản Admin'}
+                  {loading ? 'Đang tạo...' : 'Tạo tài khoản Admin →'}
                 </button>
               </form>
             )}
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
+        <p className="mt-6 text-center text-xs text-[#b4ab99]">
           © {new Date().getFullYear()} VyVyHaircare · Internal Operations Platform
         </p>
       </div>

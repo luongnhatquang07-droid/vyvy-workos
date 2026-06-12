@@ -1,55 +1,56 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F4F6F9;
-  --foreground: #0F172A;
+  --bg: #f1ede4;
+  --surface: #ffffff;
+  --panel: #faf7f0;
+  --ink: #262219;
+  --text: #2a2820;
+  --text2: #5c564a;
+  --line: #e0d9cb;
+  --line2: #cfc7b5;
+  --lime: #dadf21;
+  --lime-d: #aeb300;
+  --lime-ink: #6f7400;
+  --grey: #b4ab99;
+  --grey-l: #d9d1c1;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
   --font-sans: var(--font-jakarta), "Plus Jakarta Sans", Inter, Arial, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-jakarta), "Plus Jakarta Sans", Inter, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
-}
+/* ─── Custom scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--grey); }
 
-/* Smooth transitions for interactive elements */
+/* ─── Global transitions ─────────────────────────────────────────────────── */
 button, a, input, select, textarea {
   transition-property: color, background-color, border-color, box-shadow, opacity, transform;
-  transition-duration: 150ms;
+  transition-duration: 140ms;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Focus ring */
+/* ─── Focus ring ─────────────────────────────────────────────────────────── */
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
-  outline: 2px solid #1B4FD8;
+  outline: 2px solid var(--lime-d);
   outline-offset: 2px;
 }
 
-/* Progress bar fill animation */
+/* ─── Progress bar animation ─────────────────────────────────────────────── */
 @keyframes progress-fill {
   from { width: 0%; }
 }
@@ -57,38 +58,30 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   animation: progress-fill 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Toast slide-in animation */
+/* ─── Toast slide-in ─────────────────────────────────────────────────────── */
 @keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateX(24px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
-.toast-enter {
-  animation: toast-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
+.toast-enter { animation: toast-in 0.22s cubic-bezier(0.4, 0, 0.2, 1); }
 
-/* Skeleton shimmer */
+/* ─── Skeleton shimmer ───────────────────────────────────────────────────── */
 @keyframes shimmer {
-  0% { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
+  0%   { background-position: -400px 0; }
+  100% { background-position:  400px 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #E2E8F0 25%, #F1F5F9 50%, #E2E8F0 75%);
+  background: linear-gradient(90deg, var(--line) 25%, var(--panel) 50%, var(--line) 75%);
   background-size: 400px 100%;
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: 8px;
 }
 
-/* Card hover lift */
+/* ─── Card hover lift ─────────────────────────────────────────────────────── */
 .card-hover {
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 .card-hover:hover {
-  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 8px 28px -6px rgba(38, 34, 25, 0.13);
   transform: translateY(-1px);
 }
