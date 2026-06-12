@@ -1930,17 +1930,17 @@ export default function Home() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f1ede4]">
         <div className="text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#262219] text-2xl font-extrabold text-white mx-auto">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#191919] text-2xl font-extrabold text-white mx-auto">
             V
           </div>
-          <p className="text-sm font-bold text-[#5c564a]">Đang xác thực...</p>
+          <p className="text-sm font-bold text-[#6f6b5e]">Đang xác thực...</p>
         </div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen bg-[#f1ede4] text-[#262219]">
+    <main className="min-h-screen bg-[#f1ede4] text-[#191919]">
       {mobileNavOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -1949,20 +1949,21 @@ export default function Home() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen bg-gradient-to-b from-[#1a1710] via-[#262219] to-[#1e1c14] text-white transition-all duration-200
+        className={`fixed left-0 top-0 z-50 h-screen bg-gradient-to-b from-[#1d1c18] via-[#2d331a] to-[#1d1c18] text-white transition-all duration-200
           ${mobileNavOpen ? 'w-[260px]' : 'w-0 overflow-hidden'}
           md:w-[64px] md:overflow-visible ${collapsed ? 'md:w-[64px]' : 'md:w-[240px]'}`}
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-center border-b border-white/10 p-3 md:justify-between md:p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#262219] font-extrabold shadow-lg shadow-[#262219]/40">
+              {/* Logo nút bấm — tròn, chắc, luôn trong lockup (brand book 03·1) */}
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1ede4] font-display text-base text-[#191919]">
                 V
               </div>
               {!collapsed && (
                 <div className="hidden md:block">
-                  <h1 className="text-sm font-extrabold">VyVy WorkOS</h1>
-                  <p className="text-[11px] text-[#9d9684]">COO Operating System</p>
+                  <h1 className="font-display text-sm tracking-wide">VyVy WorkOS</h1>
+                  <p className="font-spec text-[9px] text-[#9d9684]">The Haute Couture of Care</p>
                 </div>
               )}
             </div>
@@ -1983,7 +1984,7 @@ export default function Home() {
                 title={item.label}
                 className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold justify-start ${
                   view === item.key
-                    ? 'bg-[#dadf21] text-[#262219] font-extrabold shadow-sm'
+                    ? 'bg-[#dadf21] text-[#191919] font-extrabold shadow-sm'
                     : 'text-[#9d9684] hover:bg-white/[0.07] hover:text-white'
                 } md:justify-start`}
               >
@@ -2021,18 +2022,18 @@ export default function Home() {
       </aside>
 
       <section className={`min-h-screen min-w-0 md:ml-[64px] ${collapsed ? 'md:ml-[64px]' : 'md:ml-[240px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#e0d9cb] bg-[#ffffff]/85 px-3 py-3 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#d9d3c5] bg-[#ffffff]/85 px-3 py-3 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="rounded-lg p-2 text-[#262219] hover:bg-[#ede8df] md:hidden"
+              className="rounded-lg p-2 text-[#191919] hover:bg-[#ede8df] md:hidden"
               aria-label="Mở menu"
             >
               <Ico d={IC.menu} size={20}/>
             </button>
             <div className="min-w-0">
-            <h2 className="text-base font-extrabold sm:text-lg">
+            <h2 className="font-display text-lg sm:text-xl">
               {view === 'dashboard' && 'Thống kê vận hành'}
               {view === 'coo' && 'COO Board'}
               {view === 'projects' && 'Tổng dự án'}
@@ -2041,7 +2042,7 @@ export default function Home() {
               {view === 'assistant' && 'COO Assistant'}
               {view === 'admin' && 'Quản lý nhân sự'}
             </h2>
-            <p className="hidden text-xs text-[#5c564a] sm:block">
+            <p className="hidden text-xs text-[#6f6b5e] sm:block">
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
             </p>
             </div>
@@ -2050,7 +2051,7 @@ export default function Home() {
           <div className="relative hidden min-w-0 flex-1 max-w-md lg:block">
             <input
               ref={searchInputRef}
-              className="h-10 w-full rounded-xl border border-[#e0d9cb] bg-[#faf7f0] pl-9 pr-12 text-sm outline-none focus:border-[#aeb300] focus:bg-[#ffffff]"
+              className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] pl-9 pr-12 text-sm outline-none focus:border-[#aeb300] focus:bg-[#ffffff]"
               placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
               value={searchQuery}
               onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true) }}
@@ -2062,7 +2063,7 @@ export default function Home() {
             </span>
 
             {searchOpen && (searchResults.projects.length > 0 || searchResults.tasks.length > 0) && (
-              <div className="absolute left-0 right-0 top-12 z-30 max-h-96 overflow-y-auto rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2 shadow-xl">
+              <div className="absolute left-0 right-0 top-12 z-30 max-h-96 overflow-y-auto rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 shadow-xl">
                 {searchResults.projects.length > 0 && (
                   <>
                     <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">Dự án</p>
@@ -2117,18 +2118,18 @@ export default function Home() {
                   })
                 }}
                 title="Thông báo & chờ duyệt"
-                className="relative rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2.5 hover:bg-[#faf7f0]"
+                className="relative rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2.5 hover:bg-[#faf7f0]"
               >
                 <Ico d={IC.bell} size={17}/>
                 {(pendingForMe.length + assignmentsForMe.length + unreadCount) > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#dadf21] px-1 text-[10px] font-extrabold text-[#262219]">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#dadf21] px-1 text-[10px] font-extrabold text-[#191919]">
                     {pendingForMe.length + assignmentsForMe.length + unreadCount}
                   </span>
                 )}
               </button>
 
               {inboxOpen && (
-                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2 shadow-xl">
+                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 shadow-xl">
 
                   {/* Phân công chờ duyệt */}
                   {assignmentsForMe.length > 0 && (
@@ -2144,14 +2145,14 @@ export default function Home() {
                               className="block w-full text-left"
                             >
                               <p className="truncate text-sm font-bold">{task.title}</p>
-                              <p className="truncate text-[11px] text-[#5c564a]">
+                              <p className="truncate text-[11px] text-[#6f6b5e]">
                                 Giao cho: {employeeMap.get(task.assignee_id || '')?.full_name || 'Chưa có người'}
                               </p>
                             </button>
                             <div className="mt-1.5 flex gap-1.5">
                               <button type="button"
                                 onClick={() => approveAssignment(task)}
-                                className="rounded-lg bg-[#262219] px-2.5 py-1 text-[11px] font-extrabold text-[#dadf21]"
+                                className="rounded-lg bg-[#191919] px-2.5 py-1 text-[11px] font-extrabold text-[#dadf21]"
                               >
                                 Duyệt & chia việc
                               </button>
@@ -2172,7 +2173,7 @@ export default function Home() {
                     Bước chờ tôi duyệt ({pendingForMe.length})
                   </p>
                   {pendingForMe.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[#5c564a]">Không có bước nào chờ duyệt. 🎉</p>
+                    <p className="px-2 py-3 text-sm text-[#6f6b5e]">Không có bước nào chờ duyệt. 🎉</p>
                   ) : (
                     <div className="max-h-80 space-y-1 overflow-y-auto">
                       {pendingForMe.map((step) => {
@@ -2187,12 +2188,12 @@ export default function Home() {
                               className="block w-full text-left"
                             >
                               <p className="truncate text-sm font-bold">{step.step_title}</p>
-                              <p className="truncate text-[11px] text-[#5c564a]">{task?.title || 'Đầu việc'}</p>
+                              <p className="truncate text-[11px] text-[#6f6b5e]">{task?.title || 'Đầu việc'}</p>
                             </button>
                             <div className="mt-1.5 flex gap-1.5">
                               <button type="button"
                                 onClick={() => approveCurrentStage(step)}
-                                className="rounded-lg bg-[#262219] px-2.5 py-1 text-[11px] font-extrabold text-white"
+                                className="rounded-lg bg-[#191919] px-2.5 py-1 text-[11px] font-extrabold text-white"
                               >
                                 Duyệt ngay
                               </button>
@@ -2201,7 +2202,7 @@ export default function Home() {
                                   if (task) setSelectedTask(task)
                                   setInboxOpen(false)
                                 }}
-                                className="rounded-lg border border-[#e0d9cb] px-2.5 py-1 text-[11px] font-bold"
+                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1 text-[11px] font-bold"
                               >
                                 Xem chi tiết
                               </button>
@@ -2217,7 +2218,7 @@ export default function Home() {
                     Thông báo
                   </p>
                   {notifications.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[#5c564a]">Chưa có thông báo.</p>
+                    <p className="px-2 py-3 text-sm text-[#6f6b5e]">Chưa có thông báo.</p>
                   ) : (
                     <div className="max-h-64 space-y-1 overflow-y-auto">
                       {notifications.map((n) => {
@@ -2230,7 +2231,7 @@ export default function Home() {
                             className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[#faf7f0]`}
                           >
                             <p className="truncate text-sm font-bold">{n.title}</p>
-                            {n.body && <p className="truncate text-[11px] text-[#5c564a]">{n.body}</p>}
+                            {n.body && <p className="truncate text-[11px] text-[#6f6b5e]">{n.body}</p>}
                             <p className="text-[10px] text-[#b4ab99]">
                               {new Date(n.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                               {n.actor_id && employeeMap.get(n.actor_id) ? ` · ${employeeMap.get(n.actor_id)?.full_name}` : ''}
@@ -2257,7 +2258,7 @@ export default function Home() {
             {canCreateProject && (
               <button type="button"
                 onClick={() => setCreateOpen(true)}
-                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#262219] shadow-sm hover:bg-[#cfd41d] sm:px-4"
+                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#191919] shadow-sm hover:bg-[#cfd41d] sm:px-4"
               >
                 + Tạo mới
               </button>
@@ -2488,18 +2489,18 @@ export default function Home() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600"><Ico d={IC.warning} size={20}/></div>
-            <p className="text-sm font-bold text-[#262219]">{confirmState.message}</p>
-            <p className="mt-1 text-xs text-[#5c564a]">Hành động này không thể hoàn tác.</p>
+            <p className="text-sm font-bold text-[#191919]">{confirmState.message}</p>
+            <p className="mt-1 text-xs text-[#6f6b5e]">Hành động này không thể hoàn tác.</p>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button"
                 onClick={() => answerConfirm(false)}
-                className="rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-4 py-2 text-sm font-bold text-[#262219]"
+                className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-4 py-2 text-sm font-bold text-[#191919]"
               >
                 Hủy
               </button>
               <button type="button"
                 onClick={() => answerConfirm(true)}
-                className="rounded-xl bg-[#262219] px-4 py-2 text-sm font-extrabold text-[#efe9dd]"
+                className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-[#efe9dd]"
               >
                 Xóa
               </button>
@@ -2515,10 +2516,10 @@ export default function Home() {
             key={t.id}
             className={`toast-enter pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
               transition-all duration-300 max-w-[340px]
-              ${t.type === 'error' ? 'bg-[#262219] text-[#efe9dd] border border-red-400/40' :
-                t.type === 'warning' ? 'bg-[#262219] text-[#dadf21] border border-[#dadf21]/30' :
-                t.type === 'info' ? 'bg-[#262219] text-[#efe9dd]' :
-                'bg-[#dadf21] text-[#262219]'}`}
+              ${t.type === 'error' ? 'bg-[#191919] text-[#efe9dd] border border-red-400/40' :
+                t.type === 'warning' ? 'bg-[#191919] text-[#dadf21] border border-[#dadf21]/30' :
+                t.type === 'info' ? 'bg-[#191919] text-[#efe9dd]' :
+                'bg-[#dadf21] text-[#191919]'}`}
           >
             <span className="shrink-0 mt-0.5">
               {t.type === 'error' ? <Ico d={IC.x} size={15}/> : t.type === 'warning' ? <Ico d={IC.warning} size={15}/> : t.type === 'info' ? <IcoCircle d={IC.info} size={15}/> : <Ico d={IC.check} size={15}/>}
@@ -2561,7 +2562,7 @@ function DashboardView(props: {
     {
       label: 'Đang làm',
       count: doing,
-      color: 'bg-blue-600',
+      color: 'bg-[#2d331a]',
     },
     {
       label: 'Pending',
@@ -2571,7 +2572,7 @@ function DashboardView(props: {
     {
       label: 'Hoàn thành',
       count: done,
-      color: 'bg-[#262219]',
+      color: 'bg-[#191919]',
     },
     {
       label: 'Trễ deadline',
@@ -2610,7 +2611,7 @@ function DashboardView(props: {
           <Card>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-extrabold">Báo cáo theo dự án</h3>
-              <span className="text-sm font-bold text-[#5c564a]">{props.projectCards.length} dự án</span>
+              <span className="text-sm font-bold text-[#6f6b5e]">{props.projectCards.length} dự án</span>
             </div>
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -2621,12 +2622,12 @@ function DashboardView(props: {
                     props.setSelectedProjectId(project.id)
                     props.setView('coo')
                   }}
-                  className="rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-4 text-left hover:shadow-md"
+                  className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-4 text-left hover:shadow-md"
                 >
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>
                       <p className="font-extrabold">{project.name}</p>
-                      <p className="mt-1 text-sm text-[#5c564a]">{project.total} việc</p>
+                      <p className="mt-1 text-sm text-[#6f6b5e]">{project.total} việc</p>
                     </div>
                     <div className="text-right">
                       <ProjectHealthBadge health={project.health} />
@@ -2655,11 +2656,11 @@ function DashboardView(props: {
                 return (
                   <div
                     key={row.employee.id}
-                    className={`rounded-xl border border-[#e0d9cb] p-4 ${needsAttention ? 'bg-red-50/70' : 'bg-[#ffffff]'}`}
+                    className={`rounded-xl border border-[#d9d3c5] p-4 ${needsAttention ? 'bg-red-50/70' : 'bg-[#ffffff]'}`}
                   >
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr_160px]">
                       <div>
-                        <p className="text-base font-extrabold text-[#262219]">{row.employee.full_name}</p>
+                        <p className="text-base font-extrabold text-[#191919]">{row.employee.full_name}</p>
                         <p className="mt-1 text-xs font-bold uppercase text-[#b4ab99]">Nhân sự phụ trách</p>
                       </div>
 
@@ -2674,7 +2675,7 @@ function DashboardView(props: {
 
                       <div className="flex flex-col justify-center">
                         <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-bold text-[#5c564a]">Tỷ lệ</span>
+                          <span className="font-bold text-[#6f6b5e]">Tỷ lệ</span>
                           <span className="font-extrabold text-[#6f7400]">{row.rate}%</span>
                         </div>
                         <ProgressBar value={row.rate} />
@@ -2701,12 +2702,12 @@ function DashboardView(props: {
                       props.setSelectedProjectId(project.id)
                       props.setView('coo')
                     }}
-                    className="w-full rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-4 text-left hover:shadow-md"
+                    className="w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-4 text-left hover:shadow-md"
                   >
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <p className="font-extrabold">{project.name}</p>
-                        <p className="mt-1 text-sm font-bold text-[#5c564a]">
+                        <p className="mt-1 text-sm font-bold text-[#6f6b5e]">
                           {project.health.totalWarnings} cảnh báo
                         </p>
                       </div>
@@ -2736,7 +2737,7 @@ function DashboardView(props: {
                       className="w-full rounded-xl border border-red-100 bg-red-50/70 p-4 text-left hover:bg-red-50"
                     >
                       <p className="font-extrabold">{task.title}</p>
-                      <p className="mt-1 text-sm text-[#5c564a]">
+                      <p className="mt-1 text-sm text-[#6f6b5e]">
                         {person?.full_name || 'Chưa gắn người'} · {project?.name || 'Chưa gắn dự án'}
                       </p>
                       <span className="mt-3 inline-flex rounded-full bg-[#ffffff] px-3 py-1 text-xs font-bold text-red-600">
@@ -2753,7 +2754,7 @@ function DashboardView(props: {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-extrabold">Việc chờ duyệt / cần làm lại</h3>
-                <p className="mt-1 text-sm text-[#5c564a]">
+                <p className="mt-1 text-sm text-[#6f6b5e]">
                   {pendingSteps.length} chờ duyệt · {revisionSteps.length} cần làm lại
                 </p>
               </div>
@@ -2778,7 +2779,7 @@ function DashboardView(props: {
 
           <Card>
             <h3 className="text-lg font-extrabold">Bước thiếu báo cáo</h3>
-            <p className="mt-1 text-sm text-[#5c564a]">{missingReportSteps.length} bước chưa có file hoặc link</p>
+            <p className="mt-1 text-sm text-[#6f6b5e]">{missingReportSteps.length} bước chưa có file hoặc link</p>
 
             <div className="mt-4">
               <DashboardStepList
@@ -2906,7 +2907,7 @@ function CooBoard(props: {
           const isProjectExpanded = expandedProjects.has(project.id)
 
           return (
-            <div key={project.id} className="rounded-2xl border border-[#e0d9cb] bg-white overflow-hidden">
+            <div key={project.id} className="rounded-2xl border border-[#d9d3c5] bg-white overflow-hidden">
               {/* Project header */}
               <div className="flex items-center gap-2 px-5 py-4 hover:bg-[#faf7f0] transition-colors">
                 <button
@@ -2914,24 +2915,24 @@ function CooBoard(props: {
                   onClick={() => toggleProject(project.id)}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <span className="w-4 shrink-0 text-sm font-bold text-[#5c564a]">
+                  <span className="w-4 shrink-0 text-sm font-bold text-[#6f6b5e]">
                     {isProjectExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-[#262219] truncate">{project.name}</span>
-                      <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                      <span className="font-extrabold text-[#191919] truncate">{project.name}</span>
+                      <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
                         {projectWorkstreams.length} đầu việc lớn
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <div className="h-1.5 w-32 rounded-full bg-[#e0d9cb]">
+                      <div className="h-1.5 w-32 rounded-full bg-[#d9d3c5]">
                         <div
                           className="h-1.5 rounded-full bg-[#dadf21] transition-all"
                           style={{ width: `${projectProgress}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold text-[#5c564a]">{projectProgress}%</span>
+                      <span className="text-xs font-bold text-[#6f6b5e]">{projectProgress}%</span>
                     </div>
                   </div>
                 </button>
@@ -2939,7 +2940,7 @@ function CooBoard(props: {
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); props.openWorkstreamForm(project.id) }}
-                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#262219] hover:bg-[#cfd41d]"
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#191919] hover:bg-[#cfd41d]"
                 >
                   <Ico d={IC.plus} size={13}/>
                   Đầu việc lớn
@@ -2949,9 +2950,9 @@ function CooBoard(props: {
 
               {/* Workstreams */}
               {isProjectExpanded && (
-                <div className="border-t border-[#e0d9cb]">
+                <div className="border-t border-[#d9d3c5]">
                   {projectWorkstreams.length === 0 ? (
-                    <div className="px-8 py-4 text-sm text-[#5c564a]">Chưa có đầu việc lớn.</div>
+                    <div className="px-8 py-4 text-sm text-[#6f6b5e]">Chưa có đầu việc lớn.</div>
                   ) : (
                     projectWorkstreams.map((ws) => {
                       const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
@@ -2960,28 +2961,28 @@ function CooBoard(props: {
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
                       return (
-                        <div key={ws.id} className="border-b border-[#e0d9cb] last:border-b-0">
+                        <div key={ws.id} className="border-b border-[#d9d3c5] last:border-b-0">
                           <div className="flex items-center gap-2 pl-8 pr-3 py-3 hover:bg-[#faf7f0] transition-colors">
                             <button
                               type="button"
                               onClick={() => toggleWorkstream(ws.id)}
                               className="flex min-w-0 flex-1 items-center gap-3 text-left"
                             >
-                              <span className="w-3 shrink-0 text-xs font-bold text-[#5c564a]">
+                              <span className="w-3 shrink-0 text-xs font-bold text-[#6f6b5e]">
                                 {isWsExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="truncate text-sm font-bold text-[#262219]">{ws.title}</span>
+                                  <span className="truncate text-sm font-bold text-[#191919]">{ws.title}</span>
                                   <IssueBadge issueStatus={ws.issue_status} />
-                                  <span className="rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                                  <span className="rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
                                     {subtasks.length} việc con
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center gap-3 text-xs text-[#5c564a]">
+                                <div className="mt-1 flex items-center gap-3 text-xs text-[#6f6b5e]">
                                   <span>{wsHead?.full_name || 'Chưa gắn head'}</span>
                                   {ws.due_date && <span>· {ws.due_date}</span>}
-                                  <span className="font-bold text-[#262219]">{wsProgress}%</span>
+                                  <span className="font-bold text-[#191919]">{wsProgress}%</span>
                                 </div>
                               </div>
                             </button>
@@ -2989,14 +2990,14 @@ function CooBoard(props: {
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
                                   onClick={() => props.openSubtaskForm(ws)}
-                                  className="rounded-lg bg-[#262219] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
+                                  className="rounded-lg bg-[#191919] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
                                 >
                                   + Việc con
                                 </button>
                               )}
                               <button type="button"
                                 onClick={() => props.setSelectedTask(ws)}
-                                className="rounded-lg border border-[#e0d9cb] px-2.5 py-1 text-xs font-bold text-[#262219]"
+                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1 text-xs font-bold text-[#191919]"
                               >
                                 Chi tiết
                               </button>
@@ -3026,9 +3027,9 @@ function CooBoard(props: {
                           )}
 
                           {isWsExpanded && (
-                            <div className="border-t border-[#e0d9cb] bg-[#faf7f0]">
+                            <div className="border-t border-[#d9d3c5] bg-[#faf7f0]">
                               {subtasks.length === 0 ? (
-                                <div className="py-3 pl-14 text-xs text-[#5c564a]">Chưa có đầu việc con.</div>
+                                <div className="py-3 pl-14 text-xs text-[#6f6b5e]">Chưa có đầu việc con.</div>
                               ) : (
                                 subtasks.map((subtask) => {
                                   const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
@@ -3040,35 +3041,35 @@ function CooBoard(props: {
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
 
                                   return (
-                                    <div key={subtask.id} className="border-b border-[#e0d9cb] last:border-b-0">
+                                    <div key={subtask.id} className="border-b border-[#d9d3c5] last:border-b-0">
                                       <div className="flex items-center gap-2 pl-14 pr-3 py-2.5 hover:bg-[#f1ede4] transition-colors">
                                         <button
                                           type="button"
                                           onClick={() => toggleSubtask(subtask.id)}
                                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                                         >
-                                          <span className="w-3 shrink-0 text-xs font-bold text-[#5c564a]">
+                                          <span className="w-3 shrink-0 text-xs font-bold text-[#6f6b5e]">
                                             {isSubtaskExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                                           </span>
                                           <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
-                                              <span className="truncate text-sm font-bold text-[#262219]">{subtask.title}</span>
+                                              <span className="truncate text-sm font-bold text-[#191919]">{subtask.title}</span>
                                               <IssueBadge issueStatus={subtask.issue_status} />
-                                              <span className="rounded-full border border-[#e0d9cb] bg-white px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                                              <span className="rounded-full border border-[#d9d3c5] bg-white px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
                                                 {stepsForSubtask.length} bước
                                               </span>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-3 text-xs text-[#5c564a]">
+                                            <div className="mt-1 flex items-center gap-3 text-xs text-[#6f6b5e]">
                                               {subtaskAssignee && <span>{subtaskAssignee.full_name}</span>}
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
-                                              <span className="font-bold text-[#262219]">{subtaskProgress}%</span>
+                                              <span className="font-bold text-[#191919]">{subtaskProgress}%</span>
                                             </div>
                                           </div>
                                         </button>
                                         <div className="flex shrink-0 gap-1.5">
                                           <button type="button"
                                             onClick={() => props.setSelectedTask(subtask)}
-                                            className="rounded-lg border border-[#e0d9cb] bg-white px-2.5 py-1 text-xs font-bold text-[#262219]"
+                                            className="rounded-lg border border-[#d9d3c5] bg-white px-2.5 py-1 text-xs font-bold text-[#191919]"
                                           >
                                             Chi tiết
                                           </button>
@@ -3160,7 +3161,7 @@ function InlineSubtaskForm(props: {
   cancel: () => void
 }) {
   return (
-    <div className="mt-5 rounded-2xl border border-[#e0d9cb] bg-[#faf7f0] p-4">
+    <div className="mt-5 rounded-2xl border border-[#d9d3c5] bg-[#faf7f0] p-4">
       <h4 className="mb-3 font-extrabold">Tạo đầu việc con</h4>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -3209,7 +3210,7 @@ function InlineSubtaskForm(props: {
         </Select>
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
           value={props.form.dueDate}
           onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
         />
@@ -3226,13 +3227,13 @@ function InlineSubtaskForm(props: {
       <div className="mt-4 flex gap-2">
         <button type="button"
           onClick={() => props.createSubtask(props.parent)}
-          className="rounded-xl bg-[#262219] px-4 py-2 text-sm font-extrabold text-white"
+          className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
         >
           Lưu đầu việc con
         </button>
         <button type="button"
           onClick={props.cancel}
-          className="rounded-xl border border-[#e0d9cb] px-4 py-2 text-sm font-bold"
+          className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
         >
           Hủy
         </button>
@@ -3292,7 +3293,7 @@ function SubtaskCard(props: {
   const problem = isTaskProblem(props.task)
 
   return (
-    <div className={`rounded-2xl border bg-[#ffffff] p-5 shadow-sm ${overdue || problem ? 'border-red-200' : 'border-[#e0d9cb]'}`}>
+    <div className={`rounded-2xl border bg-[#ffffff] p-5 shadow-sm ${overdue || problem ? 'border-red-200' : 'border-[#d9d3c5]'}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -3303,7 +3304,7 @@ function SubtaskCard(props: {
             {overdue && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">Quá hạn</span>}
           </div>
 
-          <p className="text-sm text-[#5c564a]">
+          <p className="text-sm text-[#6f6b5e]">
             Head: <b>{head?.full_name || 'Chưa gắn'}</b> · Phòng ban:{' '}
             <b>{department?.name || 'Chưa gắn'}</b> · Deadline:{' '}
             <b>{props.task.due_date || 'Chưa có'}</b>
@@ -3312,7 +3313,7 @@ function SubtaskCard(props: {
 
         <div className="flex flex-wrap gap-2">
           <select
-            className="h-10 rounded-xl border border-[#e0d9cb] px-2 text-xs font-bold"
+            className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
             value={props.task.status}
             onChange={(event) => props.updateTaskStatus(props.task.id, event.target.value)}
           >
@@ -3324,7 +3325,7 @@ function SubtaskCard(props: {
           </select>
 
           <select
-            className="h-10 rounded-xl border border-[#e0d9cb] px-2 text-xs font-bold"
+            className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
             value={props.task.issue_status || 'normal'}
             onChange={(event) => props.updateIssueStatus(props.task.id, event.target.value)}
           >
@@ -3336,7 +3337,7 @@ function SubtaskCard(props: {
 
           <button type="button"
             onClick={() => props.setSelectedTask(props.task)}
-            className="h-10 rounded-xl border border-[#e0d9cb] px-3 text-xs font-bold"
+            className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-xs font-bold"
           >
             Chi tiết / File
           </button>
@@ -3382,7 +3383,7 @@ function SubtaskCard(props: {
 
         <div className="mt-3 space-y-3">
           {props.steps.length === 0 ? (
-            <p className="text-sm text-[#5c564a]">Chưa có bước thực hiện.</p>
+            <p className="text-sm text-[#6f6b5e]">Chưa có bước thực hiện.</p>
           ) : (
             props.steps.map((step, index) => {
               const previousStep = index > 0 ? props.steps[index - 1] : null
@@ -3427,7 +3428,7 @@ function SubtaskCard(props: {
 
           <div className="mb-3 flex gap-2">
             <select
-              className="h-10 flex-1 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-sm outline-none"
+              className="h-10 flex-1 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
               value={props.supporterDrafts[props.task.id] || ''}
               onChange={(event) =>
                 props.setSupporterDrafts({
@@ -3446,7 +3447,7 @@ function SubtaskCard(props: {
 
             <button type="button"
               onClick={() => props.createSupporter(props.task.id)}
-              className="rounded-xl bg-[#262219] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-xl bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
             >
               Thêm
             </button>
@@ -3454,13 +3455,13 @@ function SubtaskCard(props: {
 
           <div className="space-y-2">
             {props.supporters.length === 0 ? (
-              <p className="text-sm text-[#5c564a]">Chưa có người hỗ trợ.</p>
+              <p className="text-sm text-[#6f6b5e]">Chưa có người hỗ trợ.</p>
             ) : (
               props.supporters.map((supporter) => (
                 <div key={supporter.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#ffffff] p-3">
                   <div>
                     <p className="text-sm font-bold">{supporter.employees?.full_name || 'Không rõ'}</p>
-                    <p className="text-xs text-[#5c564a]">{supporter.role_note || 'Hỗ trợ'}</p>
+                    <p className="text-xs text-[#6f6b5e]">{supporter.role_note || 'Hỗ trợ'}</p>
                   </div>
                   <button type="button"
                     onClick={() => props.deleteSupporter(supporter)}
@@ -3476,7 +3477,7 @@ function SubtaskCard(props: {
 
         <div className="rounded-2xl bg-[#faf7f0] p-4">
           <p className="font-extrabold">File báo cáo đầu việc</p>
-          <p className="mt-1 text-sm text-[#5c564a]">{props.reports.length} file đã upload ở cấp đầu việc.</p>
+          <p className="mt-1 text-sm text-[#6f6b5e]">{props.reports.length} file đã upload ở cấp đầu việc.</p>
         </div>
       </div>
     </div>
@@ -3492,7 +3493,7 @@ function InlineStepForm(props: {
   cancel: () => void
 }) {
   return (
-    <div className="rounded-2xl border border-[#e0d9cb] bg-[#ffffff] p-4">
+    <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-4">
       <h4 className="mb-3 font-extrabold">Tạo bước thực hiện</h4>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -3525,7 +3526,7 @@ function InlineStepForm(props: {
         </Select>
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
           value={props.form.dueDate}
           onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
         />
@@ -3534,13 +3535,13 @@ function InlineStepForm(props: {
       <div className="mt-4 flex gap-2">
         <button type="button"
           onClick={() => props.createStep(props.taskId)}
-          className="rounded-xl bg-[#262219] px-4 py-2 text-sm font-extrabold text-white"
+          className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
         >
           Lưu bước
         </button>
         <button type="button"
           onClick={props.cancel}
-          className="rounded-xl border border-[#e0d9cb] px-4 py-2 text-sm font-bold"
+          className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
         >
           Hủy
         </button>
@@ -3600,7 +3601,7 @@ function StepWorkflowCard(props: {
               )}
             </div>
 
-            <p className="mt-1 text-sm text-[#5c564a]">
+            <p className="mt-1 text-sm text-[#6f6b5e]">
               Phụ trách: <b>{owner?.full_name || 'Chưa gắn'}</b> · Trưởng bộ phận:{' '}
               <b>{departmentApprover?.full_name || 'Chưa gắn'}</b> · Deadline:{' '}
               <b>{props.step.due_date || 'Chưa có'}</b>
@@ -3631,7 +3632,7 @@ function StepWorkflowCard(props: {
 
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
           value={props.step.due_date || ''}
           onChange={(event) => props.updateStep(props.step, { due_date: event.target.value || null } as Partial<TaskStep>)}
         />
@@ -3642,7 +3643,7 @@ function StepWorkflowCard(props: {
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           <div>
-            <p className="mb-1 text-xs font-extrabold text-[#5c564a]">Trưởng bộ phận duyệt</p>
+            <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">Trưởng bộ phận duyệt</p>
             <Select
               value={props.step.department_approver_id || props.step.approver_id || ''}
               onChange={(value) =>
@@ -3661,7 +3662,7 @@ function StepWorkflowCard(props: {
             </Select>
           </div>
 
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm font-bold">
+          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm font-bold">
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_coo_approval)}
@@ -3675,7 +3676,7 @@ function StepWorkflowCard(props: {
             Cần COO duyệt
           </label>
 
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm font-bold">
+          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm font-bold">
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_ceo_approval)}
@@ -3694,7 +3695,7 @@ function StepWorkflowCard(props: {
           <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
             {props.step.requires_coo_approval && (
               <div>
-                <p className="mb-1 text-xs font-extrabold text-[#5c564a]">COO duyệt vận hành</p>
+                <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">COO duyệt vận hành</p>
                 <Select
                   value={props.step.coo_approver_id || ''}
                   onChange={(value) => props.updateStep(props.step, { coo_approver_id: value || null } as Partial<TaskStep>)}
@@ -3711,7 +3712,7 @@ function StepWorkflowCard(props: {
 
             {props.step.requires_ceo_approval && (
               <div>
-                <p className="mb-1 text-xs font-extrabold text-[#5c564a]">CEO duyệt cuối</p>
+                <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">CEO duyệt cuối</p>
                 <Select
                   value={props.step.ceo_approver_id || ''}
                   onChange={(value) => props.updateStep(props.step, { ceo_approver_id: value || null } as Partial<TaskStep>)}
@@ -3734,7 +3735,7 @@ function StepWorkflowCard(props: {
           <ApprovalStatusPill label="CEO" status={props.step.ceo_approval_status || 'not_required'} />
         </div>
 
-        <p className="mt-2 text-xs text-[#5c564a]">
+        <p className="mt-2 text-xs text-[#6f6b5e]">
           Người duyệt: Trưởng bộ phận {departmentApprover?.full_name || 'chưa gắn'}
           {props.step.requires_coo_approval ? ` · COO ${cooApprover?.full_name || 'chưa gắn'}` : ''}
           {props.step.requires_ceo_approval ? ` · CEO ${ceoApprover?.full_name || 'chưa gắn'}` : ''}
@@ -3748,7 +3749,7 @@ function StepWorkflowCard(props: {
       )}
 
       {props.step.approval_note && (
-        <div className="mt-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">
+        <div className="mt-3 rounded-xl bg-[#eeeae1] p-3 text-sm text-[#594e3d]">
           <b>Ghi chú duyệt:</b> {props.step.approval_note}
         </div>
       )}
@@ -3761,7 +3762,7 @@ function StepWorkflowCard(props: {
             type="file"
             disabled={props.locked}
             onChange={(event) => props.uploadStepFile(props.step, event.target.files?.[0])}
-            className="block w-full rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2 text-xs"
+            className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 text-xs"
           />
 
           {props.step.report_file_url && (
@@ -3770,7 +3771,7 @@ function StepWorkflowCard(props: {
                 href={props.step.report_file_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex rounded-lg bg-[#262219] px-3 py-2 text-xs font-bold text-white"
+                className="inline-flex rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-white"
               >
                 Mở file
               </a>
@@ -3785,7 +3786,7 @@ function StepWorkflowCard(props: {
 
           <div className="mt-3 flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#e0d9cb] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
               placeholder="Dán link báo cáo... (tự lưu khi rời ô)"
               value={props.linkDrafts[props.step.id] ?? props.step.report_link ?? ''}
               onChange={(event) =>
@@ -3806,7 +3807,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.saveStepLink(props.step)}
-              className="rounded-lg bg-[#262219] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
             >
               Lưu
             </button>
@@ -3829,7 +3830,7 @@ function StepWorkflowCard(props: {
 
           <div className="mb-3 flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#e0d9cb] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
               placeholder="VD: Em cần công cụ hỗ trợ... (Enter để lưu)"
               value={props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''}
               onChange={(event) =>
@@ -3844,7 +3845,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.saveSupportRequest(props.step)}
-              className="rounded-lg bg-[#262219] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
             >
               Lưu
             </button>
@@ -3852,12 +3853,12 @@ function StepWorkflowCard(props: {
 
           <div className="mb-3 max-h-28 space-y-2 overflow-y-auto">
             {props.comments.length === 0 ? (
-              <p className="text-xs text-[#5c564a]">Chưa có bình luận.</p>
+              <p className="text-xs text-[#6f6b5e]">Chưa có bình luận.</p>
             ) : (
               props.comments.map((comment) => (
                 <div key={comment.id} className="rounded-lg bg-[#ffffff] p-2 text-xs">
                   <p className="font-bold">{comment.employees?.full_name || 'Không rõ'}</p>
-                  <p className="text-[#5c564a]">{comment.comment}</p>
+                  <p className="text-[#6f6b5e]">{comment.comment}</p>
                 </div>
               ))
             )}
@@ -3865,7 +3866,7 @@ function StepWorkflowCard(props: {
 
           <div className="flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#e0d9cb] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
               placeholder="Nhập bình luận... (Enter để gửi)"
               value={props.commentDrafts[props.step.id] || ''}
               onChange={(event) =>
@@ -3880,7 +3881,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.addComment(props.step.id)}
-              className="rounded-lg bg-[#262219] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
             >
               Gửi
             </button>
@@ -3924,7 +3925,7 @@ function StepWorkflowCard(props: {
         <button type="button"
           disabled={props.locked}
           onClick={() => props.approveStep(props.step)}
-          className="rounded-xl bg-[#262219] px-4 py-2 text-xs font-extrabold text-white disabled:opacity-40"
+          className="rounded-xl bg-[#191919] px-4 py-2 text-xs font-extrabold text-white disabled:opacity-40"
         >
           {approveButtonLabel}
         </button>
@@ -3995,8 +3996,8 @@ function ProjectsView(props: {
   function Sec({ n, title, desc }: { n: string; title: string; desc?: string }) {
     return (
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-2">
-        <span className="rounded-md bg-[#262219] px-2 py-0.5 font-mono text-[11px] font-bold text-[#dadf21]">{n}</span>
-        <h2 className="text-base font-extrabold text-[#262219]">{title}</h2>
+        <span className="rounded-md bg-[#191919] px-2 py-0.5 font-mono text-[11px] font-bold text-[#dadf21]">{n}</span>
+        <h2 className="font-display text-lg text-[#191919]">{title}</h2>
         {desc && <p className="text-xs text-[#9d9684]">{desc}</p>}
       </div>
     )
@@ -4006,11 +4007,11 @@ function ProjectsView(props: {
     <div className="space-y-5">
 
       {/* ══ Hero — đích cuối ══ */}
-      <div className="overflow-hidden rounded-2xl border border-[#262219] bg-[#262219] text-[#f1ede4]">
+      <div className="overflow-hidden rounded-2xl border border-[#2d331a] bg-[#2d331a] text-[#f1ede4]">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
           <div className="shrink-0 sm:w-44">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#b4ab99]">Đích cuối</p>
-            <p className="text-3xl font-extrabold leading-none text-[#dadf21]">100<span className="text-base">%</span></p>
+            <p className="font-spec text-[10px] text-[#b4ab99]">Đích cuối</p>
+            <p className="font-display text-4xl leading-none text-[#dadf21]">100<span className="text-base">%</span></p>
             <p className="mt-1 text-xs text-[#b4ab99]">hoàn thành toàn bộ dự án</p>
           </div>
           <div className="min-w-0 flex-1">
@@ -4018,7 +4019,7 @@ function ProjectsView(props: {
               <p className="text-sm font-bold">Hiện tại: <span className="tabular-nums text-[#dadf21]">{overallRate}%</span> · {totalDone}/{totalTasks} đầu việc</p>
               <p className="text-xs text-[#b4ab99]">{props.projectCards.length} dự án</p>
             </div>
-            <div className="relative h-5 overflow-hidden rounded-full bg-[#3a362b]">
+            <div className="relative h-5 overflow-hidden rounded-full bg-[#3a3f27]">
               <div className="h-5 rounded-full bg-[#dadf21] transition-all" style={{ width: `${Math.max(overallRate, 1)}%` }} />
             </div>
             <p className="mt-1.5 text-[11px] text-[#9d9684]">Thanh này tự cộng từ tiến độ thật của mọi dự án — không nhập tay.</p>
@@ -4030,9 +4031,9 @@ function ProjectsView(props: {
       <Sec n="00·1" title="Tuần này — liếc 5 giây" desc="ba ô tự gom từ dữ liệu thật — không nhập tay" />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {/* Phải xong tuần này */}
-        <div className="rounded-2xl border border-[#e0d9cb] bg-white">
-          <div className="flex items-center justify-between border-b border-[#e0d9cb] px-4 py-2.5">
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#5c564a]">Phải xong tuần này</p>
+        <div className="rounded-2xl border border-[#d9d3c5] bg-white">
+          <div className="flex items-center justify-between border-b border-[#d9d3c5] px-4 py-2.5">
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Phải xong tuần này</p>
             <span className="rounded-full bg-[#f0f5c4] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[#6f7400]">{dueThisWeek.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
@@ -4041,16 +4042,16 @@ function ProjectsView(props: {
             ) : dueThisWeek.slice(0, 8).map((t) => (
               <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                 className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[#faf7f0]">
-                <span className="truncate text-sm font-bold text-[#262219]">{t.title}</span>
+                <span className="truncate text-sm font-bold text-[#191919]">{t.title}</span>
                 <span className="shrink-0 text-[10px] font-bold tabular-nums text-[#9d9684]">{t.due_date?.slice(5)}</span>
               </button>
             ))}
           </div>
         </div>
         {/* Đang kẹt / quá hạn */}
-        <div className={`rounded-2xl border bg-white ${stuck.length > 0 ? 'border-red-200' : 'border-[#e0d9cb]'}`}>
-          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[#e0d9cb]'}`}>
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#5c564a]">Đang kẹt / quá hạn</p>
+        <div className={`rounded-2xl border bg-white ${stuck.length > 0 ? 'border-red-200' : 'border-[#d9d3c5]'}`}>
+          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[#d9d3c5]'}`}>
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Đang kẹt / quá hạn</p>
             <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-red-100 text-red-700' : 'bg-[#eeeae1] text-[#9d9684]'}`}>{stuck.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
@@ -4062,15 +4063,15 @@ function ProjectsView(props: {
                 <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${isTaskOverdue(t) ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                   {isTaskOverdue(t) ? 'TRỄ' : 'KẸT'}
                 </span>
-                <span className="truncate text-sm font-bold text-[#262219]">{t.title}</span>
+                <span className="truncate text-sm font-bold text-[#191919]">{t.title}</span>
               </button>
             ))}
           </div>
         </div>
         {/* Chờ duyệt */}
-        <div className="rounded-2xl border border-[#e0d9cb] bg-white">
-          <div className="flex items-center justify-between border-b border-[#e0d9cb] px-4 py-2.5">
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#5c564a]">Chờ duyệt</p>
+        <div className="rounded-2xl border border-[#d9d3c5] bg-white">
+          <div className="flex items-center justify-between border-b border-[#d9d3c5] px-4 py-2.5">
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Chờ duyệt</p>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-extrabold tabular-nums text-amber-700">{pendingSteps.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
@@ -4079,7 +4080,7 @@ function ProjectsView(props: {
             ) : pendingSteps.slice(0, 8).map((s) => (
               <button key={s.id} type="button" onClick={() => openTaskOfStep(s)}
                 className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[#faf7f0]">
-                <span className="truncate text-sm font-bold text-[#262219]">{s.step_title}</span>
+                <span className="truncate text-sm font-bold text-[#191919]">{s.step_title}</span>
                 <span className="shrink-0 text-[10px] font-bold text-amber-600">duyệt →</span>
               </button>
             ))}
@@ -4090,8 +4091,8 @@ function ProjectsView(props: {
       {/* ══ 00·2 Nối dự án ══ */}
       <Sec n="00·2" title="Nối dự án — sức khỏe từng dự án" desc="bấm dự án → sổ ra chi tiết, vì sao đang màu này" />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
-        <div className="overflow-hidden rounded-2xl border border-[#e0d9cb] bg-white">
-          <div className="divide-y divide-[#e0d9cb]">
+        <div className="overflow-hidden rounded-2xl border border-[#d9d3c5] bg-white">
+          <div className="divide-y divide-[#d9d3c5]">
             {props.projectCards.map((project) => {
               const isFocus = focusProject === project.id
               const healthColor =
@@ -4110,17 +4111,17 @@ function ProjectsView(props: {
                 >
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
                   <div className="w-36 shrink-0">
-                    <p className="truncate text-sm font-extrabold text-[#262219]">{project.name}</p>
+                    <p className="truncate text-sm font-extrabold text-[#191919]">{project.name}</p>
                     {project.code && <p className="text-[10px] text-[#b4ab99]">{project.code}</p>}
                   </div>
                   <div className="flex flex-1 items-center gap-2">
                     <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
                       <div className={`h-5 rounded-full transition-all ${healthColor}`} style={{ width: `${Math.max(project.rate, 1)}%` }} />
                       {project.rate > 10 && (
-                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[#262219]">{project.rate}%</span>
+                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[#191919]">{project.rate}%</span>
                       )}
                     </div>
-                    {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[#262219]">{project.rate}%</span>}
+                    {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[#191919]">{project.rate}%</span>}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
                     <span className="font-bold text-[#6f7400]">{project.done}<span className="font-normal text-[#9d9684]">/{project.total}</span></span>
@@ -4137,12 +4138,12 @@ function ProjectsView(props: {
         {/* Panel phải */}
         <div className="flex flex-col gap-4">
           {focusedProject ? (
-            <div className="rounded-2xl border border-[#e0d9cb] bg-white">
-              <div className="flex items-center justify-between border-b border-[#e0d9cb] bg-[#faf7f0] px-4 py-3">
-                <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[#5c564a]">{focusedProject.name}</p>
+            <div className="rounded-2xl border border-[#d9d3c5] bg-white">
+              <div className="flex items-center justify-between border-b border-[#d9d3c5] bg-[#faf7f0] px-4 py-3">
+                <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">{focusedProject.name}</p>
                 <button type="button"
                   onClick={() => { props.setSelectedProjectId(focusedProject.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[#262219] px-3 py-1 text-xs font-bold text-[#dadf21]">
+                  className="shrink-0 rounded-lg bg-[#191919] px-3 py-1 text-xs font-bold text-[#dadf21]">
                   Mở COO Board
                 </button>
               </div>
@@ -4150,7 +4151,7 @@ function ProjectsView(props: {
                 <ProjectHealthSummary health={focusedProject.health} />
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[
-                    { label: 'Tổng', v: focusedProject.total, c: 'text-[#262219]' },
+                    { label: 'Tổng', v: focusedProject.total, c: 'text-[#191919]' },
                     { label: 'Xong', v: focusedProject.done, c: 'text-[#6f7400]' },
                     { label: 'Trễ', v: focusedProject.overdue, c: focusedProject.overdue > 0 ? 'text-red-600' : 'text-[#9d9684]' },
                   ].map((n) => (
@@ -4164,7 +4165,7 @@ function ProjectsView(props: {
                   const urg = props.tasks.filter((t) => t.project_id === focusedProject.id && (isTaskOverdue(t) || isTaskProblem(t))).slice(0, 5)
                   return urg.length > 0 ? (
                     <div>
-                      <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#5c564a]">Cần chú ý</p>
+                      <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#6f6b5e]">Cần chú ý</p>
                       <div className="space-y-1">
                         {urg.map((t) => (
                           <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
@@ -4192,8 +4193,8 @@ function ProjectsView(props: {
           )}
 
           {/* Legend */}
-          <div className="rounded-2xl border border-[#e0d9cb] bg-white px-4 py-3">
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[#5c564a]">Màu sức khỏe</p>
+          <div className="rounded-2xl border border-[#d9d3c5] bg-white px-4 py-3">
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[#6f6b5e]">Màu sức khỏe</p>
             <div className="space-y-1.5">
               {[
                 { color: 'bg-[#dadf21]', label: 'Tốt — đúng tiến độ' },
@@ -4202,7 +4203,7 @@ function ProjectsView(props: {
               ].map((l) => (
                 <div key={l.label} className="flex items-center gap-2">
                   <div className={`h-3 w-12 rounded-full ${l.color}`} />
-                  <p className="text-xs text-[#5c564a]">{l.label}</p>
+                  <p className="text-xs text-[#6f6b5e]">{l.label}</p>
                 </div>
               ))}
             </div>
@@ -4212,21 +4213,21 @@ function ProjectsView(props: {
 
       {/* ══ 00·3 Tải người ══ */}
       <Sec n="00·3" title="Tải người — ai đang gánh bao nhiêu" desc="tự đếm từ đầu việc đang mở · >5 việc = đỏ" />
-      <div className="rounded-2xl border border-[#e0d9cb] bg-white p-5">
+      <div className="rounded-2xl border border-[#d9d3c5] bg-white p-5">
         {workload.length === 0 ? (
           <p className="text-sm text-[#9d9684]">Chưa có việc nào được giao.</p>
         ) : (
           <div className="space-y-2.5">
             {workload.map((w) => (
               <div key={w.id} className="flex items-center gap-3">
-                <p className="w-36 shrink-0 truncate text-sm font-bold text-[#262219]">{w.name}</p>
+                <p className="w-36 shrink-0 truncate text-sm font-bold text-[#191919]">{w.name}</p>
                 <div className="h-4 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
                   <div
                     className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-red-500' : 'bg-[#dadf21]'}`}
                     style={{ width: `${(w.n / maxLoad) * 100}%` }}
                   />
                 </div>
-                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-red-600' : 'text-[#262219]'}`}>{w.n} việc</p>
+                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-red-600' : 'text-[#191919]'}`}>{w.n} việc</p>
               </div>
             ))}
           </div>
@@ -4245,11 +4246,11 @@ function ProjectsView(props: {
               key={project.id}
               type="button"
               onClick={() => setBoardProject(project.id)}
-              className="rounded-2xl border border-[#e0d9cb] bg-white p-5 text-left transition-shadow hover:shadow-md"
+              className="rounded-2xl border border-[#d9d3c5] bg-white p-5 text-left transition-shadow hover:shadow-md"
             >
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-extrabold text-[#262219]">{project.name}</p>
+                  <p className="truncate font-extrabold text-[#191919]">{project.name}</p>
                   {project.code && <p className="text-[10px] text-[#b4ab99]">{project.code}</p>}
                 </div>
                 <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
@@ -4258,8 +4259,8 @@ function ProjectsView(props: {
                 <div className="h-2.5 rounded-full bg-[#dadf21]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold tabular-nums text-[#5c564a]">{project.rate}% · {project.done}/{project.total} việc</span>
-                <span className="font-extrabold text-[#262219]">Mở bảng →</span>
+                <span className="font-bold tabular-nums text-[#6f6b5e]">{project.rate}% · {project.done}/{project.total} việc</span>
+                <span className="font-extrabold text-[#191919]">Mở bảng →</span>
               </div>
             </button>
           )
@@ -4268,22 +4269,22 @@ function ProjectsView(props: {
 
       {/* ══ Bảng dự án bay ra (modal) ══ */}
       {boardProjectCard && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#262219]/60 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#191919]/60 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
           <div className="w-full max-w-5xl rounded-2xl bg-[#f1ede4] shadow-2xl" onClick={(e) => e.stopPropagation()}>
 
             {/* Header bảng */}
-            <div className="sticky top-0 z-10 flex items-center gap-3 rounded-t-2xl border-b border-[#3a362b] bg-[#262219] px-5 py-4 text-[#f1ede4]">
+            <div className="sticky top-0 z-10 flex items-center gap-3 rounded-t-2xl border-b border-[#3a3f27] bg-[#191919] px-5 py-4 text-[#f1ede4]">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-lg font-extrabold">{boardProjectCard.name}</p>
                 <p className="text-xs text-[#b4ab99]">{boardProjectCard.code || ''} · {boardProjectCard.done}/{boardProjectCard.total} việc · {boardProjectCard.rate}%</p>
               </div>
               <button type="button"
                 onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
-                className="shrink-0 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#262219]">
+                className="shrink-0 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#191919]">
                 Mở COO Board
               </button>
               <button type="button" onClick={() => setBoardProject(null)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3a362b] text-[#f1ede4]">
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3a3f27] text-[#f1ede4]">
                 <Ico d={IC.x} size={15} />
               </button>
             </div>
@@ -4294,7 +4295,7 @@ function ProjectsView(props: {
               {boardProjectCard.description && (
                 <div>
                   <Sec n="①" title="Mô tả dự án" desc="form chuẩn" />
-                  <div className="mt-2 rounded-2xl border border-[#e0d9cb] bg-white p-4 text-sm leading-relaxed text-[#5c564a]">
+                  <div className="mt-2 rounded-2xl border border-[#d9d3c5] bg-white p-4 text-sm leading-relaxed text-[#6f6b5e]">
                     {boardProjectCard.description}
                   </div>
                 </div>
@@ -4319,7 +4320,7 @@ function ProjectsView(props: {
                       { label: 'Kẹt / quá hạn', v: pStuck, c: pStuck > 0 ? 'text-red-600' : 'text-[#9d9684]' },
                       { label: 'Chờ duyệt', v: pPend, c: pPend > 0 ? 'text-amber-600' : 'text-[#9d9684]' },
                     ].map((x) => (
-                      <div key={x.label} className="rounded-xl border border-[#e0d9cb] bg-white px-3 py-2.5 text-center">
+                      <div key={x.label} className="rounded-xl border border-[#d9d3c5] bg-white px-3 py-2.5 text-center">
                         <p className={`text-2xl font-extrabold tabular-nums ${x.c}`}>{x.v}</p>
                         <p className="text-[10px] font-bold text-[#9d9684]">{x.label}</p>
                       </div>
@@ -4337,9 +4338,9 @@ function ProjectsView(props: {
                     .map((ws) => {
                       const children = props.tasks.filter((t) => t.parent_task_id === ws.id)
                       return (
-                        <div key={ws.id} className="overflow-hidden rounded-2xl border border-[#e0d9cb] bg-white">
-                          <div className="flex items-center justify-between border-b border-[#e0d9cb] bg-[#faf7f0] px-4 py-2.5">
-                            <p className="truncate text-sm font-extrabold text-[#262219]">{ws.title}</p>
+                        <div key={ws.id} className="overflow-hidden rounded-2xl border border-[#d9d3c5] bg-white">
+                          <div className="flex items-center justify-between border-b border-[#d9d3c5] bg-[#faf7f0] px-4 py-2.5">
+                            <p className="truncate text-sm font-extrabold text-[#191919]">{ws.title}</p>
                             <span className="shrink-0 text-xs font-bold tabular-nums text-[#9d9684]">
                               {children.filter((c) => c.status === 'completed').length}/{children.length}
                             </span>
@@ -4354,14 +4355,14 @@ function ProjectsView(props: {
                                 const stBadge =
                                   t.status === 'completed' ? { txt: 'Xong', cls: 'bg-[#f0f5c4] text-[#6f7400]' } :
                                   isTaskOverdue(t) ? { txt: 'Trễ', cls: 'bg-red-100 text-red-700' } :
-                                  t.status === 'in_progress' ? { txt: 'Đang', cls: 'bg-blue-100 text-blue-700' } :
+                                  t.status === 'in_progress' ? { txt: 'Đang', cls: 'bg-[#e4e6c3] text-[#6f7400]' } :
                                   t.status === 'pending' ? { txt: 'Kẹt', cls: 'bg-amber-100 text-amber-700' } :
                                   { txt: 'Chưa', cls: 'bg-[#eeeae1] text-[#9d9684]' }
                                 return (
                                   <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#faf7f0]">
-                                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-[#262219]">{t.title}</span>
-                                    <span className="w-20 shrink-0 truncate text-xs text-[#5c564a]">{who}</span>
+                                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-[#191919]">{t.title}</span>
+                                    <span className="w-20 shrink-0 truncate text-xs text-[#6f6b5e]">{who}</span>
                                     <span className="w-12 shrink-0 text-[10px] font-bold tabular-nums text-[#9d9684]">{t.due_date?.slice(5) || '—'}</span>
                                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${stBadge.cls}`}>{stBadge.txt}</span>
                                   </button>
@@ -4437,7 +4438,7 @@ function TasksView(props: {
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="h-9 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-xs font-bold outline-none"
+            className="h-9 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-xs font-bold outline-none"
           >
             <option value="all">Tất cả ({props.tasks.length})</option>
             <option value="not_started">Chưa bắt đầu</option>
@@ -4448,7 +4449,7 @@ function TasksView(props: {
           </select>
           <button type="button"
             onClick={exportCsv}
-            className="rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 py-2 text-xs font-bold hover:bg-[#faf7f0]"
+            className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 py-2 text-xs font-bold hover:bg-[#faf7f0]"
           >
             ⬇ Xuất CSV
           </button>
@@ -4458,7 +4459,7 @@ function TasksView(props: {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1000px] text-left text-sm">
           <thead>
-            <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#5c564a]">
+            <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
               <th className="p-3">Công việc</th>
               <th className="p-3">Cấp</th>
               <th className="p-3">Head</th>
@@ -4480,15 +4481,15 @@ function TasksView(props: {
                 <tr key={task.id} className="border-b hover:bg-[#faf7f0]">
                   <td className="p-3">
                     <p className="font-extrabold">{task.title}</p>
-                    <p className="text-xs text-[#5c564a]">{task.description || 'Chưa có mô tả'}</p>
+                    <p className="text-xs text-[#6f6b5e]">{task.description || 'Chưa có mô tả'}</p>
                   </td>
                   <td className="p-3">
-                    <span className="rounded-full bg-[#ede8df] px-3 py-1 text-xs font-bold text-[#5c564a]">
+                    <span className="rounded-full bg-[#ede8df] px-3 py-1 text-xs font-bold text-[#6f6b5e]">
                       {task.task_level === 'workstream' ? 'Đầu việc lớn' : task.parent_task_id ? 'Đầu việc con' : 'Task'}
                     </span>
                   </td>
                   <td className="p-3 font-bold">{head?.full_name || 'Chưa gắn'}</td>
-                  <td className="p-3 text-[#5c564a]">{project?.name || 'Chưa gắn'}</td>
+                  <td className="p-3 text-[#6f6b5e]">{project?.name || 'Chưa gắn'}</td>
                   <td className="p-3 font-bold">{task.due_date || 'Chưa có'}</td>
                   <td className="p-3">
                     <StatusBadge status={task.status} label={props.getStatusLabel(task.status)} />
@@ -4505,7 +4506,7 @@ function TasksView(props: {
                   <td className="p-3">
                     <div className="flex gap-2">
                       <select
-                        className="h-10 rounded-xl border border-[#e0d9cb] px-2 text-xs font-bold"
+                        className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
                         value={task.status}
                         onChange={(event) => props.updateTaskStatus(task.id, event.target.value)}
                       >
@@ -4518,7 +4519,7 @@ function TasksView(props: {
 
                       <button type="button"
                         onClick={() => props.setSelectedTask(task)}
-                        className="rounded-xl bg-[#262219] px-3 text-xs font-bold text-[#efe9dd]"
+                        className="rounded-xl bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
                       >
                         Chi tiết
                       </button>
@@ -4563,7 +4564,7 @@ function MeetingView(props: {
     <div className="space-y-6">
       <Card>
         <h3 className="text-lg font-extrabold">Nhập biên bản Notex AI</h3>
-        <p className="mt-1 text-sm text-[#5c564a]">
+        <p className="mt-1 text-sm text-[#6f6b5e]">
           Dán nội dung Notex, tách đầu việc, kiểm tra preview rồi import vào COO Board.
         </p>
 
@@ -4577,11 +4578,11 @@ function MeetingView(props: {
             type="file"
             accept=".txt"
             onChange={(event) => props.handleMeetingFile(event.target.files?.[0])}
-            className="block w-full rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-3 text-sm"
+            className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm"
           />
 
           <textarea
-            className="min-h-[320px] w-full rounded-2xl border border-[#e0d9cb] p-4 text-sm leading-6 outline-none"
+            className="min-h-[320px] w-full rounded-2xl border border-[#d9d3c5] p-4 text-sm leading-6 outline-none"
             placeholder={`Dán nội dung Notex vào đây...
 
 14.1. Nhóm đầu việc lớn
@@ -4595,20 +4596,20 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
           <div className="flex flex-wrap gap-2">
             <button type="button"
               onClick={props.splitNotexRows}
-              className="rounded-xl bg-[#262219] px-5 py-3 text-sm font-extrabold text-white"
+              className="rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white"
             >
               Tách đầu việc
             </button>
             <button type="button"
               onClick={props.saveMeeting}
-              className="rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-5 py-3 text-sm font-bold"
+              className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-5 py-3 text-sm font-bold"
             >
               Lưu biên bản
             </button>
             <button type="button"
               onClick={props.importNotexRows}
               disabled={props.importing || props.notexRows.length === 0}
-              className="rounded-xl bg-[#262219] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-40"
+              className="rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-40"
             >
               {props.importing ? 'Đang import...' : 'Import vào COO Board'}
             </button>
@@ -4620,7 +4621,7 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-extrabold">Preview đầu việc</h3>
-            <p className="mt-1 text-sm text-[#5c564a]">{props.notexRows.length} dòng đã tách từ Notex.</p>
+            <p className="mt-1 text-sm text-[#6f6b5e]">{props.notexRows.length} dòng đã tách từ Notex.</p>
           </div>
         </div>
 
@@ -4630,7 +4631,7 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1500px] text-left text-sm">
               <thead>
-                <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#5c564a]">
+                <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
                   <th className="p-3">Đầu việc lớn</th>
                   <th className="p-3">Đầu việc con</th>
                   <th className="p-3">Trách nhiệm Notex</th>
@@ -4648,35 +4649,35 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
                   <tr key={row.id} className="border-b align-top">
                     <td className="p-3">
                       <input
-                        className="h-10 w-48 rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none"
+                        className="h-10 w-48 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
                         value={row.workstreamTitle}
                         onChange={(event) => updateRow(row.id, { workstreamTitle: event.target.value })}
                       />
                     </td>
                     <td className="p-3">
                       <input
-                        className="h-10 w-56 rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none"
+                        className="h-10 w-56 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
                         value={row.subtaskTitle}
                         onChange={(event) => updateRow(row.id, { subtaskTitle: event.target.value })}
                       />
                     </td>
                     <td className="p-3">
                       <textarea
-                        className="h-20 w-56 rounded-xl border border-[#e0d9cb] p-3 text-sm outline-none"
+                        className="h-20 w-56 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
                         value={row.responsibility}
                         onChange={(event) => updateRow(row.id, { responsibility: event.target.value })}
                       />
                     </td>
                     <td className="p-3">
                       <textarea
-                        className="h-20 w-64 rounded-xl border border-[#e0d9cb] p-3 text-sm outline-none"
+                        className="h-20 w-64 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
                         value={row.expectedOutput}
                         onChange={(event) => updateRow(row.id, { expectedOutput: event.target.value })}
                       />
                     </td>
                     <td className="p-3">
                       <select
-                        className="h-10 w-44 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-sm outline-none"
+                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
                         value={row.departmentId}
                         onChange={(event) => updateRow(row.id, { departmentId: event.target.value })}
                       >
@@ -4690,7 +4691,7 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
                     </td>
                     <td className="p-3">
                       <select
-                        className="h-10 w-44 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-sm outline-none"
+                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
                         value={row.headId}
                         onChange={(event) => updateRow(row.id, { headId: event.target.value })}
                       >
@@ -4704,7 +4705,7 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
                     </td>
                     <td className="p-3">
                       <select
-                        className="h-10 w-44 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-sm outline-none"
+                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
                         value={row.assigneeId}
                         onChange={(event) => updateRow(row.id, { assigneeId: event.target.value })}
                       >
@@ -4719,14 +4720,14 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
                     <td className="p-3">
                       <input
                         type="date"
-                        className="h-10 w-40 rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none"
+                        className="h-10 w-40 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
                         value={row.dueDate}
                         onChange={(event) => updateRow(row.id, { dueDate: event.target.value })}
                       />
                     </td>
                     <td className="p-3">
                       <select
-                        className="h-10 w-40 rounded-xl border border-[#e0d9cb] bg-[#ffffff] px-3 text-sm outline-none"
+                        className="h-10 w-40 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
                         value={row.priority}
                         onChange={(event) => updateRow(row.id, { priority: event.target.value })}
                       >
@@ -4765,7 +4766,7 @@ function AssistantView(props: {
   generateProjectReport: () => void
 }) {
   const reportButtons = [
-    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[#262219] text-white' },
+    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[#191919] text-white' },
     { label: 'Việc cần hối thúc', action: props.generateFollowUpReport, className: 'bg-red-600 text-white' },
     { label: 'Việc chờ duyệt', action: props.generatePendingApprovalReport, className: 'bg-amber-500 text-white' },
     { label: 'Việc cần làm lại', action: props.generateRevisionReport, className: 'bg-red-50 text-red-700' },
@@ -4774,15 +4775,15 @@ function AssistantView(props: {
       action: props.generateMissingReportFileReport,
       className: 'bg-slate-900 text-white',
     },
-    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[#262219] text-white' },
-    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-blue-50 text-[#6f7400]' },
+    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[#191919] text-white' },
+    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-[#f0f5c4] text-[#6f7400]' },
   ]
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
       <Card>
         <h3 className="text-lg font-extrabold">COO Assistant</h3>
-        <p className="mt-1 text-sm text-[#5c564a]">
+        <p className="mt-1 text-sm text-[#6f6b5e]">
           Tạo báo cáo vận hành dạng text để copy gửi sếp.
         </p>
 
@@ -4805,7 +4806,7 @@ function AssistantView(props: {
           {props.assistantOutput && (
             <button type="button"
               onClick={() => navigator.clipboard.writeText(props.assistantOutput)}
-              className="rounded-xl border border-[#e0d9cb] px-4 py-2 text-sm font-bold"
+              className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
             >
               Copy
             </button>
@@ -4813,7 +4814,7 @@ function AssistantView(props: {
         </div>
 
         {props.assistantOutput ? (
-          <pre className="whitespace-pre-wrap rounded-2xl bg-[#faf7f0] p-5 text-sm leading-7 text-[#334155]">
+          <pre className="whitespace-pre-wrap rounded-2xl bg-[#faf7f0] p-5 text-sm leading-7 text-[#6f6b5e]">
             {props.assistantOutput}
           </pre>
         ) : (
@@ -4870,7 +4871,7 @@ function CreatePanel(props: {
       <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Tạo mới</h3>
-          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#262219] hover:bg-[#e0d9cb]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -4916,7 +4917,7 @@ function CreatePanel(props: {
             <button type="button"
               onClick={props.createProject}
               disabled={props.saving}
-              className="w-full rounded-xl bg-[#16A34A] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[#6f7400] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
             >
               {props.saving ? 'Đang tạo...' : 'Tạo dự án'}
             </button>
@@ -4930,7 +4931,7 @@ function CreatePanel(props: {
 
             <input
               type="date"
-              className="h-12 w-full rounded-2xl border border-[#e0d9cb] px-4 text-sm outline-none"
+              className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
               value={props.workDueDate}
               onChange={(event) => props.setWorkDueDate(event.target.value)}
             />
@@ -4980,7 +4981,7 @@ function CreatePanel(props: {
             <button type="button"
               onClick={props.createWorkstream}
               disabled={props.saving}
-              className="w-full rounded-xl bg-[#262219] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[#191919] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
             >
               {props.saving ? 'Đang tạo...' : 'Tạo đầu việc lớn'}
             </button>
@@ -5016,12 +5017,12 @@ function TaskDetailDrawer(props: {
       <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#262219] hover:bg-[#e0d9cb]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
         <h2 className="text-2xl font-extrabold">{props.task.title}</h2>
-        <p className="mt-2 text-sm leading-6 text-[#5c564a]">
+        <p className="mt-2 text-sm leading-6 text-[#6f6b5e]">
           {props.task.description || 'Chưa có mô tả.'}
         </p>
 
@@ -5051,7 +5052,7 @@ function TaskDetailDrawer(props: {
             <input
               type="file"
               onChange={(event) => props.uploadTaskFile(props.task, event.target.files?.[0])}
-              className="block w-full rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-3 text-sm"
+              className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm"
             />
 
             {props.uploading && (
@@ -5060,7 +5061,7 @@ function TaskDetailDrawer(props: {
 
             <div className="mt-4 space-y-2">
               {props.reports.length === 0 ? (
-                <p className="text-sm text-[#5c564a]">Chưa có file báo cáo.</p>
+                <p className="text-sm text-[#6f6b5e]">Chưa có file báo cáo.</p>
               ) : (
                 props.reports.map((report) => (
                   <div key={report.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#ffffff] p-3">
@@ -5070,7 +5071,7 @@ function TaskDetailDrawer(props: {
                         href={report.file_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-lg bg-[#262219] px-3 py-2 text-xs font-bold text-[#efe9dd]"
+                        className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-[#efe9dd]"
                       >
                         Mở
                       </a>
@@ -5097,7 +5098,7 @@ function TaskDetailDrawer(props: {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-2xl border border-[#e0d9cb] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
+  return <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
 }
 
 function MetricCard(props: {
@@ -5107,35 +5108,35 @@ function MetricCard(props: {
   tone: 'blue' | 'green' | 'purple' | 'red'
 }) {
   const toneMap = {
-    blue:   'bg-[#eeeae1] text-[#262219]',
+    blue:   'bg-[#eeeae1] text-[#191919]',
     green:  'bg-[#f0f5c4] text-[#6f7400]',
-    purple: 'bg-[#eeeae1] text-[#5c4fcb]',
+    purple: 'bg-[#eeeae1] text-[#594e3d]',
     red:    'bg-[#fdf0ee] text-red-600',
   }
   const accentMap = {
-    blue:   'before:bg-[#262219]',
+    blue:   'before:bg-[#191919]',
     green:  'before:bg-[#dadf21]',
-    purple: 'before:bg-[#8b7cf6]',
+    purple: 'before:bg-[#594e3d]',
     red:    'before:bg-red-400',
   }
 
   return (
-    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[#e0d9cb] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(38,34,25,0.05),0_8px_24px_-12px_rgba(38,34,25,0.08)]
+    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(38,34,25,0.05),0_8px_24px_-12px_rgba(38,34,25,0.08)]
       before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
       <div className="flex items-center justify-between">
-        <p className="text-[13px] font-bold text-[#5c564a]">{props.label}</p>
+        <p className="text-[13px] font-bold text-[#6f6b5e]">{props.label}</p>
         <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneMap[props.tone]}`}>{props.icon}</span>
       </div>
-      <p className="mt-3 text-3xl font-extrabold tracking-tight tabular-nums text-[#262219]">{props.value}</p>
+      <p className="font-display mt-3 text-4xl tabular-nums text-[#191919]">{props.value}</p>
     </div>
   )
 }
 
 function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="h-3 overflow-hidden rounded-full bg-[#E2E8F0]">
+    <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
       <div
-        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[#262219] to-[#3B82F6] transition-[width] duration-500"
+        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[#aeb300] to-[#dadf21] transition-[width] duration-500"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
@@ -5153,12 +5154,12 @@ function StatusDistributionRow(props: {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <p className="font-bold text-[#334155]">{props.label}</p>
+        <p className="font-bold text-[#6f6b5e]">{props.label}</p>
         <p className="font-extrabold">
-          {props.count} <span className="text-[#5c564a]">({percent}%)</span>
+          {props.count} <span className="text-[#6f6b5e]">({percent}%)</span>
         </p>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-[#E2E8F0]">
+      <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
         <div className={`h-full rounded-full ${props.color}`} style={{ width: `${percent}%` }} />
       </div>
     </div>
@@ -5169,7 +5170,7 @@ function MiniStat({ label, value, danger }: { label: string; value: number; dang
   return (
     <div className="rounded-xl bg-[#faf7f0] p-2">
       <p className={`text-lg font-extrabold ${danger && value > 0 ? 'text-red-600' : ''}`}>{value}</p>
-      <p className="text-[11px] font-bold text-[#5c564a]">{label}</p>
+      <p className="text-[11px] font-bold text-[#6f6b5e]">{label}</p>
     </div>
   )
 }
@@ -5182,9 +5183,9 @@ function DashboardStepList(props: {
 }) {
   return (
     <div>
-      <p className="mb-2 text-sm font-extrabold text-[#334155]">{props.title}</p>
+      <p className="mb-2 text-sm font-extrabold text-[#6f6b5e]">{props.title}</p>
       {props.steps.length === 0 ? (
-        <p className="text-sm text-[#5c564a]">{props.emptyText}</p>
+        <p className="text-sm text-[#6f6b5e]">{props.emptyText}</p>
       ) : (
         <div className="space-y-2">
           {props.steps.map((step) => {
@@ -5193,7 +5194,7 @@ function DashboardStepList(props: {
             return (
               <div key={step.id} className="rounded-xl bg-[#faf7f0] p-3">
                 <p className="text-sm font-extrabold">{step.step_title}</p>
-                <p className="mt-1 text-xs text-[#5c564a]">{task?.title || 'Không rõ đầu việc cha'}</p>
+                <p className="mt-1 text-xs text-[#6f6b5e]">{task?.title || 'Không rõ đầu việc cha'}</p>
               </div>
             )
           })}
@@ -5206,14 +5207,14 @@ function DashboardStepList(props: {
 function StatusBadge({ status, label }: { status: string; label: string }) {
   const cls =
     status === 'completed'
-      ? 'bg-[#DCFCE7] text-[#16A34A]'
+      ? 'bg-[#DCFCE7] text-[#6f7400]'
       : status === 'in_progress'
         ? 'bg-[#E0F2FE] text-[#0369A1]'
         : status === 'pending'
           ? 'bg-[#EDE9FE] text-[#6D28D9]'
           : status === 'overdue'
             ? 'bg-[#FEE2E2] text-[#DC2626]'
-            : 'bg-[#ede8df] text-[#5c564a]'
+            : 'bg-[#ede8df] text-[#6f6b5e]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{label}</span>
 }
@@ -5230,7 +5231,7 @@ function IssueBadge({ issueStatus }: { issueStatus?: string | null }) {
   }
 
   if (value === 'watch') {
-    return <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-extrabold text-blue-700">Cần theo dõi</span>
+    return <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Cần theo dõi</span>
   }
 
   return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[#6f7400]">Ổn</span>
@@ -5261,7 +5262,7 @@ function ProjectHealthSummary({ health }: { health: ProjectHealth }) {
   ].filter((item) => item.value > 0)
 
   if (items.length === 0) {
-    return <p className="text-sm text-[#5c564a]">Không có cảnh báo vận hành.</p>
+    return <p className="text-sm text-[#6f6b5e]">Không có cảnh báo vận hành.</p>
   }
 
   return (
@@ -5285,7 +5286,7 @@ function StepApprovalBadge({ status }: { status: string }) {
   }
 
   if (status === 'pending') {
-    return <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-extrabold text-blue-700">Chờ duyệt</span>
+    return <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Chờ duyệt</span>
   }
 
   if (status === 'revision') {
@@ -5298,7 +5299,7 @@ function StepApprovalBadge({ status }: { status: string }) {
 function ApprovalStatusPill({ label, status }: { label: string; status: string }) {
   return (
     <div className="flex items-center justify-between gap-2 rounded-xl bg-[#ffffff] px-3 py-2">
-      <span className="text-xs font-extrabold text-[#5c564a]">{label}</span>
+      <span className="text-xs font-extrabold text-[#6f6b5e]">{label}</span>
       <StepApprovalBadge status={status} />
     </div>
   )
@@ -5324,7 +5325,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function Avatar({ name }: { name: string }) {
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#262219] text-sm font-extrabold text-white ring-2 ring-white/20">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#191919] text-sm font-extrabold text-white ring-2 ring-white/20">
       {(name || 'U').slice(0, 1).toUpperCase()}
     </div>
   )
@@ -5337,7 +5338,7 @@ function Input(props: {
 }) {
   return (
     <input
-      className="h-12 w-full rounded-2xl border border-[#e0d9cb] px-4 text-sm outline-none"
+      className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
       placeholder={props.placeholder}
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
@@ -5352,7 +5353,7 @@ function Select(props: {
 }) {
   return (
     <select
-      className="h-12 w-full rounded-2xl border border-[#e0d9cb] bg-[#ffffff] px-4 text-sm outline-none"
+      className="h-12 w-full rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
     >
@@ -5363,10 +5364,10 @@ function Select(props: {
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[#e0d9cb] bg-[#faf7f0] p-8 text-center">
+    <div className="rounded-2xl border border-dashed border-[#d9d3c5] bg-[#faf7f0] p-8 text-center">
       <div className="mb-3 text-3xl">🗂️</div>
       <p className="font-extrabold">{title}</p>
-      <p className="mt-1 text-sm text-[#5c564a]">{description}</p>
+      <p className="mt-1 text-sm text-[#6f6b5e]">{description}</p>
     </div>
   )
 }
@@ -6086,58 +6087,58 @@ function AdminUsersView(props: {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#5c564a]">{employees.length} nhân sự</p>
+        <p className="text-sm text-[#6f6b5e]">{employees.length} nhân sự</p>
         {props.canCreateUsers ? (
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 rounded-xl bg-[#dadf21] px-4 py-2 text-sm font-extrabold text-[#262219]"
+            className="flex items-center gap-2 rounded-xl bg-[#dadf21] px-4 py-2 text-sm font-extrabold text-[#191919]"
           >
             <Ico d={IC.plus} size={15} />
             Tạo tài khoản
           </button>
         ) : (
-          <span className="rounded-xl border border-[#e0d9cb] px-3 py-2 text-xs font-bold text-[#b4ab99]">
+          <span className="rounded-xl border border-[#d9d3c5] px-3 py-2 text-xs font-bold text-[#b4ab99]">
             Không có quyền tạo tài khoản
           </span>
         )}
       </div>
 
       {showCreate && (
-        <div className="rounded-2xl border border-[#e0d9cb] bg-[#ffffff] p-6">
+        <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-6">
           <h3 className="mb-4 text-base font-extrabold">Tạo tài khoản nhân viên</h3>
           <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Họ và tên *</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Họ và tên *</label>
               <input required value={createName} onChange={(e) => setCreateName(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nguyễn Văn A" />
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nguyễn Văn A" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Email *</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Email *</label>
               <input required type="email" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="email@vyvyhaircare.com" />
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="email@vyvyhaircare.com" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Mật khẩu *</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Mật khẩu *</label>
               <input required type="password" minLength={6} value={createPassword} onChange={(e) => setCreatePassword(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Tối thiểu 6 ký tự" />
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Tối thiểu 6 ký tự" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Chức vụ</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Chức vụ</label>
               <input value={createPosition} onChange={(e) => setCreatePosition(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nhân viên Marketing..." />
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nhân viên Marketing..." />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Role</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Role</label>
               <select value={createRole} onChange={(e) => setCreateRole(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]">
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
                 {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#5c564a]">Phòng ban</label>
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Phòng ban</label>
               <select value={createDept} onChange={(e) => setCreateDept(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none focus:border-[#aeb300]">
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
                 <option value="">Chọn phòng ban</option>
                 {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -6147,11 +6148,11 @@ function AdminUsersView(props: {
             )}
             <div className="col-span-2 flex gap-3">
               <button type="submit" disabled={creating}
-                className="rounded-xl bg-[#262219] px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">
+                className="rounded-xl bg-[#191919] px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">
                 {creating ? 'Đang tạo...' : 'Tạo tài khoản'}
               </button>
               <button type="button" onClick={() => { setShowCreate(false); setCreateError('') }}
-                className="rounded-xl border border-[#e0d9cb] px-5 py-2.5 text-sm font-bold text-[#5c564a]">
+                className="rounded-xl border border-[#d9d3c5] px-5 py-2.5 text-sm font-bold text-[#6f6b5e]">
                 Hủy
               </button>
             </div>
@@ -6160,34 +6161,34 @@ function AdminUsersView(props: {
       )}
 
       {loading ? (
-        <div className="text-sm text-[#5c564a]">Đang tải...</div>
+        <div className="text-sm text-[#6f6b5e]">Đang tải...</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[#e0d9cb] bg-[#ffffff]">
+        <div className="overflow-x-auto rounded-2xl border border-[#d9d3c5] bg-[#ffffff]">
           <table className="w-full text-sm">
-            <thead className="border-b border-[#e0d9cb] bg-[#faf7f0]">
+            <thead className="border-b border-[#d9d3c5] bg-[#faf7f0]">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Họ tên</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Chức vụ</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Phòng ban</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Trạng thái</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#5c564a]">Hành động</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Họ tên</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Email</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Chức vụ</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Phòng ban</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Trạng thái</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
               {employees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-[#faf7f0]">
                   <td className="px-4 py-3 font-bold">{emp.full_name}</td>
-                  <td className="px-4 py-3 text-[#5c564a]">{emp.email || '—'}</td>
-                  <td className="px-4 py-3 text-[#5c564a]">{emp.position || '—'}</td>
-                  <td className="px-4 py-3 text-[#5c564a]">{deptMap.get(emp.department_id || '') || '—'}</td>
+                  <td className="px-4 py-3 text-[#6f6b5e]">{emp.email || '—'}</td>
+                  <td className="px-4 py-3 text-[#6f6b5e]">{emp.position || '—'}</td>
+                  <td className="px-4 py-3 text-[#6f6b5e]">{deptMap.get(emp.department_id || '') || '—'}</td>
                   <td className="px-4 py-3">
                     <select
                       value={emp.role || 'employee'}
                       disabled={saving === emp.id}
                       onChange={(e) => updateEmployee(emp.id, { role: e.target.value })}
-                      className="rounded-lg border border-[#e0d9cb] px-2 py-1 text-xs font-bold outline-none"
+                      className="rounded-lg border border-[#d9d3c5] px-2 py-1 text-xs font-bold outline-none"
                     >
                       {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
@@ -6209,7 +6210,7 @@ function AdminUsersView(props: {
                     <div className="flex flex-col gap-1">
                       {emp.email ? (
                         <>
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">Có tài khoản</span>
+                          <span className="rounded-full bg-[#e4e6c3] px-2 py-0.5 text-[10px] font-bold text-[#6f7400]">Có tài khoản</span>
                           <ResetPasswordButton authUserId={emp.email} />
                         </>
                       ) : (
@@ -6271,7 +6272,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
   return (
     <form onSubmit={handleReset} className="flex flex-col gap-1">
       <input required minLength={6} type="password" value={pw} onChange={(e) => setPw(e.target.value)}
-        placeholder="Mật khẩu mới" className="h-7 w-32 rounded border border-[#e0d9cb] px-2 text-xs outline-none" />
+        placeholder="Mật khẩu mới" className="h-7 w-32 rounded border border-[#d9d3c5] px-2 text-xs outline-none" />
       {msg && <p className={`text-[10px] font-bold ${msg.includes('Đã') ? 'text-[#6f7400]' : 'text-red-600'}`}>{msg}</p>}
       <div className="flex gap-1">
         <button type="submit" disabled={loading}

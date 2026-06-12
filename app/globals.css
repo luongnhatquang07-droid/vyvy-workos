@@ -1,19 +1,23 @@
 @import "tailwindcss";
 
+/* VYVY Brand Book v1 — Bộ B Haircare · 60 ivory / 30 trầm / 10 lime */
 :root {
-  --bg: #f1ede4;
+  --bg: #f1ede4;          /* Ivory · nền */
   --surface: #ffffff;
   --panel: #faf7f0;
-  --ink: #262219;
-  --text: #2a2820;
-  --text2: #5c564a;
-  --line: #e0d9cb;
+  --ink: #1d1c18;         /* surfaces tối */
+  --char: #191919;        /* Charcoal · chữ */
+  --olive: #2d331a;       /* Olive · neo trầm */
+  --text: #191919;
+  --text2: #6f6b5e;       /* dim */
+  --line: #d9d3c5;        /* hair — rgba(25,25,25,.16) trên ivory */
   --line2: #cfc7b5;
-  --lime: #dadf21;
+  --lime: #dadf21;        /* Lime · 10% — một điểm, đúng lúc */
   --lime-d: #aeb300;
   --lime-ink: #6f7400;
-  --grey: #b4ab99;
+  --grey: #b4ab99;        /* Greige */
   --grey-l: #d9d1c1;
+  --umber: #594e3d;
 }
 
 @theme inline {
@@ -30,6 +34,33 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+/* ─── Năm giọng chữ (brand book ch.05) ───────────────────────────────────── */
+/* Display — tiếng hô, một lần mỗi màn. Condensed, uppercase, tight */
+.font-display {
+  font-family: var(--font-display), "Arial Narrow", Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 0.95;
+  font-weight: 600;
+}
+/* Serif — hồn, lead & trích dẫn. CHỈ ≤26px, cấm display */
+.font-serif-brand {
+  font-family: var(--font-serif-brand), Georgia, serif;
+  line-height: 1.4;
+}
+/* Mono spec — bằng chứng: số liệu, mã, nhãn */
+.font-spec {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Keyline — chữ ký 3: khung viền couture */
+.keyline { box-shadow: inset 0 0 0 1px var(--line); }
+
+/* Stamp lệch 7° — chữ ký 2 */
+.stamp-7 { transform: rotate(-7deg); }
 
 /* ─── Custom scrollbar ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }

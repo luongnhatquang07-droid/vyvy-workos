@@ -70,37 +70,38 @@ export default function LoginPage() {
     }
   }
 
-  const inputCls = "h-12 w-full rounded-xl border border-[#e0d9cb] bg-[#faf7f0] px-4 text-sm text-[#262219] outline-none focus:border-[#aeb300] focus:bg-white placeholder:text-[#b4ab99]"
-  const labelCls = "mb-1.5 block text-sm font-bold text-[#262219]"
+  const inputCls = "h-12 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-4 text-sm text-[#191919] outline-none focus:border-[#aeb300] focus:bg-white placeholder:text-[#b4ab99]"
+  const labelCls = "mb-1.5 block text-sm font-bold text-[#191919]"
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f1ede4] px-4">
       {/* Warm decorative blobs */}
       <div className="pointer-events-none absolute -top-20 -left-20 h-80 w-80 rounded-full bg-[#dadf21]/15 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-[#262219]/5 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-[#191919]/5 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
-        {/* Logo + brand */}
+        {/* Logo nút bấm + lockup (brand book 03·1) */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#262219] text-2xl font-extrabold text-[#dadf21] shadow-xl shadow-[#262219]/25">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#191919] font-display text-2xl text-[#f1ede4] shadow-xl shadow-[#191919]/25">
             V
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-extrabold tracking-tight text-[#262219]">VyVy WorkOS</h1>
-            <p className="mt-1 text-sm text-[#5c564a]">COO Operating System · VyVyHaircare</p>
+            <h1 className="font-display text-3xl text-[#191919]">VyVy WorkOS</h1>
+            <p className="font-spec mt-2 text-[10px] text-[#6f6b5e]">The Haute Couture of Care</p>
+            <p className="font-serif-brand mt-2 text-base italic text-[#6f6b5e]">Không có từ nào đẹp hơn sự thật.</p>
           </div>
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-[#e0d9cb] bg-white shadow-[0_4px_32px_-8px_rgba(38,34,25,0.12)]">
-          <div className="flex border-b border-[#e0d9cb]">
+        <div className="rounded-2xl border border-[#d9d3c5] bg-white shadow-[0_4px_32px_-8px_rgba(38,34,25,0.12)]">
+          <div className="flex border-b border-[#d9d3c5]">
             <button
               type="button"
               onClick={() => { setTab('login'); setError(''); setSuccess('') }}
               className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${
                 tab === 'login'
-                  ? 'border-b-2 border-[#262219] text-[#262219]'
-                  : 'text-[#5c564a] hover:text-[#262219]'
+                  ? 'border-b-2 border-[#191919] text-[#191919]'
+                  : 'text-[#6f6b5e] hover:text-[#191919]'
               }`}
             >
               Đăng nhập
@@ -110,8 +111,8 @@ export default function LoginPage() {
               onClick={() => { setTab('signup'); setError(''); setSuccess('') }}
               className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${
                 tab === 'signup'
-                  ? 'border-b-2 border-[#262219] text-[#262219]'
-                  : 'text-[#5c564a] hover:text-[#262219]'
+                  ? 'border-b-2 border-[#191919] text-[#191919]'
+                  : 'text-[#6f6b5e] hover:text-[#191919]'
               }`}
             >
               Tạo tài khoản
@@ -137,17 +138,17 @@ export default function LoginPage() {
                   <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
                 )}
                 {success && (
-                  <div className="rounded-xl border border-[#e0d9cb] bg-[#f6f9d4] px-4 py-3 text-sm font-bold text-[#6f7400]">{success}</div>
+                  <div className="rounded-xl border border-[#d9d3c5] bg-[#f6f9d4] px-4 py-3 text-sm font-bold text-[#6f7400]">{success}</div>
                 )}
                 <button type="submit" disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#262219] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#262219]/20 hover:bg-[#1a1710] disabled:opacity-50"
+                  className="h-12 w-full rounded-xl bg-[#191919] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#191919]/20 hover:bg-[#1d1c18] disabled:opacity-50"
                 >
                   {loading ? 'Đang đăng nhập...' : 'Đăng nhập →'}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleSignup} className="space-y-4">
-                <div className="rounded-xl border border-[#e0d9cb] bg-[#faf7f0] px-4 py-3 text-xs font-bold text-[#5c564a]">
+                <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-4 py-3 text-xs font-bold text-[#6f6b5e]">
                   Dùng để tạo tài khoản Admin đầu tiên. Sau khi setup xong, Admin sẽ cấp tài khoản cho nhân viên.
                 </div>
                 <div>
@@ -172,7 +173,7 @@ export default function LoginPage() {
                   <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
                 )}
                 <button type="submit" disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#262219] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#262219]/20 hover:bg-[#1a1710] disabled:opacity-50"
+                  className="h-12 w-full rounded-xl bg-[#191919] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#191919]/20 hover:bg-[#1d1c18] disabled:opacity-50"
                 >
                   {loading ? 'Đang tạo...' : 'Tạo tài khoản Admin →'}
                 </button>
