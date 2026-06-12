@@ -13,17 +13,31 @@ export async function POST(req: NextRequest) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  const { authUserId, newPassword } = await req.json()
+  const { authUserId, email, newPassword } = await req.json()
 
-  if (!authUserId || !newPassword) {
-    return NextResponse.json({ error: 'Thiếu authUserId hoặc newPassword' }, { status: 400 })
+  if ((!authUserId && !email) || !newPassword) {
+    return NextResponse.json({ error: 'Thiếu thông tin người dùng hoặc mật khẩu' }, { status: 400 })
   }
 
   if (newPassword.length < 6) {
     return NextResponse.json({ error: 'Mật khẩu phải ít nhất 6 ký tự' }, { status: 400 })
   }
 
-  const { error } = await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+  // If only email provided, find the auth user ID first
+  let targetUserId = authUserId
+  if (!targetUserId && email) {
+    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers()
+    if (listError) {
+      return NextResponse.json({ error: 'Không thể tra cứu người dùng: ' + listError.message }, { status: 500 })
+    }
+    const found = users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
+    if (!found) {
+      return NextResponse.json({ error: 'Không tìm thấy tài khoản với email này' }, { status: 404 })
+    }
+    targetUserId = found.id
+  }
+
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(targetUserId, {
     password: newPassword,
   })
 
