@@ -1684,8 +1684,10 @@ export default function Home() {
   const visibleProjects = useMemo(() => {
     if (!currentEmployee?.id) return projects
     const role = currentEmployee.role || 'employee'
-    if (role === 'ceo' || role === 'coo') return projects
-    if (role === 'admin' && currentEmployee.can_view_all) return projects
+    // CEO/COO/Admin thấy tất cả
+    if (role === 'ceo' || role === 'coo' || role === 'admin') return projects
+    if (currentEmployee.can_view_all) return projects
+    // Dept head / employee: chỉ thấy project có task liên quan
     const visibleProjectIds = new Set(visibleTasks.map((t) => t.project_id).filter(Boolean))
     return projects.filter(
       (p) => visibleProjectIds.has(p.id) || p.owner_id === currentEmployee.id
@@ -1728,27 +1730,49 @@ export default function Home() {
     }
   }, [searchQuery, visibleProjects, visibleTasks])
 
-  const canManageAll =
-    currentEmployee?.role === 'ceo' ||
-    currentEmployee?.role === 'coo' ||
-    currentEmployee?.role === 'admin'
+  // ─── Permission flags ───────────────────────────────────────────────────────
+  const role = currentEmployee?.role || 'employee'
+  const isTopLevel = role === 'ceo' || role === 'coo'
+  const isAdmin = role === 'admin'
+  const isDeptHead = role === 'department_head' || Boolean(currentEmployee?.is_department_head)
+
+  const canManageAll = isTopLevel || isAdmin
 
   const canCreateUsers =
-    currentEmployee?.role === 'ceo' ||
-    currentEmployee?.role === 'coo' ||
-    currentEmployee?.role === 'admin' ||
-    Boolean(currentEmployee?.can_manage_users)
+    canManageAll || Boolean(currentEmployee?.can_manage_users)
 
-  const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+  // Tạo dự án / đầu việc lớn: CEO, COO, Admin
+  const canCreateProject = canManageAll
+  const canCreateWorkstream = canManageAll
+
+  // Tạo đầu việc con: CEO, COO, Admin, Trưởng BP (trong BP mình), hoặc head của workstream
+  function canCreateSubtask(task: Task): boolean {
+    if (canManageAll) return true
+    if (isDeptHead && currentEmployee?.department_id && task.department_id === currentEmployee.department_id) return true
+    if (currentEmployee?.id && task.head_id === currentEmployee.id) return true
+    return false
+  }
+
+  // Xóa task: CEO, COO, Admin
+  const canDeleteTask = canManageAll
+
+  // Tạo step: CEO, COO, Admin, Trưởng BP, hoặc người được assign task đó
+  function canCreateStep(task: Task): boolean {
+    if (canManageAll || isDeptHead) return true
+    if (currentEmployee?.id && (task.assignee_id === currentEmployee.id || task.head_id === currentEmployee.id)) return true
+    return false
+  }
+
+  const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; hide?: boolean }[] = [
     { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
-    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/> },
+    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !canManageAll },
     { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
     { key: 'meeting', label: 'Biên bản họp', icon: <Ico d={IC.messageSquare} size={18}/> },
-    { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/> },
-    { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, adminOnly: true },
+    { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
+    { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !canManageAll },
   ]
-  const menu = allMenuItems.filter((item) => !item.adminOnly || canManageAll)
+  const menu = allMenuItems.filter((item) => !item.hide)
 
   if (!authChecked) {
     return (
@@ -2005,12 +2029,14 @@ export default function Home() {
               <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[#aeb300]' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
               {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
             </div>
-            <button type="button"
-              onClick={() => setCreateOpen(true)}
-              className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#262219] shadow-sm hover:bg-[#cfd41d] sm:px-4"
-            >
-              + Tạo mới
-            </button>
+            {canCreateProject && (
+              <button type="button"
+                onClick={() => setCreateOpen(true)}
+                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#262219] shadow-sm hover:bg-[#cfd41d] sm:px-4"
+              >
+                + Tạo mới
+              </button>
+            )}
           </div>
         </header>
 
@@ -2042,6 +2068,11 @@ export default function Home() {
                   setSelectedProjectId={setSelectedProjectId}
                   selectedWorkstream={selectedWorkstream}
                   setSelectedWorkstreamId={setSelectedWorkstreamId}
+                  openWorkstreamForm={(projectId) => {
+                    setWorkProjectId(projectId)
+                    setCreateTab('workstream')
+                    setCreateOpen(true)
+                  }}
                   selectedSubtasks={selectedSubtasks}
                   stepsByTask={stepsByTask}
                   commentsByStep={commentsByStep}
@@ -2092,6 +2123,10 @@ export default function Home() {
                   setSupporterDrafts={setSupporterDrafts}
                   createSupporter={createSupporter}
                   getStatusLabel={getStatusLabel}
+                  canCreateWorkstream={canCreateWorkstream}
+                  canCreateSubtask={canCreateSubtask}
+                  canCreateStep={canCreateStep}
+                  canDeleteTask={canDeleteTask}
                 />
               )}
 
@@ -2102,7 +2137,8 @@ export default function Home() {
                   setView={setView}
                   setSelectedProjectId={setSelectedProjectId}
                   setSelectedTask={setSelectedTask}
-                  deleteProject={deleteProject}
+                  deleteProject={canDeleteTask ? deleteProject : async () => {}}
+                  canDeleteProject={canDeleteTask}
                 />
               )}
 
@@ -2539,6 +2575,7 @@ function CooBoard(props: {
   setSelectedProjectId: (id: string) => void
   selectedWorkstream?: Task
   setSelectedWorkstreamId: (id: string) => void
+  openWorkstreamForm: (projectId: string) => void
   selectedSubtasks: Task[]
   stepsByTask: Map<string, TaskStep[]>
   commentsByStep: Map<string, StepComment[]>
@@ -2589,6 +2626,10 @@ function CooBoard(props: {
   setSupporterDrafts: (value: Record<string, string>) => void
   createSupporter: (taskId: string) => void
   getStatusLabel: (status: string) => string
+  canCreateWorkstream: boolean
+  canCreateSubtask: (task: Task) => boolean
+  canCreateStep: (task: Task) => boolean
+  canDeleteTask: boolean
 }) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
@@ -2640,32 +2681,44 @@ function CooBoard(props: {
           return (
             <div key={project.id} className="rounded-2xl border border-[#e0d9cb] bg-white overflow-hidden">
               {/* Project header */}
-              <button
-                type="button"
-                onClick={() => toggleProject(project.id)}
-                className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-[#faf7f0] transition-colors"
-              >
-                <span className="w-4 shrink-0 text-sm font-bold text-[#5c564a]">
-                  {isProjectExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-[#262219] truncate">{project.name}</span>
-                    <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
-                      {projectWorkstreams.length} đầu việc lớn
-                    </span>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="h-1.5 w-32 rounded-full bg-[#e0d9cb]">
-                      <div
-                        className="h-1.5 rounded-full bg-[#dadf21] transition-all"
-                        style={{ width: `${projectProgress}%` }}
-                      />
+              <div className="flex items-center gap-2 px-5 py-4 hover:bg-[#faf7f0] transition-colors">
+                <button
+                  type="button"
+                  onClick={() => toggleProject(project.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="w-4 shrink-0 text-sm font-bold text-[#5c564a]">
+                    {isProjectExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-[#262219] truncate">{project.name}</span>
+                      <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                        {projectWorkstreams.length} đầu việc lớn
+                      </span>
                     </div>
-                    <span className="text-xs font-bold text-[#5c564a]">{projectProgress}%</span>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <div className="h-1.5 w-32 rounded-full bg-[#e0d9cb]">
+                        <div
+                          className="h-1.5 rounded-full bg-[#dadf21] transition-all"
+                          style={{ width: `${projectProgress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-[#5c564a]">{projectProgress}%</span>
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {props.canCreateWorkstream && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); props.openWorkstreamForm(project.id) }}
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#262219] hover:bg-[#cfd41d]"
+                >
+                  <Ico d={IC.plus} size={13}/>
+                  Đầu việc lớn
+                </button>
+                )}
+              </div>
 
               {/* Workstreams */}
               {isProjectExpanded && (
@@ -2706,24 +2759,28 @@ function CooBoard(props: {
                               </div>
                             </button>
                             <div className="flex shrink-0 gap-1.5">
-                              <button type="button"
-                                onClick={() => props.openSubtaskForm(ws)}
-                                className="rounded-lg bg-[#262219] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
-                              >
-                                + Việc con
-                              </button>
+                              {props.canCreateSubtask(ws) && (
+                                <button type="button"
+                                  onClick={() => props.openSubtaskForm(ws)}
+                                  className="rounded-lg bg-[#262219] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
+                                >
+                                  + Việc con
+                                </button>
+                              )}
                               <button type="button"
                                 onClick={() => props.setSelectedTask(ws)}
                                 className="rounded-lg border border-[#e0d9cb] px-2.5 py-1 text-xs font-bold text-[#262219]"
                               >
                                 Chi tiết
                               </button>
-                              <button type="button"
-                                onClick={() => props.deleteTask(ws)}
-                                className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
-                              >
-                                Xóa
-                              </button>
+                              {props.canDeleteTask && (
+                                <button type="button"
+                                  onClick={() => props.deleteTask(ws)}
+                                  className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
+                                >
+                                  Xóa
+                                </button>
+                              )}
                             </div>
                           </div>
 
@@ -2788,12 +2845,14 @@ function CooBoard(props: {
                                           >
                                             Chi tiết
                                           </button>
-                                          <button type="button"
-                                            onClick={() => props.deleteTask(subtask)}
-                                            className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
-                                          >
-                                            Xóa
-                                          </button>
+                                          {props.canDeleteTask && (
+                                            <button type="button"
+                                              onClick={() => props.deleteTask(subtask)}
+                                              className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
+                                            >
+                                              Xóa
+                                            </button>
+                                          )}
                                         </div>
                                       </div>
 
@@ -3654,6 +3713,7 @@ function ProjectsView(props: {
   setSelectedProjectId: (id: string) => void
   setSelectedTask: (task: Task) => void
   deleteProject: (project: Project) => void
+  canDeleteProject: boolean
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -3696,14 +3756,16 @@ function ProjectsView(props: {
               <ProjectHealthSummary health={project.health} />
             </div>
 
-            <div className="mt-3 flex justify-end">
-              <button type="button"
-                onClick={() => props.deleteProject(project)}
-                className="rounded-lg bg-red-50 px-3 py-1 text-xs font-bold text-red-600"
-              >
-                Xóa
-              </button>
-            </div>
+            {props.canDeleteProject && (
+              <div className="mt-3 flex justify-end">
+                <button type="button"
+                  onClick={() => props.deleteProject(project)}
+                  className="rounded-lg bg-red-50 px-3 py-1 text-xs font-bold text-red-600"
+                >
+                  Xóa
+                </button>
+              </div>
+            )}
 
             <div className="mt-5 border-t pt-4">
               <p className="mb-3 text-sm font-extrabold">Việc cần chú ý</p>
