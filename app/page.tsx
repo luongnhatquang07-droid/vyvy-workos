@@ -383,8 +383,26 @@ export default function Home() {
         .eq('auth_user_id', session.user.id)
         .maybeSingle()
 
-      if (empError) {
-        // Column auth_user_id chưa tồn tại (SQL chưa chạy) — vẫn cho vào app
+      if (empError || !emp) {
+        // auth_user_id không khớp — thử lookup bằng email
+        const { data: empByEmail } = await supabase
+          .from('employees')
+          .select('*')
+          .eq('email', session.user.email || '')
+          .maybeSingle()
+
+        if (empByEmail) {
+          if (empByEmail.status === 'inactive') {
+            await supabase.auth.signOut()
+            router.push('/login')
+            return
+          }
+          setCurrentEmployee(empByEmail as Employee)
+          setAuthChecked(true)
+          return
+        }
+
+        // Không tìm thấy employee nào — cho vào với role admin tạm thời
         setCurrentEmployee({ id: '', full_name: session.user.email || 'Admin', position: null, role: 'admin', status: 'active' })
         setAuthChecked(true)
         return

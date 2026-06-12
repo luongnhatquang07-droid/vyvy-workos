@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Thiếu email, password hoặc họ tên' }, { status: 400 })
   }
 
+  // Tạo auth user
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
@@ -35,15 +36,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Không lấy được user ID' }, { status: 500 })
   }
 
-  const { error: empError } = await supabaseAdmin.from('employees').insert({
+  // Kiểm tra bảng có cột auth_user_id không
+  const { data: colCheck } = await supabaseAdmin
+    .from('employees')
+    .select('auth_user_id')
+    .limit(1)
+
+  const hasAuthUserId = colCheck !== null
+
+  // Build insert record dựa trên schema thực tế
+  const record: Record<string, unknown> = {
     full_name: fullName,
-    auth_user_id: userId,
+    email: email,
     role: role || 'employee',
     status: 'active',
     position: position || null,
     department_id: departmentId || null,
-    is_department_head: role === 'department_head',
-  })
+  }
+
+  if (hasAuthUserId) {
+    record.auth_user_id = userId
+  }
+
+  const { error: empError } = await supabaseAdmin.from('employees').insert(record)
 
   if (empError) {
     // Xóa auth user nếu không tạo được employee
