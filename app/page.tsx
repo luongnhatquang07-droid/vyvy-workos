@@ -191,6 +191,65 @@ type NotexRow = {
   priority: string
 }
 
+// ─── SVG Icon Library ─────────────────────────────────────────────────────────
+const S = 'stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"'
+function Ico({ d, size = 16, className = '' }: { d: string | string[]; size?: number; className?: string }) {
+  const paths = Array.isArray(d) ? d : [d]
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      {paths.map((path, i) => <path key={i} d={path} />)}
+    </svg>
+  )
+}
+function IcoCircle({ d, size = 16, className = '' }: { d: string | string[]; size?: number; className?: string }) {
+  const paths = Array.isArray(d) ? d : [d]
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="10" />
+      {paths.map((path, i) => <path key={i} d={path} />)}
+    </svg>
+  )
+}
+
+// Icon paths
+const IC = {
+  chevronRight: 'M9 18l6-6-6-6',
+  chevronDown: 'M6 9l6 6 6-6',
+  check: 'M20 6L9 17l-5-5',
+  x: 'M18 6 6 18M6 6l12 12',
+  plus: 'M12 5v14M5 12h14',
+  trash: ['M3 6h18', 'M8 6V4h8v2', 'M19 6l-1 14H6L5 6'],
+  search: ['M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z', 'M21 21l-4.35-4.35'],
+  bell: ['M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9', 'M13.73 21a2 2 0 0 1-3.46 0'],
+  menu: ['M4 6h16', 'M4 12h16', 'M4 18h16'],
+  warning: ['M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z', 'M12 9v4', 'M12 17h.01'],
+  info: ['M12 8h.01', 'M12 12v4'],
+  clipboard: ['M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2', 'M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z'],
+  checkCircle: 'M9 12l2 2 4-4',
+  clock: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z', 'M12 6v6l4 2'],
+  zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+  alertCircle: ['M12 8v4', 'M12 16h.01'],
+  paperclip: 'M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48',
+  eye: ['M1 12s4-8 11-8 11 8 11 8', 'M1 12s4 8 11 8 11-8 11-8', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],
+  edit: ['M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7', 'M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z'],
+  user: ['M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2', 'M12 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'],
+  users: ['M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2', 'M23 21v-2a4 4 0 0 1-3-3.87', 'M16 3.13a4 4 0 0 1 0 7.75', 'M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'],
+  folder: ['M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z'],
+  arrowRight: 'M5 12h14M12 5l7 7-7 7',
+  send: 'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
+  flag: ['M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z', 'M4 22v-7'],
+  layers: ['M12 2 2 7l10 5 10-5-10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],
+  activity: 'M22 12h-4l-3 9L9 3l-3 9H2',
+  download: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M7 10l5 5 5-5', 'M12 15V3'],
+  upload: ['M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'M17 8l-5-5-5 5', 'M12 3v12'],
+  link: ['M15 7h3a5 5 0 0 1 0 10h-3', 'M9 17H6A5 5 0 0 1 6 7h3', 'M8 12h8'],
+  messageSquare: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
+  settings: ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z'],
+  logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
+  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+  star: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+}
+
 export default function Home() {
   const router = useRouter()
   const [authChecked, setAuthChecked] = useState(false)
@@ -1654,16 +1713,22 @@ export default function Home() {
   const canManageAll =
     currentEmployee?.role === 'ceo' ||
     currentEmployee?.role === 'coo' ||
-    (currentEmployee?.role === 'admin' && Boolean(currentEmployee?.can_manage_users))
+    currentEmployee?.role === 'admin'
 
-  const allMenuItems: { key: ViewKey; label: string; icon: string; adminOnly?: boolean }[] = [
-    { key: 'dashboard', label: 'Thống kê', icon: '📊' },
-    { key: 'coo', label: 'COO Board', icon: '🧭' },
-    { key: 'projects', label: 'Dự án', icon: '📁' },
-    { key: 'tasks', label: 'Công việc', icon: '✅' },
-    { key: 'meeting', label: 'Biên bản họp', icon: '📄' },
-    { key: 'assistant', label: 'COO Assistant', icon: '🤖' },
-    { key: 'admin', label: 'Quản lý nhân sự', icon: '👥', adminOnly: true },
+  const canCreateUsers =
+    currentEmployee?.role === 'ceo' ||
+    currentEmployee?.role === 'coo' ||
+    currentEmployee?.role === 'admin' ||
+    Boolean(currentEmployee?.can_manage_users)
+
+  const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+    { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
+    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/> },
+    { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
+    { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
+    { key: 'meeting', label: 'Biên bản họp', icon: <Ico d={IC.messageSquare} size={18}/> },
+    { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/> },
+    { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, adminOnly: true },
   ]
   const menu = allMenuItems.filter((item) => !item.adminOnly || canManageAll)
 
@@ -1712,7 +1777,7 @@ export default function Home() {
               onClick={() => setCollapsed(!collapsed)}
               className="hidden rounded-lg px-2 py-1 text-[#9d9684] hover:bg-[#ffffff]/10 md:block"
             >
-              {collapsed ? '›' : '‹'}
+              {collapsed ? <Ico d={IC.chevronRight} size={14}/> : <Ico d={IC.chevronRight} size={14} className="rotate-180"/>}
             </button>
           </div>
 
@@ -1728,7 +1793,7 @@ export default function Home() {
                     : 'text-[#9d9684] hover:bg-white/[0.07] hover:text-white'
                 } md:justify-start`}
               >
-                <span className="shrink-0 text-base">{item.icon}</span>
+                <span className="shrink-0">{item.icon}</span>
                 <span className={`${collapsed ? 'md:hidden' : ''}`}>{item.label}</span>
               </button>
             ))}
@@ -1754,7 +1819,7 @@ export default function Home() {
               title="Đăng xuất"
               className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-[#9d9684] hover:bg-[#ffffff]/10 hover:text-white"
             >
-              <span className="shrink-0">⎋</span>
+              <span className="shrink-0"><Ico d={IC.logout} size={15}/></span>
               <span className={collapsed ? 'md:hidden' : ''}>Đăng xuất</span>
             </button>
           </div>
@@ -1770,7 +1835,7 @@ export default function Home() {
               className="rounded-lg p-2 text-[#262219] hover:bg-[#ede8df] md:hidden"
               aria-label="Mở menu"
             >
-              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+              <Ico d={IC.menu} size={20}/>
             </button>
             <div className="min-w-0">
             <h2 className="text-base font-extrabold sm:text-lg">
@@ -1799,7 +1864,7 @@ export default function Home() {
               onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
             />
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#b4ab99]">
-              <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path strokeLinecap="round" d="m20 20-3.5-3.5"/></svg>
+              <Ico d={IC.search} size={15}/>
             </span>
 
             {searchOpen && (searchResults.projects.length > 0 || searchResults.tasks.length > 0) && (
@@ -1818,7 +1883,7 @@ export default function Home() {
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold hover:bg-[#ede8df]"
                       >
-                        <span>📁</span>
+                        <span className="text-[#b4ab99]"><Ico d={IC.folder} size={15}/></span>
                         <span className="truncate">{project.name}</span>
                       </button>
                     ))}
@@ -1837,7 +1902,7 @@ export default function Home() {
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-[#ede8df]"
                       >
-                        <span>{task.status === 'completed' ? '✅' : '⏳'}</span>
+                        <span>task.status === 'completed' ? <Ico d={IC.check} size={15} className="text-[#6f7400]"/> : <Ico d={IC.clock} size={15} className="text-[#b4ab99]"/></span>
                         <span className="min-w-0 flex-1 truncate font-bold">{task.title}</span>
                         <span className="shrink-0 text-[10px] text-[#b4ab99]">{task.progress_percent || 0}%</span>
                       </button>
@@ -1855,7 +1920,7 @@ export default function Home() {
                 title="Chờ tôi duyệt"
                 className="relative rounded-xl border border-[#e0d9cb] bg-[#ffffff] p-2.5 hover:bg-[#faf7f0]"
               >
-                <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9"/></svg>
+                <Ico d={IC.bell} size={17}/>
                 {pendingForMe.length > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#dadf21] px-1 text-[10px] font-extrabold text-[#262219]">
                     {pendingForMe.length}
@@ -1891,7 +1956,7 @@ export default function Home() {
                                 onClick={() => approveCurrentStage(step)}
                                 className="rounded-lg bg-[#262219] px-2.5 py-1 text-[11px] font-extrabold text-white"
                               >
-                                ✓ Duyệt ngay
+                                Duyệt ngay
                               </button>
                               <button type="button"
                                 onClick={() => {
@@ -2071,6 +2136,7 @@ export default function Home() {
                 <AdminUsersView
                   departments={departments}
                   onRefresh={fetchAll}
+                  canCreateUsers={canCreateUsers}
                 />
               )}
             </>
@@ -2140,7 +2206,7 @@ export default function Home() {
             className="w-full max-w-sm rounded-2xl bg-[#ffffff] p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#f3f1e8] text-lg">⚠️</div>
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600"><Ico d={IC.warning} size={20}/></div>
             <p className="text-sm font-bold text-[#262219]">{confirmState.message}</p>
             <p className="mt-1 text-xs text-[#5c564a]">Hành động này không thể hoàn tác.</p>
             <div className="mt-4 flex justify-end gap-2">
@@ -2174,7 +2240,7 @@ export default function Home() {
                 'bg-[#dadf21] text-[#262219]'}`}
           >
             <span className="shrink-0 mt-0.5">
-              {t.type === 'error' ? '✕' : t.type === 'warning' ? '⚠' : t.type === 'info' ? 'ℹ' : '✓'}
+              {t.type === 'error' ? <Ico d={IC.x} size={15}/> : t.type === 'warning' ? <Ico d={IC.warning} size={15}/> : t.type === 'info' ? <IcoCircle d={IC.info} size={15}/> : <Ico d={IC.check} size={15}/>}
             </span>
             <span>{t.message}</span>
           </div>
@@ -2236,11 +2302,11 @@ function DashboardView(props: {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <MetricCard label="Tổng đầu việc" value={total} icon="📋" tone="blue" />
-        <MetricCard label="Hoàn thành" value={done} icon="✅" tone="green" />
-        <MetricCard label="Đang làm" value={doing} icon="🔵" tone="blue" />
-        <MetricCard label="Pending" value={pending} icon="🟣" tone="purple" />
-        <MetricCard label="Trễ deadline" value={overdue} icon="🔴" tone="red" />
+        <MetricCard label="Tổng đầu việc" value={total} icon={<Ico d={IC.clipboard} size={18} />} tone="blue" />
+        <MetricCard label="Hoàn thành" value={done} icon={<Ico d={IC.checkCircle} size={18} />} tone="green" />
+        <MetricCard label="Đang làm" value={doing} icon={<Ico d={IC.activity} size={18} />} tone="blue" />
+        <MetricCard label="Pending" value={pending} icon={<Ico d={IC.zap} size={18} />} tone="purple" />
+        <MetricCard label="Trễ deadline" value={overdue} icon={<Ico d={IC.alertCircle} size={18} />} tone="red" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -2506,211 +2572,276 @@ function CooBoard(props: {
   createSupporter: (taskId: string) => void
   getStatusLabel: (status: string) => string
 }) {
-  const selected = props.selectedWorkstream
-  const selectedProgress = selected
-    ? calculateWorkstreamProgress(selected, props.tasksByParent, props.stepsByTask)
-    : 0
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
+  const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
+
+  function toggleProject(id: string) {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleWorkstream(id: string) {
+    setExpandedWorkstreams((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSubtask(id: string) {
+    setExpandedSubtasks((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[340px_1fr]">
-      <Card>
-        <div className="mb-4">
-          <h3 className="text-lg font-extrabold">Đầu việc lớn</h3>
-          <p className="text-sm text-[#5c564a]">Chọn dự án và đầu việc lớn để xem chi tiết.</p>
-        </div>
-
-        <select
-          className="mb-4 h-11 w-full rounded-xl border border-[#e0d9cb] px-3 text-sm outline-none"
-          value={props.selectedProjectId}
-          onChange={(event) => props.setSelectedProjectId(event.target.value)}
-        >
-          <option value="all">Tất cả dự án</option>
-          {props.projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-
-        <div className="space-y-3">
-          {props.workstreams.length === 0 ? (
-            <EmptyState title="Chưa có đầu việc lớn" description="Bấm + Tạo mới để thêm dự án hoặc đầu việc." />
-          ) : (
-            props.workstreams.map((task) => {
-              const head = props.employeeMap.get(task.head_id || task.assignee_id || '')
-              const active = task.id === selected?.id
-              const progress = calculateWorkstreamProgress(task, props.tasksByParent, props.stepsByTask)
-
-              return (
-                <div
-                  key={task.id}
-                  className={`w-full rounded-2xl border p-4 text-left hover:shadow-md ${
-                    active ? 'border-[#1B4FD8] bg-[#E6F1FB]' : 'border-[#e0d9cb] bg-[#ffffff]'
-                  }`}
-                >
-                  <button type="button"
-                    onClick={() => props.setSelectedWorkstreamId(task.id)}
-                    className="block w-full text-left"
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="font-extrabold">{task.title}</p>
-                      <IssueBadge issueStatus={task.issue_status} />
-                    </div>
-
-                    <p className="text-sm text-[#5c564a]">
-                      Head: {head?.full_name || 'Chưa gắn'} · Deadline: {task.due_date || 'Chưa có'}
-                    </p>
-
-                    <div className="mt-3">
-                      <div className="mb-1 flex justify-between text-xs font-bold">
-                        <span>Tiến độ</span>
-                        <span>{progress}%</span>
-                      </div>
-                      <ProgressBar value={progress} />
-                    </div>
-                  </button>
-
-                  <div className="mt-3 flex justify-end">
-                    <button type="button"
-                      onClick={() => props.deleteTask(task)}
-                      className="rounded-lg bg-red-50 px-3 py-1 text-xs font-bold text-red-600"
-                    >
-                      Xóa
-                    </button>
-                  </div>
-                </div>
+    <div className="space-y-3">
+      {props.projects.length === 0 ? (
+        <Card>
+          <EmptyState title="Chưa có dự án" description="Bấm + Tạo mới để thêm dự án." />
+        </Card>
+      ) : (
+        props.projects.map((project) => {
+          const projectWorkstreams = props.workstreams.filter((ws) => ws.project_id === project.id)
+          const projectProgress = projectWorkstreams.length > 0
+            ? Math.round(
+                projectWorkstreams.reduce(
+                  (sum, ws) => sum + calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask),
+                  0
+                ) / projectWorkstreams.length
               )
-            })
-          )}
-        </div>
-      </Card>
+            : 0
+          const isProjectExpanded = expandedProjects.has(project.id)
 
-      <div className="space-y-6">
-        {!selected ? (
-          <Card>
-            <EmptyState title="Chưa chọn đầu việc lớn" description="Chọn một đầu việc lớn ở cột bên trái." />
-          </Card>
-        ) : (
-          <>
-            <Card>
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <h3 className="text-2xl font-extrabold">{selected.title}</h3>
-                    <IssueBadge issueStatus={selected.issue_status} />
-                    <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-extrabold text-blue-700">
-                      {selectedProgress}%
+          return (
+            <div key={project.id} className="rounded-2xl border border-[#e0d9cb] bg-white overflow-hidden">
+              {/* Project header */}
+              <button
+                type="button"
+                onClick={() => toggleProject(project.id)}
+                className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-[#faf7f0] transition-colors"
+              >
+                <span className="w-4 shrink-0 text-sm font-bold text-[#5c564a]">
+                  {isProjectExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-[#262219] truncate">{project.name}</span>
+                    <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                      {projectWorkstreams.length} đầu việc lớn
                     </span>
                   </div>
-
-                  <p className="max-w-3xl text-sm leading-6 text-[#5c564a]">
-                    {selected.description || 'Chưa có mô tả.'}
-                  </p>
-
-                  <div className="mt-4 flex flex-wrap gap-3 text-sm">
-                    <InfoPill label="Dự án" value={props.projectMap.get(selected.project_id || '')?.name || 'Chưa gắn'} />
-                    <InfoPill label="Phòng ban" value={props.departmentMap.get(selected.department_id || '')?.name || 'Chưa gắn'} />
-                    <InfoPill label="Head" value={props.employeeMap.get(selected.head_id || selected.assignee_id || '')?.full_name || 'Chưa gắn'} />
-                    <InfoPill label="Deadline" value={selected.due_date || 'Chưa có'} />
-                  </div>
-
-                  <div className="mt-5">
-                    <ProgressBar value={selectedProgress} />
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1.5 w-32 rounded-full bg-[#e0d9cb]">
+                      <div
+                        className="h-1.5 rounded-full bg-[#dadf21] transition-all"
+                        style={{ width: `${projectProgress}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold text-[#5c564a]">{projectProgress}%</span>
                   </div>
                 </div>
+              </button>
 
-                <div className="flex gap-2">
-                  <button type="button"
-                    onClick={() => props.openSubtaskForm(selected)}
-                    className="rounded-xl bg-[#262219] px-4 py-2 text-sm font-bold text-white"
-                  >
-                    + Đầu việc con
-                  </button>
-                  <button type="button"
-                    onClick={() => props.setSelectedTask(selected)}
-                    className="rounded-xl border border-[#e0d9cb] px-4 py-2 text-sm font-bold"
-                  >
-                    Chi tiết / File
-                  </button>
-                  <button type="button"
-                    onClick={() => props.deleteTask(selected)}
-                    className="rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600"
-                  >
-                    Xóa
-                  </button>
+              {/* Workstreams */}
+              {isProjectExpanded && (
+                <div className="border-t border-[#e0d9cb]">
+                  {projectWorkstreams.length === 0 ? (
+                    <div className="px-8 py-4 text-sm text-[#5c564a]">Chưa có đầu việc lớn.</div>
+                  ) : (
+                    projectWorkstreams.map((ws) => {
+                      const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
+                      const wsHead = props.employeeMap.get(ws.head_id || ws.assignee_id || '')
+                      const subtasks = props.tasksByParent.get(ws.id) || []
+                      const isWsExpanded = expandedWorkstreams.has(ws.id)
+
+                      return (
+                        <div key={ws.id} className="border-b border-[#e0d9cb] last:border-b-0">
+                          <div className="flex items-center gap-2 pl-8 pr-3 py-3 hover:bg-[#faf7f0] transition-colors">
+                            <button
+                              type="button"
+                              onClick={() => toggleWorkstream(ws.id)}
+                              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            >
+                              <span className="w-3 shrink-0 text-xs font-bold text-[#5c564a]">
+                                {isWsExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="truncate text-sm font-bold text-[#262219]">{ws.title}</span>
+                                  <IssueBadge issueStatus={ws.issue_status} />
+                                  <span className="rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                                    {subtasks.length} việc con
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center gap-3 text-xs text-[#5c564a]">
+                                  <span>{wsHead?.full_name || 'Chưa gắn head'}</span>
+                                  {ws.due_date && <span>· {ws.due_date}</span>}
+                                  <span className="font-bold text-[#262219]">{wsProgress}%</span>
+                                </div>
+                              </div>
+                            </button>
+                            <div className="flex shrink-0 gap-1.5">
+                              <button type="button"
+                                onClick={() => props.openSubtaskForm(ws)}
+                                className="rounded-lg bg-[#262219] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
+                              >
+                                + Việc con
+                              </button>
+                              <button type="button"
+                                onClick={() => props.setSelectedTask(ws)}
+                                className="rounded-lg border border-[#e0d9cb] px-2.5 py-1 text-xs font-bold text-[#262219]"
+                              >
+                                Chi tiết
+                              </button>
+                              <button type="button"
+                                onClick={() => props.deleteTask(ws)}
+                                className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
+                              >
+                                Xóa
+                              </button>
+                            </div>
+                          </div>
+
+                          {props.subtaskOpenFor === ws.id && (
+                            <div className="pl-12 pr-4 pb-3">
+                              <InlineSubtaskForm
+                                parent={ws}
+                                form={props.subtaskForm}
+                                setForm={props.setSubtaskForm}
+                                departments={props.departments}
+                                employees={props.employees}
+                                createSubtask={props.createSubtask}
+                                cancel={() => props.setSubtaskOpenFor('')}
+                              />
+                            </div>
+                          )}
+
+                          {isWsExpanded && (
+                            <div className="border-t border-[#e0d9cb] bg-[#faf7f0]">
+                              {subtasks.length === 0 ? (
+                                <div className="py-3 pl-14 text-xs text-[#5c564a]">Chưa có đầu việc con.</div>
+                              ) : (
+                                subtasks.map((subtask) => {
+                                  const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
+                                  const doneSteps = stepsForSubtask.filter((s) => s.approval_status === 'approved').length
+                                  const subtaskProgress = stepsForSubtask.length > 0
+                                    ? Math.round((doneSteps / stepsForSubtask.length) * 100)
+                                    : subtask.progress_percent || 0
+                                  const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
+                                  const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
+
+                                  return (
+                                    <div key={subtask.id} className="border-b border-[#e0d9cb] last:border-b-0">
+                                      <div className="flex items-center gap-2 pl-14 pr-3 py-2.5 hover:bg-[#f1ede4] transition-colors">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleSubtask(subtask.id)}
+                                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                                        >
+                                          <span className="w-3 shrink-0 text-xs font-bold text-[#5c564a]">
+                                            {isSubtaskExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                                          </span>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <span className="truncate text-sm font-bold text-[#262219]">{subtask.title}</span>
+                                              <IssueBadge issueStatus={subtask.issue_status} />
+                                              <span className="rounded-full border border-[#e0d9cb] bg-white px-2 py-0.5 text-xs font-bold text-[#5c564a]">
+                                                {stepsForSubtask.length} bước
+                                              </span>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-3 text-xs text-[#5c564a]">
+                                              {subtaskAssignee && <span>{subtaskAssignee.full_name}</span>}
+                                              {subtask.due_date && <span>· {subtask.due_date}</span>}
+                                              <span className="font-bold text-[#262219]">{subtaskProgress}%</span>
+                                            </div>
+                                          </div>
+                                        </button>
+                                        <div className="flex shrink-0 gap-1.5">
+                                          <button type="button"
+                                            onClick={() => props.setSelectedTask(subtask)}
+                                            className="rounded-lg border border-[#e0d9cb] bg-white px-2.5 py-1 text-xs font-bold text-[#262219]"
+                                          >
+                                            Chi tiết
+                                          </button>
+                                          <button type="button"
+                                            onClick={() => props.deleteTask(subtask)}
+                                            className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-600"
+                                          >
+                                            Xóa
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      {isSubtaskExpanded && (
+                                        <div className="pb-4 pl-14 pr-4 pt-1">
+                                          <SubtaskCard
+                                            task={subtask}
+                                            steps={stepsForSubtask}
+                                            commentsByStep={props.commentsByStep}
+                                            supporters={props.supportersByTask.get(subtask.id) || []}
+                                            reports={props.reportsByTask.get(subtask.id) || []}
+                                            employees={props.employees}
+                                            employeeMap={props.employeeMap}
+                                            departmentMap={props.departmentMap}
+                                            setSelectedTask={props.setSelectedTask}
+                                            openStepForm={props.openStepForm}
+                                            stepOpenFor={props.stepOpenFor}
+                                            setStepOpenFor={props.setStepOpenFor}
+                                            stepForm={props.stepForm}
+                                            setStepForm={props.setStepForm}
+                                            createStep={props.createStep}
+                                            updateTaskStatus={props.updateTaskStatus}
+                                            updateIssueStatus={props.updateIssueStatus}
+                                            updateStep={props.updateStep}
+                                            submitStep={props.submitStep}
+                                            approveStep={props.approveStep}
+                                            requestRevision={props.requestRevision}
+                                            revisionDrafts={props.revisionDrafts}
+                                            setRevisionDrafts={props.setRevisionDrafts}
+                                            linkDrafts={props.linkDrafts}
+                                            setLinkDrafts={props.setLinkDrafts}
+                                            saveStepLink={props.saveStepLink}
+                                            supportDrafts={props.supportDrafts}
+                                            setSupportDrafts={props.setSupportDrafts}
+                                            saveSupportRequest={props.saveSupportRequest}
+                                            commentDrafts={props.commentDrafts}
+                                            setCommentDrafts={props.setCommentDrafts}
+                                            addComment={props.addComment}
+                                            uploadStepFile={props.uploadStepFile}
+                                            deleteTask={props.deleteTask}
+                                            deleteStep={props.deleteStep}
+                                            deleteSupporter={props.deleteSupporter}
+                                            clearStepFile={props.clearStepFile}
+                                            supporterDrafts={props.supporterDrafts}
+                                            setSupporterDrafts={props.setSupporterDrafts}
+                                            createSupporter={props.createSupporter}
+                                            getStatusLabel={props.getStatusLabel}
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
-              </div>
-
-              {props.subtaskOpenFor === selected.id && (
-                <InlineSubtaskForm
-                  parent={selected}
-                  form={props.subtaskForm}
-                  setForm={props.setSubtaskForm}
-                  departments={props.departments}
-                  employees={props.employees}
-                  createSubtask={props.createSubtask}
-                  cancel={() => props.setSubtaskOpenFor('')}
-                />
-              )}
-            </Card>
-
-            <div className="space-y-4">
-              {props.selectedSubtasks.length === 0 ? (
-                <Card>
-                  <EmptyState title="Chưa có đầu việc con" description="Bấm + Đầu việc con để tạo." />
-                </Card>
-              ) : (
-                props.selectedSubtasks.map((task) => (
-                  <SubtaskCard
-                    key={task.id}
-                    task={task}
-                    steps={props.stepsByTask.get(task.id) || []}
-                    commentsByStep={props.commentsByStep}
-                    supporters={props.supportersByTask.get(task.id) || []}
-                    reports={props.reportsByTask.get(task.id) || []}
-                    employees={props.employees}
-                    employeeMap={props.employeeMap}
-                    departmentMap={props.departmentMap}
-                    setSelectedTask={props.setSelectedTask}
-                    openStepForm={props.openStepForm}
-                    stepOpenFor={props.stepOpenFor}
-                    setStepOpenFor={props.setStepOpenFor}
-                    stepForm={props.stepForm}
-                    setStepForm={props.setStepForm}
-                    createStep={props.createStep}
-                    updateTaskStatus={props.updateTaskStatus}
-                    updateIssueStatus={props.updateIssueStatus}
-                    updateStep={props.updateStep}
-                    submitStep={props.submitStep}
-                    approveStep={props.approveStep}
-                    requestRevision={props.requestRevision}
-                    revisionDrafts={props.revisionDrafts}
-                    setRevisionDrafts={props.setRevisionDrafts}
-                    linkDrafts={props.linkDrafts}
-                    setLinkDrafts={props.setLinkDrafts}
-                    saveStepLink={props.saveStepLink}
-                    supportDrafts={props.supportDrafts}
-                    setSupportDrafts={props.setSupportDrafts}
-                    saveSupportRequest={props.saveSupportRequest}
-                    commentDrafts={props.commentDrafts}
-                    setCommentDrafts={props.setCommentDrafts}
-                    addComment={props.addComment}
-                    uploadStepFile={props.uploadStepFile}
-                    deleteTask={props.deleteTask}
-                    deleteStep={props.deleteStep}
-                    deleteSupporter={props.deleteSupporter}
-                    clearStepFile={props.clearStepFile}
-                    supporterDrafts={props.supporterDrafts}
-                    setSupporterDrafts={props.setSupporterDrafts}
-                    createSupporter={props.createSupporter}
-                    getStatusLabel={props.getStatusLabel}
-                  />
-                ))
               )}
             </div>
-          </>
-        )}
-      </div>
+          )
+        })
+      )}
     </div>
   )
 }
@@ -4067,8 +4198,7 @@ function CreatePanel(props: {
       <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Tạo mới</h3>
-          <button type="button" onClick={() => props.setOpen(false)} className="rounded-xl bg-[#ede8df] px-3 py-2 font-bold">
-            ×
+          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#262219] hover:bg-[#e0d9cb]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -4214,8 +4344,7 @@ function TaskDetailDrawer(props: {
       <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="rounded-xl bg-[#ede8df] px-3 py-2 font-bold">
-            ×
+          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#262219] hover:bg-[#e0d9cb]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -4263,7 +4392,7 @@ function TaskDetailDrawer(props: {
               ) : (
                 props.reports.map((report) => (
                   <div key={report.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#ffffff] p-3">
-                    <p className="truncate text-sm font-bold">📎 {report.file_name}</p>
+                    <p className="truncate text-sm font-bold">{report.file_name}</p>
                     <div className="flex shrink-0 gap-2">
                       <a
                         href={report.file_url}
@@ -4302,19 +4431,19 @@ function Card({ children }: { children: React.ReactNode }) {
 function MetricCard(props: {
   label: string
   value: number
-  icon: string
+  icon: React.ReactNode
   tone: 'blue' | 'green' | 'purple' | 'red'
 }) {
   const toneMap = {
-    blue:   'bg-[#f3f1e8] text-[#262219]',
-    green:  'bg-[#f6f9d4] text-[#6f7400]',
-    purple: 'bg-[#f3f1e8] text-[#262219]',
-    red:    'bg-[#fdf0ee] text-red-700',
+    blue:   'bg-[#eeeae1] text-[#262219]',
+    green:  'bg-[#f0f5c4] text-[#6f7400]',
+    purple: 'bg-[#eeeae1] text-[#5c4fcb]',
+    red:    'bg-[#fdf0ee] text-red-600',
   }
   const accentMap = {
     blue:   'before:bg-[#262219]',
     green:  'before:bg-[#dadf21]',
-    purple: 'before:bg-[#b4ab99]',
+    purple: 'before:bg-[#8b7cf6]',
     red:    'before:bg-red-400',
   }
 
@@ -4323,7 +4452,7 @@ function MetricCard(props: {
       before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-bold text-[#5c564a]">{props.label}</p>
-        <span className={`rounded-xl px-3 py-2 text-lg ${toneMap[props.tone]}`}>{props.icon}</span>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneMap[props.tone]}`}>{props.icon}</span>
       </div>
       <p className="mt-3 text-3xl font-extrabold tracking-tight tabular-nums text-[#262219]">{props.value}</p>
     </div>
@@ -4648,7 +4777,7 @@ function calculateProjectHealth(
   const watchWarnings = slowTasks + pendingSteps + supportRequests + missingReports
   const level = problemWarnings > 0 ? 'problem' : watchWarnings > 0 ? 'watch' : 'normal'
   const label =
-    level === 'problem' ? '🔴 Có vấn đề' : level === 'watch' ? '🟠 Cần theo dõi' : '🟢 Đang ổn'
+    level === 'problem' ? 'Có vấn đề' : level === 'watch' ? 'Cần theo dõi' : 'Đang ổn'
 
   return {
     level,
@@ -5204,6 +5333,7 @@ const ROLE_OPTIONS = [
 function AdminUsersView(props: {
   departments: Department[]
   onRefresh: () => void
+  canCreateUsers: boolean
 }) {
   const [employees, setEmployees] = useState<AdminEmployee[]>([])
   const [loading, setLoading] = useState(true)
@@ -5284,13 +5414,20 @@ function AdminUsersView(props: {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-[#5c564a]">{employees.length} nhân sự</p>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="rounded-xl bg-[#262219] px-4 py-2 text-sm font-extrabold text-white"
-        >
-          + Tạo tài khoản
-        </button>
+        {props.canCreateUsers ? (
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 rounded-xl bg-[#dadf21] px-4 py-2 text-sm font-extrabold text-[#262219]"
+          >
+            <Ico d={IC.plus} size={15} />
+            Tạo tài khoản
+          </button>
+        ) : (
+          <span className="rounded-xl border border-[#e0d9cb] px-3 py-2 text-xs font-bold text-[#b4ab99]">
+            Không có quyền tạo tài khoản
+          </span>
+        )}
       </div>
 
       {showCreate && (
@@ -5385,7 +5522,7 @@ function AdminUsersView(props: {
                     <div className="flex flex-wrap gap-1">
                       {[
                         { key: 'can_view_all', label: 'Xem tất cả', val: emp.can_view_all },
-                        { key: 'can_manage_users', label: 'Quản lý user', val: emp.can_manage_users },
+                        { key: 'can_manage_users', label: 'Tạo tài khoản', val: emp.can_manage_users },
                         { key: 'can_manage_tasks', label: 'Quản lý task', val: emp.can_manage_tasks },
                       ].map((perm) => (
                         <button
