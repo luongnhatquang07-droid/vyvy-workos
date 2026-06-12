@@ -3720,6 +3720,8 @@ function ProjectsView(props: {
   canDeleteProject: boolean
 }) {
   const [focusProject, setFocusProject] = useState<string | null>(null)
+  const [boardProject, setBoardProject] = useState<string | null>(null)
+  const boardProjectCard = boardProject ? props.projectCards.find((p) => p.id === boardProject) : null
 
   // ── Tổng hợp tự động từ data thật ──
   const totalTasks = props.projectCards.reduce((s, p) => s + p.total, 0)
@@ -4005,6 +4007,153 @@ function ProjectsView(props: {
           </div>
         )}
       </div>
+
+      {/* ══ 00·4 Ô dự án — bấm để mở bảng ══ */}
+      <Sec n="00·4" title="Ô dự án — bấm để mở bảng" desc="mỗi ô một dự án · bấm → bảng chi tiết bay ra" />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {props.projectCards.map((project) => {
+          const dotColor =
+            project.health.label === 'Tốt' ? 'bg-[#aeb300]' :
+            project.health.label === 'Chú ý' ? 'bg-amber-500' : 'bg-red-500'
+          return (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => setBoardProject(project.id)}
+              className="rounded-2xl border border-[#e0d9cb] bg-white p-5 text-left transition-shadow hover:shadow-md"
+            >
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-extrabold text-[#262219]">{project.name}</p>
+                  {project.code && <p className="text-[10px] text-[#b4ab99]">{project.code}</p>}
+                </div>
+                <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
+              </div>
+              <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[#eeeae1]">
+                <div className="h-2.5 rounded-full bg-[#dadf21]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold tabular-nums text-[#5c564a]">{project.rate}% · {project.done}/{project.total} việc</span>
+                <span className="font-extrabold text-[#262219]">Mở bảng →</span>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ══ Bảng dự án bay ra (modal) ══ */}
+      {boardProjectCard && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#262219]/60 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
+          <div className="w-full max-w-5xl rounded-2xl bg-[#f1ede4] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+
+            {/* Header bảng */}
+            <div className="sticky top-0 z-10 flex items-center gap-3 rounded-t-2xl border-b border-[#3a362b] bg-[#262219] px-5 py-4 text-[#f1ede4]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-extrabold">{boardProjectCard.name}</p>
+                <p className="text-xs text-[#b4ab99]">{boardProjectCard.code || ''} · {boardProjectCard.done}/{boardProjectCard.total} việc · {boardProjectCard.rate}%</p>
+              </div>
+              <button type="button"
+                onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
+                className="shrink-0 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#262219]">
+                Mở COO Board
+              </button>
+              <button type="button" onClick={() => setBoardProject(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3a362b] text-[#f1ede4]">
+                <Ico d={IC.x} size={15} />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-5">
+
+              {/* Mô tả dự án — form chuẩn */}
+              {boardProjectCard.description && (
+                <div>
+                  <Sec n="①" title="Mô tả dự án" desc="form chuẩn" />
+                  <div className="mt-2 rounded-2xl border border-[#e0d9cb] bg-white p-4 text-sm leading-relaxed text-[#5c564a]">
+                    {boardProjectCard.description}
+                  </div>
+                </div>
+              )}
+
+              {/* 3 ô tự gom của riêng dự án */}
+              <div>
+                <Sec n="②" title="Liếc 5 giây" desc="tự gom từ việc của dự án này" />
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {(() => {
+                    const pTasks = props.tasks.filter((t) => t.project_id === boardProjectCard.id)
+                    const pTaskIds = new Set(pTasks.map((t) => t.id))
+                    const pDue = pTasks.filter((t) => {
+                      if (t.status === 'completed' || !t.due_date) return false
+                      const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
+                      return d >= today && d <= weekEnd
+                    }).length
+                    const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
+                    const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
+                    return [
+                      { label: 'Phải xong tuần này', v: pDue, c: 'text-[#6f7400]' },
+                      { label: 'Kẹt / quá hạn', v: pStuck, c: pStuck > 0 ? 'text-red-600' : 'text-[#9d9684]' },
+                      { label: 'Chờ duyệt', v: pPend, c: pPend > 0 ? 'text-amber-600' : 'text-[#9d9684]' },
+                    ].map((x) => (
+                      <div key={x.label} className="rounded-xl border border-[#e0d9cb] bg-white px-3 py-2.5 text-center">
+                        <p className={`text-2xl font-extrabold tabular-nums ${x.c}`}>{x.v}</p>
+                        <p className="text-[10px] font-bold text-[#9d9684]">{x.label}</p>
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </div>
+
+              {/* Việc theo mảng */}
+              <div>
+                <Sec n="③" title="Việc theo mảng — mỗi việc một người" desc="bấm việc → mở chi tiết" />
+                <div className="mt-2 space-y-3">
+                  {props.tasks
+                    .filter((t) => t.project_id === boardProjectCard.id && (t.task_level === 'workstream' || !t.parent_task_id))
+                    .map((ws) => {
+                      const children = props.tasks.filter((t) => t.parent_task_id === ws.id)
+                      return (
+                        <div key={ws.id} className="overflow-hidden rounded-2xl border border-[#e0d9cb] bg-white">
+                          <div className="flex items-center justify-between border-b border-[#e0d9cb] bg-[#faf7f0] px-4 py-2.5">
+                            <p className="truncate text-sm font-extrabold text-[#262219]">{ws.title}</p>
+                            <span className="shrink-0 text-xs font-bold tabular-nums text-[#9d9684]">
+                              {children.filter((c) => c.status === 'completed').length}/{children.length}
+                            </span>
+                          </div>
+                          {children.length === 0 ? (
+                            <p className="px-4 py-3 text-xs text-[#9d9684]">Chưa có việc con.</p>
+                          ) : (
+                            <div className="divide-y divide-[#f1ede4]">
+                              {children.map((t) => {
+                                const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
+                                  || (t.description?.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || '—'
+                                const stBadge =
+                                  t.status === 'completed' ? { txt: 'Xong', cls: 'bg-[#f0f5c4] text-[#6f7400]' } :
+                                  isTaskOverdue(t) ? { txt: 'Trễ', cls: 'bg-red-100 text-red-700' } :
+                                  t.status === 'in_progress' ? { txt: 'Đang', cls: 'bg-blue-100 text-blue-700' } :
+                                  t.status === 'pending' ? { txt: 'Kẹt', cls: 'bg-amber-100 text-amber-700' } :
+                                  { txt: 'Chưa', cls: 'bg-[#eeeae1] text-[#9d9684]' }
+                                return (
+                                  <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
+                                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#faf7f0]">
+                                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-[#262219]">{t.title}</span>
+                                    <span className="w-20 shrink-0 truncate text-xs text-[#5c564a]">{who}</span>
+                                    <span className="w-12 shrink-0 text-[10px] font-bold tabular-nums text-[#9d9684]">{t.due_date?.slice(5) || '—'}</span>
+                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${stBadge.cls}`}>{stBadge.txt}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
