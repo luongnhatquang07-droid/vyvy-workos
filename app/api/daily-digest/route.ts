@@ -14,6 +14,7 @@ type Task = {
   issue_status: string | null
   assignee_id: string | null
   head_id: string | null
+  priority: string | null
 }
 
 type AuthorizedActor = {
@@ -152,6 +153,10 @@ async function finishRunLog(
     .eq('id', runId)
 }
 
+function priorityRank(p: string | null): number {
+  return p === 'high' ? 0 : p === 'medium' ? 1 : 2
+}
+
 function buildNotificationContent(
   today: string,
   dueToday: Task[],
@@ -160,18 +165,23 @@ function buildNotificationContent(
   const dateLabel = formatDateViVN(today)
 
   let title: string
-  if (dueToday.length > 0) {
+  if (overdue.length > 0 && dueToday.length > 0) {
+    title = `📋 ${dateLabel}: ${dueToday.length} việc hôm nay · ${overdue.length} việc đang trễ`
+  } else if (dueToday.length > 0) {
     title = `📋 Hôm nay, ${dateLabel}: ${dueToday.length} việc phải xong`
   } else {
     title = `⚠️ ${overdue.length} việc đang trễ hạn`
   }
 
-  const allTasks = [...dueToday, ...overdue]
-  const topTitles = allTasks.slice(0, 3).map((t) => t.title)
-  const remaining = allTasks.length - topTitles.length
-  let body = topTitles.join(' · ')
+  // Uu tien "nen lam truoc": viec tre (tre lau nhat truoc) -> viec hom nay (uu tien cao truoc)
+  const overdueSorted = [...overdue].sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
+  const dueSorted = [...dueToday].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
+  const ordered = [...overdueSorted, ...dueSorted]
+  const top = ordered.slice(0, 3).map((t, i) => `${i + 1}. ${t.title}`)
+  const remaining = ordered.length - top.length
+  let body = `Nên làm trước — ${top.join(' · ')}`
   if (remaining > 0) {
-    body += ` ... và ${remaining} việc khác`
+    body += ` · +${remaining} việc khác`
   }
 
   return { title, body }
@@ -183,7 +193,7 @@ async function processDailyDigest(supabase: ReturnType<typeof serviceClient>, ac
 
   const { data, error } = await supabase
     .from('tasks')
-    .select('id, title, due_date, status, issue_status, assignee_id, head_id')
+    .select('id, title, due_date, status, issue_status, assignee_id, head_id, priority')
     .not('status', 'eq', 'completed')
     .not('status', 'eq', 'cancelled')
     .limit(5000)

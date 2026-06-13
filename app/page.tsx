@@ -4,6 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { displayLoginIdentifier } from '@/lib/internal-auth'
+import DeadlineApproval from '@/components/DeadlineApproval'
+import CooAssistantPanel from '@/components/CooAssistantPanel'
+import HeadPicker from '@/components/HeadPicker'
+import MeetingHistory from '@/components/MeetingHistory'
+import MeetingStudio from '@/components/MeetingStudio'
+import MyDeadlineInbox from '@/components/MyDeadlineInbox'
 import {
   LayoutDashboard, Kanban, FolderKanban, ListTodo, FileText,
   CalendarClock, Zap, Bot, Users,
@@ -118,6 +124,7 @@ type Task = {
   parent_task_id: string | null
   task_level: string | null
   head_id: string | null
+  head_ids: string[] | null
   issue_status: string | null
   created_at?: string | null
 }
@@ -189,7 +196,7 @@ type StepComment = {
   } | null
 }
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin'
 
 type RecurringTask = {
   id: string
@@ -660,6 +667,7 @@ export default function Home() {
   const fetchAllRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null)
 
   const [view, setView] = useState<ViewKey>('coo')
+  const [taskFilter, setTaskFilter] = useState('all')
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
@@ -745,6 +753,7 @@ export default function Home() {
   const [meetingRecap, setMeetingRecap] = useState<MeetingRecap>(DEFAULT_MEETING_RECAP)
   const [notexProjectName, setNotexProjectName] = useState('')
   const [notexRows, setNotexRows] = useState<NotexRow[]>([])
+  const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [assistantOutput, setAssistantOutput] = useState('')
 
@@ -1730,6 +1739,16 @@ export default function Home() {
     await refreshDataSilent()
   }
 
+  async function updateTaskHead(taskId: string, headIds: string[]) {
+    const { error } = await supabase.from('tasks').update({ head_ids: headIds, head_id: headIds[0] || null }).eq('id', taskId)
+    if (error) {
+      console.error(error)
+      toast('Cập nhật Head lỗi.', 'error')
+      return
+    }
+    await refreshDataSilent()
+  }
+
   // Tự động tính % tiến độ + trạng thái đầu việc từ các bước (automation)
   async function syncTaskProgress(taskId: string) {
     const { data } = await supabase
@@ -2261,6 +2280,42 @@ export default function Home() {
     reader.readAsText(file)
   }
 
+  async function analyzeMeetingWithAI() {
+    if (!meetingRaw.trim()) { toast('Dán nội dung biên bản vào ô ⑨ trước.', 'warning'); return }
+    setAnalyzing(true)
+    try {
+      const res = await fetch('/api/analyze-meeting', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: meetingRaw }) })
+      const data = await res.json()
+      if (!data.ok) { toast(data.error || 'Phân tích AI lỗi.', 'error'); setAnalyzing(false); return }
+      const result = data.result || {}
+      const rows: NotexRow[] = []
+      for (const ws of (result.workstreams || [])) {
+        for (const st of (ws?.subtasks || [])) {
+          const owner = String(st?.owner || '').trim()
+          const emp = employees.find((e) => (e.full_name || '').toLowerCase() === owner.toLowerCase())
+          rows.push({
+            id: `ai-${rows.length}-${Date.now()}`,
+            workstreamTitle: ws?.title || 'Đầu việc lớn',
+            subtaskTitle: st?.title || 'Đầu việc',
+            responsibility: owner,
+            expectedOutput: '',
+            departmentId: '',
+            headId: emp?.id || '',
+            assigneeId: emp?.id || '',
+            dueDate: st?.deadline && st.deadline !== 'null' ? String(st.deadline) : '',
+            priority: 'medium',
+          })
+        }
+      }
+      setNotexRows(rows)
+      setNotexProjectName((current) => current || result?.project?.name || meetingTitle || 'Dự án từ biên bản')
+      toast(`AI tạo ${rows.length} đầu việc — kiểm tra rồi bấm Import.`)
+    } catch {
+      toast('Không gọi được phân tích AI.', 'error')
+    }
+    setAnalyzing(false)
+  }
+
   function splitNotexRows() {
     // Generate rows from structured assignments
     const assignmentRows: NotexRow[] = []
@@ -2769,7 +2824,7 @@ export default function Home() {
 
   // ─── Permission flags ───────────────────────────────────────────────────────
   const role = currentEmployee?.role || 'employee'
-  const isTopLevel = role === 'ceo' || role === 'coo'
+  const isTopLevel = role === 'ceo' || role === 'coo' || role === 'admin' // admin đồng quyền top-level (tạm thời)
   const isAdmin = role === 'admin'
   const isDeptHead = role === 'department_head' || Boolean(currentEmployee?.is_department_head)
 
@@ -2817,6 +2872,7 @@ export default function Home() {
     { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
     { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !canManageAll },
     { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
+    { key: 'assigned', label: 'Việc được giao', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
     { key: 'meeting', label: 'Biên bản họp', icon: <Ico d={IC.messageSquare} size={18}/> },
     { key: 'recurring', label: 'Việc định kỳ', icon: <Ico d={IC.clock} size={18}/> },
@@ -2971,6 +3027,7 @@ export default function Home() {
               {view === 'dashboard' && 'Thống kê vận hành'}
               {view === 'coo' && 'COO Board'}
               {view === 'projects' && 'Tổng dự án'}
+              {view === 'assigned' && 'Việc được giao'}
               {view === 'tasks' && 'Quản lý công việc'}
               {view === 'meeting' && 'Nhập biên bản họp'}
               {view === 'recurring' && 'Việc định kỳ'}
@@ -3230,6 +3287,7 @@ export default function Home() {
               {view === 'dashboard' && (
                 <DashboardView
                   tasks={visibleTasks}
+                  setTaskFilter={setTaskFilter}
                   steps={steps}
                   urgentTasks={urgentTasks}
                   projectCards={projectCards}
@@ -3250,6 +3308,7 @@ export default function Home() {
               {view === 'coo' && canManageAll && (
                 <CooBoard
                   projects={visibleProjects}
+                  deleteProject={canDeleteTask ? deleteProject : async () => {}}
                   workstreams={workstreams}
                   selectedProjectId={selectedProjectId}
                   setSelectedProjectId={setSelectedProjectId}
@@ -3286,6 +3345,7 @@ export default function Home() {
                   createStep={createStep}
                   updateTaskStatus={updateTaskStatus}
                   updateIssueStatus={updateIssueStatus}
+updateTaskHead={updateTaskHead}
                   updateStep={updateStep}
                   submitStep={submitStep}
                   approveStep={approveCurrentStage}
@@ -3319,6 +3379,7 @@ export default function Home() {
 
               {view === 'projects' && (
                 <ProjectsView
+                  currentEmployee={currentEmployee}
                   projectCards={projectCards.filter((p) => visibleProjects.some((vp) => vp.id === p.id))}
                   tasks={visibleTasks}
                   steps={steps}
@@ -3331,9 +3392,15 @@ export default function Home() {
                 />
               )}
 
+              {view === 'assigned' && (
+                <MyDeadlineInbox tasks={visibleTasks} currentUserId={currentEmployee?.id || ''} employees={Array.from(employeeMap.values())} seeAll={['admin','coo','ceo'].includes(currentEmployee?.role || '')} />
+              )}
+
               {view === 'tasks' && (
                 <TasksView
                   tasks={visibleTasks}
+                  statusFilter={taskFilter}
+                  setStatusFilter={setTaskFilter}
                   employeeMap={employeeMap}
                   projectMap={projectMap}
                   setSelectedTask={setSelectedTask}
@@ -3359,6 +3426,10 @@ export default function Home() {
                   importing={importing}
                   handleMeetingFile={handleMeetingFile}
                   splitNotexRows={splitNotexRows}
+                  analyzeMeetingWithAI={analyzeMeetingWithAI}
+                  analyzing={analyzing}
+                  currentEmployee={currentEmployee}
+                  onMeetingCreated={() => refreshDataSilent()}
                   importNotexRows={importNotexRows}
                   saveMeeting={saveMeeting}
                 />
@@ -3419,6 +3490,11 @@ export default function Home() {
                   generateMissingReportFileReport={generateMissingReportFileReport}
                   generatePeopleReport={generatePeopleReport}
                   generateProjectReport={generateProjectReport}
+                  tasks={tasks}
+                  projectCards={projectCards}
+                  peopleReports={peopleReports}
+                  employees={employees}
+                  currentEmployee={currentEmployee}
                 />
               )}
 
@@ -3496,6 +3572,8 @@ export default function Home() {
           deleteTaskReport={deleteTaskReport}
           uploading={uploading}
           getStatusLabel={getStatusLabel}
+          currentEmployee={currentEmployee}
+          employees={employees}
         />
       )}
 
@@ -3532,12 +3610,12 @@ export default function Home() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`toast-enter pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
-              transition-all duration-300 max-w-[340px]
-              ${t.type === 'error' ? 'bg-[var(--accent)] text-[var(--accent)] border border-red-400/40' :
-                t.type === 'warning' ? 'bg-[var(--bg-card)] text-[var(--accent)] border border-[var(--accent)]/30' :
-                t.type === 'info' ? 'bg-[var(--accent)] text-[var(--accent)]' :
-                'bg-[var(--accent)] text-[var(--text-primary)]'}`}
+            className={`toast-enter pointer-events-auto flex items-start gap-3 rounded-[var(--radius)] px-4 py-3 text-sm font-medium shadow-[0_4px_16px_-4px_rgba(25,25,25,0.2)]
+              transition-all duration-300 max-w-[340px] border
+              ${t.type === 'error' ? 'bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/30' :
+                t.type === 'warning' ? 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/30' :
+                t.type === 'info' ? 'bg-[var(--paper)] text-[var(--char)] border-[var(--hair)]' :
+                'bg-[var(--olive)] text-[var(--ivory)] border-transparent'}`}
           >
             <span className="shrink-0 mt-0.5">
               {t.type === 'error' ? <Ico d={IC.x} size={15}/> : t.type === 'warning' ? <Ico d={IC.warning} size={15}/> : t.type === 'info' ? <IcoCircle d={IC.info} size={15}/> : <Ico d={IC.check} size={15}/>}
@@ -3559,6 +3637,7 @@ function DashboardView(props: {
   employeeMap: Map<string, Employee>
   projectMap: Map<string, Project>
   setView: (view: ViewKey) => void
+  setTaskFilter: (f: string) => void
   setSelectedProjectId: (id: string) => void
   setSelectedTask: (task: Task) => void
   currentEmployee: Employee | null
@@ -3590,11 +3669,11 @@ function DashboardView(props: {
 
   // Donut data
   const donutData = [
-    { name: 'Hoàn thành', value: done, color: '#4ADE80' },
-    { name: 'Đang làm', value: doing, color: '#DADF21' },
-    { name: 'Pending', value: pending, color: '#60A5FA' },
-    { name: 'Trễ hạn', value: overdue, color: '#F87171' },
-    { name: 'Chưa bắt đầu', value: Math.max(0, total - done - doing - pending), color: '#3A3A2C' },
+    { name: 'Hoàn thành', value: done, color: '#5B6B2E' },
+    { name: 'Đang làm', value: doing, color: '#8A8047' },
+    { name: 'Pending', value: pending, color: '#4A5A6A' },
+    { name: 'Trễ hạn', value: overdue, color: '#8A3A2E' },
+    { name: 'Chưa bắt đầu', value: Math.max(0, total - done - doing - pending), color: '#A59780' },
   ].filter((d) => d.value > 0)
 
   // Workload bar data (top 8)
@@ -3613,10 +3692,10 @@ function DashboardView(props: {
       {/* ── Employee: Việc của tôi hôm nay ── */}
       {!isAdmin && currentEmployee && (
         <div className="rounded-[var(--radius-lg)] border border-[var(--accent)]/20 bg-[var(--accent-soft)] p-5">
-          <p className="text-xs font-semibold text-[var(--accent)] mb-3">VIỆC CỦA TÔI</p>
+          <p className="font-spec text-[var(--olive)] mb-3">VIỆC CỦA TÔI</p>
           <div className="grid grid-cols-3 gap-3 mb-4">
             {[
-              { label: 'Đang làm', value: myDoing.length, color: 'text-[var(--accent)]' },
+              { label: 'Đang làm', value: myDoing.length, color: 'text-[var(--char)]' },
               { label: 'Đến hạn hôm nay', value: myDueToday.length, color: 'text-[var(--warning)]' },
               { label: 'Trễ hạn', value: myOverdue.length, color: 'text-[var(--danger)]' },
             ].map((s) => (
@@ -3641,13 +3720,13 @@ function DashboardView(props: {
       {/* ── Metric cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {[
-          { label: 'Tổng việc', value: total, icon: <ListTodo size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--info)]', bg: 'bg-[var(--info-soft)]' },
-          { label: 'Hoàn thành', value: done, icon: <CheckCircle2 size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--success)]', bg: 'bg-[var(--success-soft)]' },
-          { label: 'Đang làm', value: doing, icon: <Activity size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--accent)]', bg: 'bg-[var(--accent-soft)]' },
-          { label: 'Pending', value: pending, icon: <Clock size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning-soft)]' },
-          { label: 'Trễ hạn', value: overdue, icon: <AlertCircle size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--danger)]', bg: 'bg-[var(--danger-soft)]' },
+          { label: 'Tổng việc', value: total, icon: <ListTodo size={16}/>, view: 'tasks' as ViewKey, filter: 'all', color: 'text-[var(--info)]', bg: 'bg-[var(--info-soft)]' },
+          { label: 'Hoàn thành', value: done, icon: <CheckCircle2 size={16}/>, view: 'tasks' as ViewKey, filter: 'completed', color: 'text-[var(--success)]', bg: 'bg-[var(--success-soft)]' },
+          { label: 'Đang làm', value: doing, icon: <Activity size={16}/>, view: 'tasks' as ViewKey, filter: 'in_progress', color: 'text-[var(--char)]', bg: 'bg-[var(--bg-surface)]' },
+          { label: 'Pending', value: pending, icon: <Clock size={16}/>, view: 'tasks' as ViewKey, filter: 'pending', color: 'text-[var(--warning)]', bg: 'bg-[var(--warning-soft)]' },
+          { label: 'Trễ hạn', value: overdue, icon: <AlertCircle size={16}/>, view: 'tasks' as ViewKey, filter: 'overdue', color: 'text-[var(--danger)]', bg: 'bg-[var(--danger-soft)]' },
         ].map((m) => (
-          <button key={m.label} type="button" onClick={() => props.setView(m.view)}
+          <button key={m.label} type="button" onClick={() => { props.setTaskFilter(m.filter); props.setView(m.view) }}
             className={`${cardCls} text-left hover:bg-[var(--bg-card-hover)] transition-colors group`}>
             <div className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] ${m.bg} ${m.color} mb-3`}>
               {m.icon}
@@ -3704,7 +3783,7 @@ function DashboardView(props: {
                     </div>
                     <div className="text-right shrink-0">
                       <ProjectHealthBadge health={project.health} />
-                      <p className="text-xl font-bold text-[var(--accent)] mt-1">{project.rate}%</p>
+                      <p className="text-xl font-bold text-[var(--olive)] mt-1">{project.rate}%</p>
                     </div>
                   </div>
                   <ProgressBar value={project.rate} />
@@ -3730,7 +3809,7 @@ function DashboardView(props: {
                       <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
                       <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
                         <span className="text-[var(--success)]">{row.done} xong</span>
-                        <span className="text-[var(--accent)]">{row.doing} đang làm</span>
+                        <span className="text-[var(--umber)]">{row.doing} đang làm</span>
                         {row.overdue > 0 && <span className="text-[var(--danger)]">{row.overdue} trễ</span>}
                       </div>
                     </div>
@@ -3867,9 +3946,9 @@ function DashboardWorkloadBar({ data }: { data: Array<{ name: string; done: numb
         <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-        <Bar dataKey="done" name="Xong" fill="#4ADE80" radius={[3,3,0,0]} stackId="a" />
-        <Bar dataKey="doing" name="Đang làm" fill="#DADF21" radius={[3,3,0,0]} stackId="a" />
-        <Bar dataKey="overdue" name="Trễ" fill="#F87171" radius={[3,3,0,0]} stackId="a" />
+        <Bar dataKey="done" name="Xong" fill="#5B6B2E" radius={[3,3,0,0]} stackId="a" />
+        <Bar dataKey="doing" name="Đang làm" fill="#8A8047" radius={[3,3,0,0]} stackId="a" />
+        <Bar dataKey="overdue" name="Trễ" fill="#8A3A2E" radius={[3,3,0,0]} stackId="a" />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -3909,6 +3988,7 @@ function CooBoard(props: {
   createStep: (taskId: string) => void
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
+  updateTaskHead: (taskId: string, headIds: string[]) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
@@ -3937,6 +4017,7 @@ function CooBoard(props: {
   canCreateSubtask: (task: Task) => boolean
   canCreateStep: (task: Task) => boolean
   canDeleteTask: boolean
+  deleteProject: (project: Project) => void
 }) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
@@ -4019,10 +4100,20 @@ function CooBoard(props: {
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); props.openWorkstreamForm(project.id) }}
-                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-extrabold text-[var(--text-primary)] hover:bg-[#cfd41d]"
+                  className="shrink-0 flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--olive)] bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--olive)] hover:bg-[var(--olive)] hover:text-[var(--ivory)] transition-colors"
                 >
                   <Ico d={IC.plus} size={13}/>
                   Đầu việc lớn
+                </button>
+                )}
+                {props.canDeleteTask && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); props.deleteProject(project) }}
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+                >
+                  <Ico d={IC.trash} size={13}/>
+                  Xóa
                 </button>
                 )}
               </div>
@@ -4036,6 +4127,9 @@ function CooBoard(props: {
                     projectWorkstreams.map((ws) => {
                       const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
                       const wsHead = props.employeeMap.get(ws.head_id || ws.assignee_id || '')
+                      const wsHeadNames = (ws.head_ids && ws.head_ids.length > 0
+                        ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
+                        : wsHead ? [wsHead.full_name] : [])
                       const subtasks = props.tasksByParent.get(ws.id) || []
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
@@ -4059,13 +4153,18 @@ function CooBoard(props: {
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-                                  <span>{wsHead?.full_name || 'Chưa gắn head'}</span>
+                                  <span>{wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gắn head'}</span>
                                   {ws.due_date && <span>· {ws.due_date}</span>}
                                   <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                                 </div>
                               </div>
                             </button>
-                            <div className="flex shrink-0 gap-1.5">
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <HeadPicker
+                                headIds={ws.head_ids || (ws.head_id ? [ws.head_id] : [])}
+                                employees={props.employees}
+                                onSave={(ids) => props.updateTaskHead(ws.id, ids)}
+                              />
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
                                   onClick={() => props.openSubtaskForm(ws)}
@@ -4183,6 +4282,7 @@ function CooBoard(props: {
                                             createStep={props.createStep}
                                             updateTaskStatus={props.updateTaskStatus}
                                             updateIssueStatus={props.updateIssueStatus}
+                                            updateTaskHead={props.updateTaskHead}
                                             updateStep={props.updateStep}
                                             submitStep={props.submitStep}
                                             approveStep={props.approveStep}
@@ -4339,6 +4439,7 @@ function SubtaskCard(props: {
   createStep: (taskId: string) => void
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
+  updateTaskHead: (taskId: string, headIds: string[]) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
@@ -4383,11 +4484,15 @@ function SubtaskCard(props: {
             {overdue && <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">Quá hạn</span>}
           </div>
 
-          <p className="text-sm text-[var(--text-secondary)]">
-            Head: <b>{head?.full_name || 'Chưa gắn'}</b> · Phòng ban:{' '}
-            <b>{department?.name || 'Chưa gắn'}</b> · Deadline:{' '}
-            <b>{props.task.due_date || 'Chưa có'}</b>
-          </p>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <span>Head:</span>
+            <HeadPicker
+              headIds={props.task.head_ids || (props.task.head_id ? [props.task.head_id] : [])}
+              employees={props.employees}
+              onSave={(ids) => props.updateTaskHead(props.task.id, ids)}
+            />
+            <span>· Phòng ban: <b>{department?.name || 'Chưa gắn'}</b> · Deadline: <b>{props.task.due_date || 'Chưa có'}</b></span>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -4413,6 +4518,23 @@ function SubtaskCard(props: {
             <option value="slow">Đang chậm</option>
             <option value="problem">Có vấn đề</option>
           </select>
+
+          <select
+            className="h-10 rounded-xl border border-[var(--border)] px-2 text-xs font-bold"
+            value={props.supporterDrafts[props.task.id] || ''}
+            onChange={(event) => props.setSupporterDrafts({ ...props.supporterDrafts, [props.task.id]: event.target.value })}
+          >
+            <option value="">+ Người hỗ trợ</option>
+            {props.employees.map((employee) => (
+              <option key={employee.id} value={employee.id}>{employee.full_name}</option>
+            ))}
+          </select>
+          <button type="button"
+            onClick={() => props.createSupporter(props.task.id)}
+            className="h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold"
+          >
+            Thêm HT
+          </button>
 
           <button type="button"
             onClick={() => props.setSelectedTask(props.task)}
@@ -4501,63 +4623,19 @@ function SubtaskCard(props: {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
-          <p className="mb-3 font-extrabold">Người hỗ trợ</p>
-
-          <div className="mb-3 flex gap-2">
-            <select
-              className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
-              value={props.supporterDrafts[props.task.id] || ''}
-              onChange={(event) =>
-                props.setSupporterDrafts({
-                  ...props.supporterDrafts,
-                  [props.task.id]: event.target.value,
-                })
-              }
-            >
-              <option value="">Chọn người hỗ trợ</option>
-              {props.employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.full_name}
-                </option>
-              ))}
-            </select>
-
-            <button type="button"
-              onClick={() => props.createSupporter(props.task.id)}
-              className="rounded-xl bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
-            >
-              Thêm
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {props.supporters.length === 0 ? (
-              <p className="text-sm text-[var(--text-secondary)]">Chưa có người hỗ trợ.</p>
-            ) : (
-              props.supporters.map((supporter) => (
-                <div key={supporter.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--bg-card)] p-3">
-                  <div>
-                    <p className="text-sm font-bold">{supporter.employees?.full_name || 'Không rõ'}</p>
-                    <p className="text-xs text-[var(--text-secondary)]">{supporter.role_note || 'Hỗ trợ'}</p>
-                  </div>
-                  <button type="button"
-                    onClick={() => props.deleteSupporter(supporter)}
-                    className="rounded-lg bg-[var(--danger-soft)] px-3 py-1 text-xs font-bold text-[var(--danger)]"
-                  >
-                    Xóa
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
-          <p className="font-extrabold">File báo cáo đầu việc</p>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">{props.reports.length} file đã upload ở cấp đầu việc.</p>
-        </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-semibold text-[var(--text-secondary)]">Hỗ trợ:</span>
+        {props.supporters.length === 0 ? (
+          <span className="text-[var(--text-muted)]">chưa có</span>
+        ) : (
+          props.supporters.map((supporter) => (
+            <span key={supporter.id} className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-surface)] px-2 py-0.5">
+              {supporter.employees?.full_name || 'Không rõ'}
+              <button type="button" onClick={() => props.deleteSupporter(supporter)} className="text-[var(--danger)] hover:opacity-70">✕</button>
+            </span>
+          ))
+        )}
+        <span className="ml-auto text-[var(--text-muted)]">{props.reports.length} file báo cáo</span>
       </div>
     </div>
   )
@@ -5023,6 +5101,7 @@ function ProjectsView(props: {
   setSelectedTask: (task: Task) => void
   deleteProject: (project: Project) => void
   canDeleteProject: boolean
+  currentEmployee: Employee | null
 }) {
   const [focusProject, setFocusProject] = useState<string | null>(null)
   const [boardProject, setBoardProject] = useState<string | null>(null)
@@ -5175,11 +5254,11 @@ function ProjectsView(props: {
             {props.projectCards.map((project) => {
               const isFocus = focusProject === project.id
               const healthColor =
-                project.health.label === 'Tốt' ? 'bg-[var(--accent)]' :
-                project.health.label === 'Chú ý' ? 'bg-amber-400' : 'bg-red-500'
+                project.health.label === 'Tốt' ? 'bg-[var(--ok)]' :
+                project.health.label === 'Chú ý' ? 'bg-[var(--warn)]' : 'bg-[var(--crit)]'
               const dotColor =
-                project.health.label === 'Tốt' ? 'bg-[var(--accent-hover)]' :
-                project.health.label === 'Chú ý' ? 'bg-amber-500' : 'bg-red-500'
+                project.health.label === 'Tốt' ? 'bg-[var(--ok)]' :
+                project.health.label === 'Chú ý' ? 'bg-[var(--warn)]' : 'bg-[var(--crit)]'
 
               return (
                 <button
@@ -5276,9 +5355,9 @@ function ProjectsView(props: {
             <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Màu sức khỏe</p>
             <div className="space-y-1.5">
               {[
-                { color: 'bg-[var(--accent)]', label: 'Tốt — đúng tiến độ' },
-                { color: 'bg-amber-400', label: 'Chú ý — có rủi ro' },
-                { color: 'bg-red-500', label: 'Nghiêm trọng — cần can thiệp' },
+                { color: 'bg-[var(--ok)]', label: 'Tốt — đúng tiến độ' },
+                { color: 'bg-[var(--warn)]', label: 'Chú ý — có rủi ro' },
+                { color: 'bg-[var(--crit)]', label: 'Nghiêm trọng — cần can thiệp' },
               ].map((l) => (
                 <div key={l.label} className="flex items-center gap-2">
                   <div className={`h-3 w-12 rounded-full ${l.color}`} />
@@ -5302,7 +5381,7 @@ function ProjectsView(props: {
                 <p className="w-36 shrink-0 truncate text-sm font-bold text-[var(--text-primary)]">{w.name}</p>
                 <div className="h-4 flex-1 overflow-hidden rounded-full bg-[var(--bg-surface)]">
                   <div
-                    className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-red-500' : 'bg-[var(--accent)]'}`}
+                    className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-[var(--crit)]' : 'bg-[var(--umber)]'}`}
                     style={{ width: `${(w.n / maxLoad) * 100}%` }}
                   />
                 </div>
@@ -5317,9 +5396,13 @@ function ProjectsView(props: {
       <Sec n="00·4" title="Ô dự án — bấm để mở bảng" desc="mỗi ô một dự án · bấm → bảng chi tiết bay ra" />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {props.projectCards.map((project) => {
-          const dotColor =
-            project.health.label === 'Tốt' ? 'bg-[var(--accent-hover)]' :
-            project.health.label === 'Chú ý' ? 'bg-amber-500' : 'bg-red-500'
+          const healthCls =
+            project.health.label === 'Tốt' ? 'bg-[var(--success-soft)] text-[var(--ok)]' :
+            project.health.label === 'Chú ý' ? 'bg-[var(--warning-soft)] text-[var(--warn)]' :
+            'bg-[var(--danger-soft)] text-[var(--crit)]'
+          const barColor =
+            project.health.label === 'Tốt' ? 'var(--ok)' :
+            project.health.label === 'Chú ý' ? 'var(--warn)' : 'var(--crit)'
           return (
             <button
               key={project.id}
@@ -5332,14 +5415,16 @@ function ProjectsView(props: {
                   <p className="truncate font-extrabold text-[var(--text-primary)]">{project.name}</p>
                   {project.code && <p className="text-[10px] text-[var(--text-muted)]">{project.code}</p>}
                 </div>
-                <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${healthCls}`}>{project.health.label}</span>
               </div>
               <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[var(--bg-surface)]">
-                <div className="h-2.5 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
+                <div className="h-2.5 rounded-full" style={{ width: `${Math.max(project.rate, 1)}%`, background: barColor }} />
               </div>
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="font-bold tabular-nums text-[var(--text-secondary)]">{project.rate}% · {project.done}/{project.total} việc</span>
-                <span className="font-extrabold text-[var(--text-primary)]">Mở bảng →</span>
+                {project.overdue > 0 && <span className="font-semibold text-[var(--crit)]">{project.overdue} trễ</span>}
+                {project.problem > 0 && <span className="font-semibold text-[var(--warn)]">{project.problem} vấn đề</span>}
+                <span className="ml-auto font-extrabold text-[var(--text-primary)]">Mở bảng →</span>
               </div>
             </button>
           )
@@ -5376,6 +5461,13 @@ function ProjectsView(props: {
                   className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[#c8cc18] transition-colors">
                   Mở COO Board
                 </button>
+                {props.canDeleteProject && (
+                  <button type="button"
+                    onClick={() => { setBoardProject(null); props.deleteProject(boardProjectCard) }}
+                    className="shrink-0 rounded-lg border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors">
+                    Xóa dự án
+                  </button>
+                )}
                 <button type="button" onClick={() => setBoardProject(null)}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-primary)]/60 hover:bg-[var(--bg-card)]/10 transition-colors">
                   <Ico d={IC.x} size={16} />
@@ -5437,22 +5529,37 @@ function ProjectsView(props: {
                           {children.length > 0 && (
                             <div className="border-t border-[#f1ede4] divide-y divide-[#f1ede4]">
                               {children.map((t) => {
+                                                                const desc = t.description || ''
+                                const ownerM = (desc.match(/owner:\s*([^|]+)/) || [])[1]?.trim()
+                                const moduleM = (desc.match(/module:\s*([^|]+)/) || [])[1]?.trim()
+                                const blkRaw = (desc.match(/blocker:\s*(CAN QUYET|CAN SO|CAN BUILD)/) || [])[1]
+                                const blkLabel = blkRaw === 'CAN QUYET' ? 'Cần quyết' : blkRaw === 'CAN SO' ? 'Cần số' : blkRaw === 'CAN BUILD' ? 'Cần build' : ''
+                                const isCrit = /critical-path/.test(desc)
                                 const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
-                                  || (t.description?.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || '—'
+                                  || (desc.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || ownerM || '—'
                                 const st =
                                   t.status === 'completed' ? { dot: 'bg-[var(--accent-hover)]', txt: 'Xong', cls: 'text-[var(--accent-hover)] bg-[#f0f5c4]' } :
-                                  isTaskOverdue(t) ? { dot: 'bg-red-500', txt: 'Trễ', cls: 'text-red-700 bg-red-50' } :
+                                  isTaskOverdue(t) ? { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' } :
                                   t.status === 'in_progress' ? { dot: 'bg-[var(--accent)]', txt: 'Đang', cls: 'text-[var(--accent-hover)] bg-[var(--accent-soft)]' } :
-                                  t.status === 'pending' ? { dot: 'bg-amber-400', txt: 'Kẹt', cls: 'text-amber-700 bg-amber-50' } :
+                                  t.status === 'pending' ? { dot: 'bg-[var(--warn)]', txt: 'Kẹt', cls: 'text-[var(--warn)] bg-[var(--warning-soft)]' } :
                                   { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[#f5f2ec]' }
                                 return (
                                   <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                                    className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-[var(--bg-surface)] transition-colors group">
-                                    <span className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[#2d331a]">{t.title}</span>
-                                    <span className="w-20 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
-                                    <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
-                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
+                                    className="flex w-full flex-col gap-1 px-4 py-2 text-left hover:bg-[var(--bg-surface)] transition-colors group">
+                                    <span className="flex w-full items-center gap-3">
+                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
+                                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[#2d331a]">{t.title}</span>
+                                      <span className="w-20 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
+                                      <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
+                                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
+                                    </span>
+                                    {(moduleM || blkLabel || isCrit) && (
+                                      <span className="flex flex-wrap items-center gap-1.5 pl-4">
+                                        {isCrit && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--crit)]">đường găng</span>}
+                                        {blkLabel && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--warn)]">{blkLabel}</span>}
+                                        {moduleM && <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{moduleM}</span>}
+                                      </span>
+                                    )}
                                   </button>
                                 )
                               })}
@@ -5484,9 +5591,12 @@ function TasksView(props: {
   projectMap: Map<string, Project>
   setSelectedTask: (task: Task) => void
   updateTaskStatus: (taskId: string, status: string) => void
+  statusFilter: string
+  setStatusFilter: (f: string) => void
   getStatusLabel: (status: string) => string
 }) {
-  const [statusFilter, setStatusFilter] = useState('all')
+  const statusFilter = props.statusFilter
+  const setStatusFilter = props.setStatusFilter
   const [search, setSearch] = useState('')
 
   const filteredTasks = props.tasks
@@ -5673,6 +5783,10 @@ function MeetingView(props: {
   importing: boolean
   handleMeetingFile: (file?: File) => void
   splitNotexRows: () => void
+  analyzeMeetingWithAI: () => void
+  analyzing: boolean
+  currentEmployee: Employee | null
+  onMeetingCreated: () => void
   importNotexRows: () => void
   saveMeeting: () => void
 }) {
@@ -5734,6 +5848,10 @@ function MeetingView(props: {
 
   return (
     <div className="space-y-5">
+      <MeetingStudio employees={props.employees} currentEmployee={props.currentEmployee} onCreated={props.onMeetingCreated} />
+      <details className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-[var(--text-secondary)]">Form nhập cũ (ẩn — chỉ dùng khi không phân tích AI)</summary>
+        <div className="p-1">
 
       {/* ── Header info ── */}
       <Card>
@@ -5982,6 +6100,10 @@ function MeetingView(props: {
             className="h-10 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors">
             Lưu biên bản
           </button>
+          <button type="button" onClick={props.analyzeMeetingWithAI} disabled={props.analyzing}
+            className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--on-accent)] disabled:opacity-40 hover:bg-[var(--accent-hover)] transition-colors">
+            {props.analyzing ? 'Đang phân tích...' : '✨ Phân tích bằng AI'}
+          </button>
           <button type="button" onClick={props.splitNotexRows}
             className="h-10 rounded-xl bg-[var(--bg-card)] px-5 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)] transition-colors">
             Tách đầu việc từ phân công
@@ -6082,6 +6204,10 @@ function MeetingView(props: {
         </div>
       </Card>
       )}
+
+        </div>
+      </details>
+      <div className="mt-6"><MeetingHistory /></div>
     </div>
   )
 }
@@ -6770,8 +6896,8 @@ function RecurringView(props: {
                   <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="font-extrabold">Kho file họp</p>
-                        <p className="mt-1 text-xs text-[var(--text-secondary)]">File/link lưu ở đây tự gắn với cuộc họp đang chọn.</p>
+                        <p className="font-extrabold">Lịch sử biên bản theo buổi</p>
+                        <p className="mt-1 text-xs text-[var(--text-secondary)]">Mỗi buổi: ngày + tên · bấm để xem biên bản đã chốt.</p>
                       </div>
                       {isLocalRecurringTask(selectedMeeting) && (
                         <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
@@ -6830,33 +6956,24 @@ function RecurringView(props: {
                       {selectedMeetingFiles.length === 0 ? (
                         <p className="rounded-xl bg-[var(--bg-surface)] px-3 py-3 text-sm text-[var(--text-secondary)]">Chưa có file/link họp nào.</p>
                       ) : (
-                        selectedMeetingFiles.map((file) => (
-                          <div key={file.id} className="flex flex-col gap-2 rounded-xl bg-[var(--bg-surface)] p-3 lg:flex-row lg:items-center lg:justify-between">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-extrabold">{file.title || file.file_name}</p>
-                              <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
-                                {file.meeting_date ? `${file.meeting_date} · ` : ''}
-                                {file.note || file.file_name}
-                                {file.uploaded_by && props.employeeMap.get(file.uploaded_by) ? ` · ${props.employeeMap.get(file.uploaded_by)?.full_name}` : ''}
-                              </p>
+                        [...selectedMeetingFiles].sort((a, b) => String(b.meeting_date || '').localeCompare(String(a.meeting_date || ''))).map((file) => (
+                          <details key={file.id} className="overflow-hidden rounded-xl bg-[var(--bg-surface)]">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-bold">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="shrink-0 rounded-md bg-[var(--bg-card)] px-2 py-0.5 font-mono text-[11px] text-[var(--text-secondary)]">{file.meeting_date || '—'}</span>
+                                <span className="truncate text-[var(--text-primary)]">{file.title || file.file_name}</span>
+                              </span>
+                              <span className="shrink-0 text-xs text-[var(--text-muted)]">▾ Xem biên bản</span>
+                            </summary>
+                            <div className="border-t border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-secondary)]">
+                              {file.note && <p className="mb-2 whitespace-pre-line leading-5 text-[#594e3d]">{file.note}</p>}
+                              <p className="text-[var(--text-muted)]">{file.uploaded_by && props.employeeMap.get(file.uploaded_by) ? `Người lưu: ${props.employeeMap.get(file.uploaded_by)?.full_name} · ` : ''}{file.file_name}</p>
+                              <div className="mt-2 flex gap-2">
+                                <a href={file.file_url} target="_blank" rel="noreferrer" className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">Mở biên bản đã chốt</a>
+                                <button type="button" onClick={() => props.deleteMeetingFile(file)} className="rounded-lg bg-[var(--danger-soft)] px-3 py-1.5 text-xs font-bold text-[var(--danger)]">Xóa</button>
+                              </div>
                             </div>
-                            <div className="flex shrink-0 gap-2">
-                              <a
-                                href={file.file_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
-                              >
-                                Mở
-                              </a>
-                              <button type="button"
-                                onClick={() => props.deleteMeetingFile(file)}
-                                className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs font-bold text-[var(--danger)]"
-                              >
-                                Xóa
-                              </button>
-                            </div>
-                          </div>
+                          </details>
                         ))
                       )}
                     </div>
@@ -7131,23 +7248,39 @@ function AssistantView(props: {
   generateMissingReportFileReport: () => void
   generatePeopleReport: () => void
   generateProjectReport: () => void
+  tasks: Task[]
+  projectCards: ProjectCard[]
+  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number }>
+  employees: Employee[]
+  currentEmployee: Employee | null
 }) {
   const reportButtons = [
-    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[var(--accent)] text-[var(--accent)]' },
-    { label: 'Việc cần hối thúc', action: props.generateFollowUpReport, className: 'bg-red-600 text-[var(--text-primary)]' },
-    { label: 'Việc chờ duyệt', action: props.generatePendingApprovalReport, className: 'bg-amber-500 text-[var(--text-primary)]' },
-    { label: 'Việc cần làm lại', action: props.generateRevisionReport, className: 'bg-[var(--danger-soft)] text-[var(--danger)]' },
+    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[var(--olive)] text-[var(--ivory)]' },
+    { label: 'Việc cần hối thúc', action: props.generateFollowUpReport, className: 'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/30' },
+    { label: 'Việc chờ duyệt', action: props.generatePendingApprovalReport, className: 'bg-[var(--warning-soft)] text-[var(--warning)] border border-[var(--warning)]/30' },
+    { label: 'Việc cần làm lại', action: props.generateRevisionReport, className: 'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/30' },
     {
       label: 'Việc thiếu file/link báo cáo',
       action: props.generateMissingReportFileReport,
-      className: 'bg-slate-900 text-[var(--text-primary)]',
+      className: 'bg-[var(--umber)] text-[var(--ivory)]',
     },
-    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[var(--accent)] text-[var(--accent)]' },
-    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-[#f0f5c4] text-[var(--accent-hover)]' },
+    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[var(--olive)] text-[var(--ivory)]' },
+    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-[var(--paper)] text-[var(--char)] border border-[var(--hair)]' },
   ]
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+    <div className="flex flex-col gap-6">
+      <CooAssistantPanel
+        tasks={props.tasks}
+        projectCards={props.projectCards}
+        peopleReports={props.peopleReports}
+        employees={props.employees}
+        currentEmployee={props.currentEmployee}
+        onDailyReport={props.generateDailyReport}
+        onFollowUpReport={props.generateFollowUpReport}
+        onPeopleReport={props.generatePeopleReport}
+      />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
       <Card>
         <h3 className="text-lg font-extrabold">COO Assistant</h3>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
@@ -7188,6 +7321,7 @@ function AssistantView(props: {
           <EmptyState title="Chưa có báo cáo" description="Bấm một nút bên trái để tạo báo cáo." />
         )}
       </Card>
+      </div>
     </div>
   )
 }
@@ -7371,6 +7505,8 @@ function TaskDetailDrawer(props: {
   deleteTaskReport: (report: TaskReport) => void
   uploading: boolean
   getStatusLabel: (status: string) => string
+  currentEmployee: Employee | null
+  employees: Employee[]
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
   const assignee = props.employeeMap.get(props.task.assignee_id || '')
@@ -7404,6 +7540,18 @@ function TaskDetailDrawer(props: {
           <InfoRow label="Head phụ trách" value={head?.full_name || 'Chưa gắn'} />
           <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gắn'} />
           <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
+
+          {props.currentEmployee && (
+            <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
+              <p className="mb-3 font-extrabold">Duyệt deadline</p>
+              <DeadlineApproval
+                taskId={props.task.id}
+                taskLevel={props.task.task_level}
+                currentUser={{ id: props.currentEmployee.id, role: props.currentEmployee.role }}
+                employees={props.employees}
+              />
+            </div>
+          )}
 
           <div>
             <div className="mb-2 flex justify-between text-sm">
@@ -7505,11 +7653,11 @@ function ProgressBar({ value, showLabel }: { value: number; showLabel?: boolean 
     <div className="flex items-center gap-2">
       <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--border)]">
         <div
-          className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[var(--accent-hover)] to-[var(--accent)] transition-[width] duration-500"
+          className="progress-bar-fill h-full rounded-full bg-[var(--olive)] transition-[width] duration-500"
           style={{ width: `${clamped}%` }}
         />
       </div>
-      {showLabel && <span className="text-xs font-semibold text-[var(--accent)] w-8 text-right">{clamped}%</span>}
+      {showLabel && <span className="text-xs font-semibold text-[var(--char)] w-8 text-right">{clamped}%</span>}
     </div>
   )
 }
@@ -8351,8 +8499,8 @@ function filterTasksByRole(
 ): Task[] {
   if (!emp || !emp.id) return tasks
   const role = emp.role || 'employee'
-  if (role === 'ceo' || role === 'coo') return tasks
-  if (role === 'admin' && emp.can_view_all) return tasks
+  if (role === 'ceo' || role === 'coo' || role === 'admin') return tasks
+  if (emp.can_view_all) return tasks
 
   const supportedTaskIds = new Set(
     supporters.filter((s) => s.employee_id === emp.id).map((s) => s.task_id)

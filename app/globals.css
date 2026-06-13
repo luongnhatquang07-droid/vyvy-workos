@@ -11,8 +11,8 @@
   --char:   #191919;
   --dim:    #6F6B5E;
   --lime:   #DADF21;
-  --hair:   rgba(25,25,25,.14);
-  --hair-d: rgba(241,237,228,.18);
+  --hair:   rgba(25,25,25,.18);
+  --hair-d: rgba(241,237,228,.20);
 
   /* Status — small use only (dot/badge/%) */
   --ok:     #5B6B2E;
@@ -20,8 +20,8 @@
   --crit:   #8A3A2E;
 
   /* ── Semantic aliases (used throughout components) ── */
-  --bg-base:       var(--ivory);
-  --bg-surface:    #EDE9DF;
+  --bg-base:       #E9E3D5;
+  --bg-surface:    #E0D9C8;
   --bg-card:       var(--paper);
   --bg-card-hover: #F4F0E8;
   --bg-input:      var(--paper);
