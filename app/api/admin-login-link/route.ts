@@ -63,6 +63,7 @@ export async function POST(request: Request) {
   const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
     type: 'magiclink',
     email,
+    options: { redirectTo: 'https://vyvy-workos.vercel.app' },
   })
   if (linkErr || !linkData) return Response.json({ ok: false, error: linkErr?.message || 'link generation failed' }, { status: 500 })
 
