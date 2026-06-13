@@ -48,9 +48,22 @@ export async function POST(request: Request) {
     return Response.json({ ok: false, error: 'missing file or taskId' }, { status: 400 })
   }
 
+  // Validate taskId is a UUID — prevent path traversal
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(taskId)) {
+    return Response.json({ ok: false, error: 'invalid taskId' }, { status: 400 })
+  }
+
+  // Verify the task exists and belongs to this user's accessible scope
+  const { data: task } = await supabase.from('recurring_tasks').select('id').eq('id', taskId).maybeSingle()
+  if (!task) {
+    return Response.json({ ok: false, error: 'task not found' }, { status: 404 })
+  }
+
   await ensureBucket(supabase)
 
-  const safeName = file.name.replace(/\s+/g, '-')
+  // Strip path separators and dangerous chars from filename
+  const safeName = file.name.replace(/[^\w.\-]/g, '-').replace(/\.{2,}/g, '-')
   const filePath = `${taskId}/${Date.now()}-${safeName}`
   const arrayBuffer = await file.arrayBuffer()
 

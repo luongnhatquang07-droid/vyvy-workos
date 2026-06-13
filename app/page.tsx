@@ -573,11 +573,14 @@ export default function Home() {
 
   // ─── Toast system ──────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const toastTimers = useRef<ReturnType<typeof setTimeout>[]>([])
   const showToast = useCallback((msg: string, type: ToastType = 'success') => {
     const id = Math.random().toString(36).slice(2)
     setToasts((prev) => [...prev.slice(-4), { id, message: msg, type }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500)
+    const t = setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== id)), 3500)
+    toastTimers.current.push(t)
   }, [])
+  useEffect(() => () => { toastTimers.current.forEach(clearTimeout) }, [])
   useEffect(() => { _showToast = showToast; return () => { _showToast = null } }, [showToast])
 
   // ─── Confirm dialog ────────────────────────────────────────────────────────
@@ -718,9 +721,9 @@ export default function Home() {
           return
         }
 
-        // Không tìm thấy employee nào — cho vào với role admin tạm thời
-        setCurrentEmployee({ id: '', full_name: session.user.email || 'Admin', position: null, role: 'admin', status: 'active' })
-        setAuthChecked(true)
+        // Không tìm thấy employee nào — chặn vào app
+        await supabase.auth.signOut()
+        router.push('/login')
         return
       }
 
@@ -730,7 +733,13 @@ export default function Home() {
         return
       }
 
-      setCurrentEmployee(emp ? (emp as Employee) : { id: '', full_name: session.user.email || 'Admin', position: null, role: 'admin', status: 'active' })
+      if (!emp) {
+        await supabase.auth.signOut()
+        router.push('/login')
+        return
+      }
+
+      setCurrentEmployee(emp as Employee)
       setAuthChecked(true)
     }
     checkAuth()
@@ -1047,41 +1056,42 @@ export default function Home() {
     async function claimAndNotify(rt: RecurringTask, field: 'notified_early_for' | 'notified_near_for', occKey: string, title: string, body: string) {
       const recipients = recurringRecipientIds(rt)
       if (recipients.length === 0) return
-      // Claim chống nhắc trùng giữa nhiều máy đang mở app
       const { data: claimed } = await supabase
         .from('recurring_tasks')
         .update({ [field]: occKey })
         .eq('id', rt.id)
-        .or(`${field}.is.null,${field}.neq.${occKey}`)
+        .or(`${field}.is.null,${field}.neq."${occKey}"`)
         .select('id')
       if (!claimed || claimed.length === 0) return
       await pushNotify(recipients.map((recipient_id) => ({ recipient_id, type: 'recurring_reminder', title, body })))
       fetchRecurring()
     }
 
-    for (const rt of recurringTasks) {
-      if (!rt.is_active || recurringRecipientIds(rt).length === 0) continue
-      const occ = nextOccurrence(rt, now)
-      const occKey = occurrenceKey(rt, occ)
-      const msTo = occ.getTime() - now.getTime()
+    async function runChecks() {
+      for (const rt of recurringTasks) {
+        if (!rt.is_active || recurringRecipientIds(rt).length === 0) continue
+        const occ = nextOccurrence(rt, now)
+        const occKey = occurrenceKey(rt, occ)
+        const msTo = occ.getTime() - now.getTime()
 
-      // Nhắc sớm (mặc định trước 2 ngày) — cho việc tuần/tháng
-      if ((rt.frequency === 'weekly' || rt.frequency === 'monthly') &&
-          msTo <= rt.remind_days_before * 86_400_000 &&
-          msTo > rt.remind_minutes_before * 60_000 &&
-          rt.notified_early_for !== occKey) {
-        claimAndNotify(rt, 'notified_early_for', occKey,
-          `Sắp tới: ${rt.title}`,
-          `${formatOccurrence(occ)} — còn ${Math.ceil(msTo / 86_400_000)} ngày. Chuẩn bị trước.`)
-      }
+        if ((rt.frequency === 'weekly' || rt.frequency === 'monthly') &&
+            msTo <= rt.remind_days_before * 86_400_000 &&
+            msTo > rt.remind_minutes_before * 60_000 &&
+            rt.notified_early_for !== occKey) {
+          await claimAndNotify(rt, 'notified_early_for', occKey,
+            `Sắp tới: ${rt.title}`,
+            `${formatOccurrence(occ)} — còn ${Math.ceil(msTo / 86_400_000)} ngày. Chuẩn bị trước.`)
+        }
 
-      // Nhắc gần (mặc định trước 1 tiếng) — mọi loại
-      if (msTo <= rt.remind_minutes_before * 60_000 && msTo > 0 && rt.notified_near_for !== occKey) {
-        claimAndNotify(rt, 'notified_near_for', occKey,
-          rt.kind === 'meeting' ? `Còn ${Math.ceil(msTo / 60_000)} phút nữa họp: ${rt.title}` : `Sắp đến hạn nộp: ${rt.title}`,
-          `${formatOccurrence(occ)} (${rt.time_of_day})`)
+        if (msTo <= rt.remind_minutes_before * 60_000 && msTo > 0 && rt.notified_near_for !== occKey) {
+          await claimAndNotify(rt, 'notified_near_for', occKey,
+            rt.kind === 'meeting' ? `Còn ${Math.ceil(msTo / 60_000)} phút nữa họp: ${rt.title}` : `Sắp đến hạn nộp: ${rt.title}`,
+            `${formatOccurrence(occ)} (${rt.time_of_day})`)
+        }
       }
     }
+
+    void runChecks()
   }, [fetchRecurring, now, recurringTasks])
 
   function editRecurringTask(task: RecurringTask) {
@@ -1646,7 +1656,8 @@ export default function Home() {
     const percent = Math.round((done / rows.length) * 100)
     const hasActivity = rows.some((row) => row.is_done || (row.approval_status && row.approval_status !== 'not_submitted'))
 
-    const task = tasks.find((item) => item.id === taskId)
+    const { data: freshTask } = await supabase.from('tasks').select('id, status, parent_task_id, project_id').eq('id', taskId).maybeSingle()
+    const task = freshTask as Pick<Task, 'id' | 'status' | 'parent_task_id' | 'project_id'> | null
     const patch: Record<string, unknown> = { progress_percent: percent }
 
     if (percent === 100) {
@@ -1902,7 +1913,7 @@ export default function Home() {
 
     const { error } = await supabase.from('task_step_comments').insert({
       step_id: stepId,
-      employee_id: employees[0]?.id || null,
+      employee_id: currentEmployee?.id || null,
       comment: text,
       comment_type: type,
     })
@@ -2009,7 +2020,7 @@ export default function Home() {
       file_name: file.name,
       file_url: data.publicUrl,
       file_type: file.type || null,
-      uploaded_by: task.head_id || task.assignee_id || null,
+      uploaded_by: currentEmployee?.id || null,
       note: 'File báo cáo / kết quả đầu việc',
     })
 
@@ -2026,6 +2037,18 @@ export default function Home() {
 
   async function deleteProject(project: Project) {
     if (!(await confirmDialog(`Xóa dự án "${project.name}" và toàn bộ đầu việc thuộc dự án này?`))) return
+
+    // Lấy task IDs để xóa cascade children trước
+    const { data: projectTasks } = await supabase.from('tasks').select('id').eq('project_id', project.id)
+    const taskIds = (projectTasks || []).map((t) => t.id)
+
+    if (taskIds.length > 0) {
+      await supabase.from('task_step_comments').delete().in('step_id',
+        (await supabase.from('task_steps').select('id').in('task_id', taskIds)).data?.map((s) => s.id) || [])
+      await supabase.from('task_steps').delete().in('task_id', taskIds)
+      await supabase.from('task_supporters').delete().in('task_id', taskIds)
+      await supabase.from('task_reports').delete().in('task_id', taskIds)
+    }
 
     const { error: tasksError } = await supabase.from('tasks').delete().eq('project_id', project.id)
 
@@ -2367,7 +2390,7 @@ export default function Home() {
       report_type: type,
       title,
       content,
-      created_by: employees[0]?.id || null,
+      created_by: currentEmployee?.id || null,
     })
   }
 

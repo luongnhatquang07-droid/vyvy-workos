@@ -69,7 +69,8 @@ async function authorize(request: Request, supabase: ReturnType<typeof serviceCl
     return { source: 'cron', actorId: null }
   }
 
-  if (!authHeader && process.env.NODE_ENV !== 'production') {
+  const host = request.headers.get('host') || ''
+  if (!authHeader && process.env.NODE_ENV !== 'production' && (host.startsWith('localhost') || host.startsWith('127.'))) {
     return { source: 'local-dev', actorId: null }
   }
 
@@ -185,6 +186,7 @@ async function processDailyDigest(supabase: ReturnType<typeof serviceClient>, ac
     .select('id, title, due_date, status, issue_status, assignee_id, head_id')
     .not('status', 'eq', 'completed')
     .not('status', 'eq', 'cancelled')
+    .limit(5000)
 
   if (error) throw error
 
