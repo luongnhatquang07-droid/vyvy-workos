@@ -46,31 +46,31 @@ function LoginForm() {
     setError('')
     setSuccess('')
     setLoading(true)
-    const { data, error: signupError } = await supabase.auth.signUp({ email, password })
-    if (signupError) {
+
+    // Use server route so email_confirm: true is set — no confirmation email needed
+    const res = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, fullName: fullName.trim(), role: 'admin', position: 'Admin' }),
+    })
+    const json = await res.json()
+
+    if (!res.ok || json.error) {
       setLoading(false)
-      setError(signupError.message)
+      setError(json.error || 'Tạo tài khoản thất bại.')
       return
     }
-    const userId = data.user?.id
-    if (userId && fullName.trim()) {
-      await supabase.from('employees').insert({
-        full_name: fullName.trim(),
-        email,
-        auth_user_id: userId,
-        role: 'admin',
-        status: 'active',
-        position: 'Admin',
-      })
-    }
+
+    // Auto sign in after creation
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
-    if (data.session) {
-      router.push('/')
-      router.refresh()
-    } else {
-      setSuccess('Đã tạo tài khoản! Kiểm tra email để xác nhận rồi đăng nhập lại.')
+    if (signInErr) {
+      setSuccess('Đã tạo tài khoản! Đăng nhập ngay.')
       setTab('login')
+      return
     }
+    router.push('/')
+    router.refresh()
   }
 
   async function handleFixAdmin() {
