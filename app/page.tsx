@@ -5114,104 +5114,113 @@ function ProjectsView(props: {
         })}
       </div>
 
-      {/* ══ Bảng dự án bay ra (modal) ══ */}
-      {boardProjectCard && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#191919]/60 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
-          <div className="w-full max-w-5xl rounded-2xl bg-[#f1ede4] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      {/* ══ Project board modal ══ */}
+      {boardProjectCard && (() => {
+        const pTasks = props.tasks.filter((t) => t.project_id === boardProjectCard.id)
+        const pTaskIds = new Set(pTasks.map((t) => t.id))
+        const pDue = pTasks.filter((t) => {
+          if (t.status === 'completed' || !t.due_date) return false
+          const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
+          return d >= today && d <= weekEnd
+        }).length
+        const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
+        const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
+        const workstreams = props.tasks.filter((t) => t.project_id === boardProjectCard.id && (t.task_level === 'workstream' || !t.parent_task_id))
 
-            {/* Header bảng */}
-            <div className="sticky top-0 z-10 flex items-center gap-3 rounded-t-2xl border-b border-[#3a3f27] bg-[#191919] px-5 py-4 text-[#f1ede4]">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-lg font-extrabold">{boardProjectCard.name}</p>
-                <p className="text-xs text-[#b4ab99]">{boardProjectCard.code || ''} · {boardProjectCard.done}/{boardProjectCard.total} việc · {boardProjectCard.rate}%</p>
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
+            <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
+
+              {/* ── Sticky header ── */}
+              <div className="sticky top-0 z-10 flex items-center gap-3 bg-[#191919] px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white/50 uppercase tracking-widest" style={{fontSize:'10px'}}>
+                    {boardProjectCard.code || 'PROJECT'}
+                  </p>
+                  <p className="truncate text-base font-bold text-white leading-snug">{boardProjectCard.name}</p>
+                </div>
+                <button type="button"
+                  onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
+                  className="shrink-0 rounded-lg bg-[#dadf21] px-3.5 py-1.5 text-xs font-bold text-[#191919] hover:bg-[#c8cc18] transition-colors">
+                  Mở COO Board
+                </button>
+                <button type="button" onClick={() => setBoardProject(null)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 transition-colors">
+                  <Ico d={IC.x} size={16} />
+                </button>
               </div>
-              <button type="button"
-                onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
-                className="shrink-0 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#191919]">
-                Mở COO Board
-              </button>
-              <button type="button" onClick={() => setBoardProject(null)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3a3f27] text-[#f1ede4]">
-                <Ico d={IC.x} size={15} />
-              </button>
-            </div>
 
-            <div className="space-y-5 p-5">
+              {/* ── Progress bar ── */}
+              <div className="h-1 w-full bg-[#e8e4da]">
+                <div className="h-full bg-[#dadf21] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
+              </div>
 
-              {/* Mô tả dự án — form chuẩn */}
-              {boardProjectCard.description && (
+              <div className="p-5 space-y-6">
+
+                {/* ── Description ── */}
+                {boardProjectCard.description && (
+                  <p className="text-sm text-[#6f6b5e] leading-relaxed">{boardProjectCard.description}</p>
+                )}
+
+                {/* ── Stats row ── */}
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[#191919]' },
+                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[#6f7400]' : 'text-[#9d9684]' },
+                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-red-600' : 'text-[#9d9684]' },
+                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-amber-600' : 'text-[#9d9684]' },
+                  ].map((x) => (
+                    <div key={x.label} className="rounded-xl bg-[#faf7f0] px-3.5 py-3">
+                      <p className={`text-2xl font-extrabold tabular-nums leading-none ${x.c}`}>{x.v}</p>
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[#9d9684]">{x.label}</p>
+                      <p className="mt-0.5 text-[10px] text-[#b4ab99]">{x.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Task workstreams ── */}
                 <div>
-                  <Sec n="①" title="Mô tả dự án" desc="form chuẩn" />
-                  <div className="mt-2 rounded-2xl border border-[#d9d3c5] bg-white p-4 text-sm leading-relaxed text-[#6f6b5e]">
-                    {boardProjectCard.description}
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-widest text-[#9d9684]">Việc theo mảng</p>
+                    <p className="text-xs text-[#b4ab99]">bấm để mở chi tiết</p>
                   </div>
-                </div>
-              )}
-
-              {/* 3 ô tự gom của riêng dự án */}
-              <div>
-                <Sec n="②" title="Liếc 5 giây" desc="tự gom từ việc của dự án này" />
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(() => {
-                    const pTasks = props.tasks.filter((t) => t.project_id === boardProjectCard.id)
-                    const pTaskIds = new Set(pTasks.map((t) => t.id))
-                    const pDue = pTasks.filter((t) => {
-                      if (t.status === 'completed' || !t.due_date) return false
-                      const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
-                      return d >= today && d <= weekEnd
-                    }).length
-                    const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
-                    const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
-                    return [
-                      { label: 'Phải xong tuần này', v: pDue, c: 'text-[#6f7400]' },
-                      { label: 'Kẹt / quá hạn', v: pStuck, c: pStuck > 0 ? 'text-red-600' : 'text-[#9d9684]' },
-                      { label: 'Chờ duyệt', v: pPend, c: pPend > 0 ? 'text-amber-600' : 'text-[#9d9684]' },
-                    ].map((x) => (
-                      <div key={x.label} className="rounded-xl border border-[#d9d3c5] bg-white px-3 py-2.5 text-center">
-                        <p className={`text-2xl font-extrabold tabular-nums ${x.c}`}>{x.v}</p>
-                        <p className="text-[10px] font-bold text-[#9d9684]">{x.label}</p>
-                      </div>
-                    ))
-                  })()}
-                </div>
-              </div>
-
-              {/* Việc theo mảng */}
-              <div>
-                <Sec n="③" title="Việc theo mảng — mỗi việc một người" desc="bấm việc → mở chi tiết" />
-                <div className="mt-2 space-y-3">
-                  {props.tasks
-                    .filter((t) => t.project_id === boardProjectCard.id && (t.task_level === 'workstream' || !t.parent_task_id))
-                    .map((ws) => {
+                  <div className="space-y-2">
+                    {workstreams.map((ws) => {
                       const children = props.tasks.filter((t) => t.parent_task_id === ws.id)
+                      const doneCount = children.filter((c) => c.status === 'completed').length
+                      const wsProgress = children.length > 0 ? Math.round((doneCount / children.length) * 100) : 0
                       return (
-                        <div key={ws.id} className="overflow-hidden rounded-2xl border border-[#d9d3c5] bg-white">
-                          <div className="flex items-center justify-between border-b border-[#d9d3c5] bg-[#faf7f0] px-4 py-2.5">
-                            <p className="truncate text-sm font-extrabold text-[#191919]">{ws.title}</p>
-                            <span className="shrink-0 text-xs font-bold tabular-nums text-[#9d9684]">
-                              {children.filter((c) => c.status === 'completed').length}/{children.length}
-                            </span>
+                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-white">
+                          {/* Workstream header */}
+                          <div className="flex items-center gap-3 px-4 py-2.5">
+                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[#191919]">{ws.title}</p>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[#e8e4da]">
+                                <div className="h-full rounded-full bg-[#dadf21]" style={{ width: `${wsProgress}%` }} />
+                              </div>
+                              <span className="w-10 text-right text-[10px] font-bold tabular-nums text-[#9d9684]">{doneCount}/{children.length}</span>
+                            </div>
                           </div>
-                          {children.length === 0 ? (
-                            <p className="px-4 py-3 text-xs text-[#9d9684]">Chưa có việc con.</p>
-                          ) : (
-                            <div className="divide-y divide-[#f1ede4]">
+                          {/* Child tasks */}
+                          {children.length > 0 && (
+                            <div className="border-t border-[#f1ede4] divide-y divide-[#f1ede4]">
                               {children.map((t) => {
                                 const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
                                   || (t.description?.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || '—'
-                                const stBadge =
-                                  t.status === 'completed' ? { txt: 'Xong', cls: 'bg-[#f0f5c4] text-[#6f7400]' } :
-                                  isTaskOverdue(t) ? { txt: 'Trễ', cls: 'bg-red-100 text-red-700' } :
-                                  t.status === 'in_progress' ? { txt: 'Đang', cls: 'bg-[#e4e6c3] text-[#6f7400]' } :
-                                  t.status === 'pending' ? { txt: 'Kẹt', cls: 'bg-amber-100 text-amber-700' } :
-                                  { txt: 'Chưa', cls: 'bg-[#eeeae1] text-[#9d9684]' }
+                                const st =
+                                  t.status === 'completed' ? { dot: 'bg-[#6f7400]', txt: 'Xong', cls: 'text-[#6f7400] bg-[#f0f5c4]' } :
+                                  isTaskOverdue(t) ? { dot: 'bg-red-500', txt: 'Trễ', cls: 'text-red-700 bg-red-50' } :
+                                  t.status === 'in_progress' ? { dot: 'bg-[#dadf21]', txt: 'Đang', cls: 'text-[#6f7400] bg-[#f6f9d4]' } :
+                                  t.status === 'pending' ? { dot: 'bg-amber-400', txt: 'Kẹt', cls: 'text-amber-700 bg-amber-50' } :
+                                  { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[#9d9684] bg-[#f5f2ec]' }
                                 return (
                                   <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#faf7f0]">
-                                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-[#191919]">{t.title}</span>
-                                    <span className="w-20 shrink-0 truncate text-xs text-[#6f6b5e]">{who}</span>
-                                    <span className="w-12 shrink-0 text-[10px] font-bold tabular-nums text-[#9d9684]">{t.due_date?.slice(5) || '—'}</span>
-                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${stBadge.cls}`}>{stBadge.txt}</span>
+                                    className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-[#faf7f0] transition-colors group">
+                                    <span className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
+                                    <span className="min-w-0 flex-1 truncate text-sm text-[#191919] group-hover:text-[#2d331a]">{t.title}</span>
+                                    <span className="w-20 shrink-0 truncate text-right text-xs text-[#9d9684]">{who}</span>
+                                    <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-[#b4ab99]">{t.due_date?.slice(5) || '—'}</span>
+                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
                                   </button>
                                 )
                               })}
@@ -5220,13 +5229,17 @@ function ProjectsView(props: {
                         </div>
                       )
                     })}
+                    {workstreams.length === 0 && (
+                      <p className="py-6 text-center text-sm text-[#9d9684]">Chưa có việc trong dự án này.</p>
+                    )}
+                  </div>
                 </div>
-              </div>
 
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
     </div>
   )
