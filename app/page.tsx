@@ -8272,6 +8272,17 @@ function AdminUsersView(props: {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
+  // Edit state
+  const [editEmp, setEditEmp] = useState<AdminEmployee | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editPosition, setEditPosition] = useState('')
+  const [editDept, setEditDept] = useState('')
+  const [editRole, setEditRole] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
   async function fetchEmployees() {
     setLoading(true)
     const { data, error } = await supabase
@@ -8330,6 +8341,47 @@ function AdminUsersView(props: {
     setCreateDept('')
     setCreatePosition('')
     await fetchEmployees()
+  }
+
+  function openEdit(emp: AdminEmployee) {
+    setEditEmp(emp)
+    setEditName(emp.full_name)
+    setEditPosition(emp.position || '')
+    setEditDept(emp.department_id || '')
+    setEditRole(emp.role || 'employee')
+  }
+
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editEmp) return
+    setEditSaving(true)
+    await supabase.from('employees').update({
+      full_name: editName.trim(),
+      position: editPosition.trim() || null,
+      department_id: editDept || null,
+      role: editRole,
+    }).eq('id', editEmp.id)
+    setEditSaving(false)
+    setEditEmp(null)
+    await fetchEmployees()
+    props.onRefresh()
+  }
+
+  async function handleDelete(emp: AdminEmployee) {
+    if (!window.confirm(`Xóa tài khoản "${emp.full_name}"? Hành động này không thể hoàn tác.`)) return
+    setDeletingId(emp.id)
+    // Delete auth user via API if linked
+    if (emp.email) {
+      await fetch('/api/admin/reset-password', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emp.email }),
+      })
+    }
+    await supabase.from('employees').delete().eq('id', emp.id)
+    setDeletingId(null)
+    await fetchEmployees()
+    props.onRefresh()
   }
 
   const deptMap = new Map(props.departments.map((d) => [d.id, d.name]))
@@ -8457,21 +8509,68 @@ function AdminUsersView(props: {
                     </button>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      {emp.email ? (
-                        <>
-                          <span className="rounded-full bg-[#e4e6c3] px-2 py-0.5 text-[10px] font-bold text-[#6f7400]">Có tài khoản</span>
-                          <ResetPasswordButton authUserId={emp.email} />
-                        </>
-                      ) : (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-[#9d9684]">Chưa liên kết</span>
-                      )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button type="button" onClick={() => openEdit(emp)}
+                        className="rounded-lg border border-[#d9d3c5] px-3 py-1.5 text-xs font-bold text-[#191919] hover:bg-[#f1ede4]">
+                        Sửa
+                      </button>
+                      {emp.email && <ResetPasswordButton authUserId={emp.email} />}
+                      <button type="button" disabled={deletingId === emp.id} onClick={() => handleDelete(emp)}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40">
+                        {deletingId === emp.id ? '...' : 'Xóa'}
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editEmp && (
+        <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/40 p-4" onClick={() => setEditEmp(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-5 text-base font-extrabold text-[#191919]">Sửa thông tin — {editEmp.full_name}</h3>
+            <form onSubmit={handleEditSave} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Họ và tên *</label>
+                <input required value={editName} onChange={(e) => setEditName(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Chức vụ</label>
+                <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nhân viên Marketing..." />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Phòng ban</label>
+                <select value={editDept} onChange={(e) => setEditDept(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                  <option value="">Chọn phòng ban</option>
+                  {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Role</label>
+                <select value={editRole} onChange={(e) => setEditRole(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                  {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" disabled={editSaving}
+                  className="rounded-xl bg-[#191919] px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">
+                  {editSaving ? 'Đang lưu...' : 'Lưu'}
+                </button>
+                <button type="button" onClick={() => setEditEmp(null)}
+                  className="rounded-xl border border-[#d9d3c5] px-5 py-2.5 text-sm font-bold text-[#6f6b5e]">
+                  Hủy
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

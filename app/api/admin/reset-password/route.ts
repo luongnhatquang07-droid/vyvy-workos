@@ -49,3 +49,27 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ success: true })
 }
+
+export async function DELETE(req: NextRequest) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceKey) return NextResponse.json({ error: 'Missing service key' }, { status: 500 })
+
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceKey,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { email } = await req.json()
+  if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
+
+  const authEmail = loginIdentifierToAuthEmail(String(email))
+  const { data: { users } } = await supabaseAdmin.auth.admin.listUsers()
+  const found = users.find((u) => u.email?.toLowerCase() === authEmail.toLowerCase())
+  if (!found) return NextResponse.json({ ok: true, note: 'user not found in auth, skipped' })
+
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(found.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ ok: true })
+}
