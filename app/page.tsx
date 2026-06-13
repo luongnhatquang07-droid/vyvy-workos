@@ -3221,6 +3221,7 @@ export default function Home() {
                   setView={setView}
                   setSelectedProjectId={setSelectedProjectId}
                   setSelectedTask={setSelectedTask}
+                  currentEmployee={currentEmployee}
                 />
               )}
 
@@ -3534,259 +3535,317 @@ function DashboardView(props: {
   setView: (view: ViewKey) => void
   setSelectedProjectId: (id: string) => void
   setSelectedTask: (task: Task) => void
+  currentEmployee: Employee | null
 }) {
-  const total = props.tasks.length
-  const done = props.tasks.filter((task) => task.status === 'completed').length
-  const doing = props.tasks.filter((task) => task.status === 'in_progress').length
-  const pending = props.tasks.filter((task) => task.status === 'pending').length
-  const overdue = props.tasks.filter((task) => isTaskOverdue(task)).length
-  const attentionProjects = props.projectCards.filter((project) => project.health.level !== 'normal')
+  const { tasks, currentEmployee } = props
+  const isAdmin = currentEmployee?.role === 'admin' || currentEmployee?.role === 'coo' || currentEmployee?.role === 'ceo'
+
+  const total = tasks.length
+  const done = tasks.filter((t) => t.status === 'completed').length
+  const doing = tasks.filter((t) => t.status === 'in_progress').length
+  const pending = tasks.filter((t) => t.status === 'pending').length
+  const overdue = tasks.filter((t) => isTaskOverdue(t)).length
+  const attentionProjects = props.projectCards.filter((p) => p.health.level !== 'normal')
   const pendingSteps = getPendingApprovalSteps(props.steps)
   const revisionSteps = getRevisionSteps(props.steps)
   const missingReportSteps = getMissingReportSteps(props.steps)
-  const statusRows = [
-    {
-      label: 'Chưa bắt đầu',
-      count: props.tasks.filter((task) => task.status === 'not_started').length,
-      color: 'bg-slate-500',
-    },
-    {
-      label: 'Đang làm',
-      count: doing,
-      color: 'bg-[var(--bg-card-hover)]',
-    },
-    {
-      label: 'Pending',
-      count: pending,
-      color: 'bg-purple-600',
-    },
-    {
-      label: 'Hoàn thành',
-      count: done,
-      color: 'bg-[var(--bg-card)]',
-    },
-    {
-      label: 'Trễ deadline',
-      count: overdue,
-      color: 'bg-red-600',
-    },
-  ]
+
+  // My tasks (for employee view)
+  const myTasks = currentEmployee?.id
+    ? tasks.filter((t) => t.assignee_id === currentEmployee.id || t.head_id === currentEmployee.id)
+    : []
+  const myOverdue = myTasks.filter((t) => isTaskOverdue(t))
+  const myDueToday = myTasks.filter((t) => {
+    if (!t.due_date) return false
+    const today = new Date().toISOString().slice(0, 10)
+    return t.due_date.slice(0, 10) === today
+  })
+  const myDoing = myTasks.filter((t) => t.status === 'in_progress')
+
+  // Donut data
+  const donutData = [
+    { name: 'Hoàn thành', value: done, color: '#4ADE80' },
+    { name: 'Đang làm', value: doing, color: '#DADF21' },
+    { name: 'Pending', value: pending, color: '#60A5FA' },
+    { name: 'Trễ hạn', value: overdue, color: '#F87171' },
+    { name: 'Chưa bắt đầu', value: Math.max(0, total - done - doing - pending), color: '#3A3A2C' },
+  ].filter((d) => d.value > 0)
+
+  // Workload bar data (top 8)
+  const workloadData = props.peopleReports.slice(0, 8).map((r) => ({
+    name: r.employee.full_name.split(' ').slice(-1)[0],
+    done: r.done,
+    doing: r.doing,
+    overdue: r.overdue,
+  }))
+
+  const cardCls = 'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5'
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <MetricCard label="Tổng đầu việc" value={total} icon={<Ico d={IC.clipboard} size={18} />} tone="blue" />
-        <MetricCard label="Hoàn thành" value={done} icon={<Ico d={IC.checkCircle} size={18} />} tone="green" />
-        <MetricCard label="Đang làm" value={doing} icon={<Ico d={IC.activity} size={18} />} tone="blue" />
-        <MetricCard label="Pending" value={pending} icon={<Ico d={IC.zap} size={18} />} tone="purple" />
-        <MetricCard label="Trễ deadline" value={overdue} icon={<Ico d={IC.alertCircle} size={18} />} tone="red" />
+
+      {/* ── Employee: Việc của tôi hôm nay ── */}
+      {!isAdmin && currentEmployee && (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--accent)]/20 bg-[var(--accent-soft)] p-5">
+          <p className="text-xs font-semibold text-[var(--accent)] mb-3">VIỆC CỦA TÔI</p>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            {[
+              { label: 'Đang làm', value: myDoing.length, color: 'text-[var(--accent)]' },
+              { label: 'Đến hạn hôm nay', value: myDueToday.length, color: 'text-[var(--warning)]' },
+              { label: 'Trễ hạn', value: myOverdue.length, color: 'text-[var(--danger)]' },
+            ].map((s) => (
+              <div key={s.label} className="rounded-[var(--radius)] bg-[var(--bg-card)]/60 p-3 text-center">
+                <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          {[...myOverdue, ...myDueToday, ...myDoing].slice(0, 5).map((t) => (
+            <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
+              className="w-full text-left flex items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 hover:bg-[var(--bg-card)]/40 transition-colors mb-1">
+              <span className={`h-2 w-2 rounded-full shrink-0 ${isTaskOverdue(t) ? 'bg-[var(--danger)]' : 'bg-[var(--accent)]'}`}/>
+              <span className="text-sm font-medium text-[var(--text-primary)] truncate">{t.title}</span>
+              {t.due_date && <span className="text-xs text-[var(--text-muted)] ml-auto shrink-0">{t.due_date.slice(0, 10)}</span>}
+            </button>
+          ))}
+          {myTasks.length === 0 && <p className="text-sm text-[var(--text-muted)] text-center py-2">Chưa có việc nào được giao.</p>}
+        </div>
+      )}
+
+      {/* ── Metric cards ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {[
+          { label: 'Tổng việc', value: total, icon: <ListTodo size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--info)]', bg: 'bg-[var(--info-soft)]' },
+          { label: 'Hoàn thành', value: done, icon: <CheckCircle2 size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--success)]', bg: 'bg-[var(--success-soft)]' },
+          { label: 'Đang làm', value: doing, icon: <Activity size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--accent)]', bg: 'bg-[var(--accent-soft)]' },
+          { label: 'Pending', value: pending, icon: <Clock size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--warning)]', bg: 'bg-[var(--warning-soft)]' },
+          { label: 'Trễ hạn', value: overdue, icon: <AlertCircle size={16}/>, view: 'tasks' as ViewKey, color: 'text-[var(--danger)]', bg: 'bg-[var(--danger-soft)]' },
+        ].map((m) => (
+          <button key={m.label} type="button" onClick={() => props.setView(m.view)}
+            className={`${cardCls} text-left hover:bg-[var(--bg-card-hover)] transition-colors group`}>
+            <div className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] ${m.bg} ${m.color} mb-3`}>
+              {m.icon}
+            </div>
+            <p className={`text-2xl font-bold ${m.color}`}>{m.value}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">{m.label}</p>
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
-          <Card>
-            <h3 className="mb-4 text-lg font-extrabold">Tỷ lệ trạng thái công việc</h3>
-            <div className="space-y-4">
-              {statusRows.map((row) => (
-                <StatusDistributionRow
-                  key={row.label}
-                  label={row.label}
-                  count={row.count}
-                  total={total}
-                  color={row.color}
-                />
-              ))}
-            </div>
-          </Card>
 
-          <Card>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-extrabold">Báo cáo theo dự án</h3>
-              <span className="text-sm font-bold text-[var(--text-secondary)]">{props.projectCards.length} dự án</span>
+          {/* ── Charts row ── */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* Donut — tỉ lệ trạng thái */}
+            <div className={cardCls}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Tỉ lệ trạng thái</p>
+              {total > 0 ? (
+                <DashboardDonut data={donutData} total={total} />
+              ) : (
+                <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dữ liệu</p>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {props.projectCards.map((project) => (
-                <button type="button"
-                  key={project.id}
-                  onClick={() => {
-                    props.setSelectedProjectId(project.id)
-                    props.setView('coo')
-                  }}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-md"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-extrabold">{project.name}</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.total} việc</p>
+            {/* Bar — khối lượng nhân sự */}
+            <div className={cardCls}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng theo người</p>
+              {workloadData.length > 0 ? (
+                <DashboardWorkloadBar data={workloadData} />
+              ) : (
+                <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dữ liệu</p>
+              )}
+            </div>
+          </div>
+
+          {/* ── Projects ── */}
+          <div className={cardCls}>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Tiến độ dự án</p>
+              <span className="text-xs text-[var(--text-muted)]">{props.projectCards.length} dự án</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {props.projectCards.length === 0 ? (
+                <p className="col-span-2 text-center text-sm text-[var(--text-muted)] py-6">Chưa có dự án nào.</p>
+              ) : props.projectCards.map((project) => (
+                <button type="button" key={project.id}
+                  onClick={() => { props.setSelectedProjectId(project.id); props.setView('coo') }}
+                  className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-left hover:border-[var(--border-strong)] hover:bg-[var(--bg-card-hover)] transition-all">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[var(--text-primary)] truncate">{project.name}</p>
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{project.total} việc</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <ProjectHealthBadge health={project.health} />
-                      <p className="mt-2 text-2xl font-extrabold text-[var(--accent-hover)]">{project.rate}%</p>
+                      <p className="text-xl font-bold text-[var(--accent)] mt-1">{project.rate}%</p>
                     </div>
                   </div>
-
                   <ProgressBar value={project.rate} />
-
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <MiniStat label="Tổng" value={project.total} />
-                    <MiniStat label="Trễ" value={project.overdue} danger />
-                    <MiniStat label="Vấn đề" value={project.problem} danger />
+                  <div className="mt-3 flex gap-3 text-xs text-[var(--text-muted)]">
+                    {project.overdue > 0 && <span className="text-[var(--danger)]">⚠ {project.overdue} trễ</span>}
+                    {project.problem > 0 && <span className="text-[var(--warning)]">⚡ {project.problem} vấn đề</span>}
+                    {project.overdue === 0 && project.problem === 0 && <span className="text-[var(--success)]">✓ Đang ổn</span>}
                   </div>
                 </button>
               ))}
             </div>
-          </Card>
+          </div>
 
-          <Card>
-            <h3 className="mb-4 text-lg font-extrabold">Khối lượng công việc theo nhân sự</h3>
-            <div className="space-y-3">
-              {props.peopleReports.map((row) => {
-                const needsAttention = row.overdue > 0 || row.problem > 0
-
-                return (
-                  <div
-                    key={row.employee.id}
-                    className={`rounded-xl border border-[var(--border)] p-4 ${needsAttention ? 'bg-red-50/70' : 'bg-[var(--bg-card)]'}`}
-                  >
-                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr_160px]">
-                      <div>
-                        <p className="text-base font-extrabold text-[var(--text-primary)]">{row.employee.full_name}</p>
-                        <p className="mt-1 text-xs font-bold uppercase text-[var(--text-muted)]">Nhân sự phụ trách</p>
+          {/* ── Workload table (admin only) ── */}
+          {isAdmin && props.peopleReports.length > 0 && (
+            <div className={cardCls}>
+              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng theo nhân sự</p>
+              <div className="space-y-2">
+                {props.peopleReports.map((row) => (
+                  <div key={row.employee.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-surface)] px-4 py-3">
+                    <Avatar name={row.employee.full_name} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
+                      <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
+                        <span className="text-[var(--success)]">{row.done} xong</span>
+                        <span className="text-[var(--accent)]">{row.doing} đang làm</span>
+                        {row.overdue > 0 && <span className="text-[var(--danger)]">{row.overdue} trễ</span>}
                       </div>
-
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
-                        <MiniStat label="Tổng" value={row.total} />
-                        <MiniStat label="Hoàn thành" value={row.done} />
-                        <MiniStat label="Đang làm" value={row.doing} />
-                        <MiniStat label="Pending" value={row.pending} />
-                        <MiniStat label="Trễ" value={row.overdue} danger />
-                        <MiniStat label="Vấn đề" value={row.problem} danger />
-                      </div>
-
-                      <div className="flex flex-col justify-center">
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-bold text-[var(--text-secondary)]">Tỷ lệ</span>
-                          <span className="font-extrabold text-[var(--accent-hover)]">{row.rate}%</span>
-                        </div>
-                        <ProgressBar value={row.rate} />
-                      </div>
+                    </div>
+                    <div className="w-24 shrink-0">
+                      <ProgressBar value={row.rate} showLabel />
                     </div>
                   </div>
-                )
-              })}
-            </div>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card>
-            <h3 className="mb-4 text-lg font-extrabold">Dự án cần chú ý</h3>
-            <div className="space-y-3">
-              {attentionProjects.length === 0 ? (
-                <EmptyState title="Không có cảnh báo" description="Tất cả dự án đang ổn." />
-              ) : (
-                attentionProjects.map((project) => (
-                  <button type="button"
-                    key={project.id}
-                    onClick={() => {
-                      props.setSelectedProjectId(project.id)
-                      props.setView('coo')
-                    }}
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-md"
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-extrabold">{project.name}</p>
-                        <p className="mt-1 text-sm font-bold text-[var(--text-secondary)]">
-                          {project.health.totalWarnings} cảnh báo
-                        </p>
-                      </div>
-                      <ProjectHealthBadge health={project.health} />
-                    </div>
-                    <ProjectHealthSummary health={project.health} />
-                  </button>
-                ))
-              )}
-            </div>
-          </Card>
-
-          <Card>
-            <h3 className="mb-4 text-lg font-extrabold">Việc cần hối thúc</h3>
-            <div className="space-y-3">
-              {props.urgentTasks.length === 0 ? (
-                <EmptyState title="Không có cảnh báo" description="Hiện chưa có việc cần hối thúc." />
-              ) : (
-                props.urgentTasks.map((task) => {
-                  const person = props.employeeMap.get(task.assignee_id || task.head_id || '')
-                  const project = props.projectMap.get(task.project_id || '')
-
-                  return (
-                    <button type="button"
-                      key={task.id}
-                      onClick={() => props.setSelectedTask(task)}
-                      className="w-full rounded-xl border border-red-100 bg-red-50/70 p-4 text-left hover:bg-red-50"
-                    >
-                      <p className="font-extrabold">{task.title}</p>
-                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                        {person?.full_name || 'Chưa gắn người'} · {project?.name || 'Chưa gắn dự án'}
-                      </p>
-                      <span className="mt-3 inline-flex rounded-full bg-[var(--bg-card)] px-3 py-1 text-xs font-bold text-red-600">
-                        {getUrgentReason(task)}
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </Card>
-
-          <Card>
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-extrabold">Việc chờ duyệt / cần làm lại</h3>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  {pendingSteps.length} chờ duyệt · {revisionSteps.length} cần làm lại
-                </p>
+                ))}
               </div>
             </div>
+          )}
+        </div>
 
-            <DashboardStepList
-              title="Chờ duyệt"
-              steps={pendingSteps.slice(0, 5)}
-              tasks={props.tasks}
-              emptyText="Không có bước chờ duyệt."
-              onTaskClick={props.setSelectedTask}
-            />
+        {/* ── Right column ── */}
+        <div className="space-y-4">
 
-            <div className="mt-4">
-              <DashboardStepList
-                title="Cần làm lại"
-                steps={revisionSteps.slice(0, 5)}
-                tasks={props.tasks}
-                emptyText="Không có bước cần làm lại."
-                onTaskClick={props.setSelectedTask}
-              />
+          {/* Dự án cần chú ý */}
+          <div className={cardCls}>
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={15} className="text-[var(--warning)]"/>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Dự án cần chú ý</p>
+              {attentionProjects.length > 0 && <span className="ml-auto text-xs font-bold text-[var(--warning)]">{attentionProjects.length}</span>}
             </div>
-          </Card>
+            {attentionProjects.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)] text-center py-4">Tất cả dự án đang ổn ✓</p>
+            ) : attentionProjects.map((p) => (
+              <button key={p.id} type="button"
+                onClick={() => { props.setSelectedProjectId(p.id); props.setView('coo') }}
+                className="w-full text-left rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-3 mb-2 hover:border-[var(--warning)]/40 transition-colors">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{p.name}</p>
+                  <ProjectHealthBadge health={p.health} />
+                </div>
+                <ProjectHealthSummary health={p.health} />
+              </button>
+            ))}
+          </div>
 
-          <Card>
-            <h3 className="text-lg font-extrabold">Bước thiếu báo cáo</h3>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">{missingReportSteps.length} bước chưa có file hoặc link</p>
-
-            <div className="mt-4">
-              <DashboardStepList
-                title="Thiếu báo cáo"
-                steps={missingReportSteps.slice(0, 5)}
-                tasks={props.tasks}
-                emptyText="Không có bước thiếu báo cáo."
-                onTaskClick={props.setSelectedTask}
-              />
+          {/* Việc khẩn */}
+          <div className={cardCls}>
+            <div className="flex items-center gap-2 mb-3">
+              <Flag size={15} className="text-[var(--danger)]"/>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Việc cần hối thúc</p>
+              {props.urgentTasks.length > 0 && <span className="ml-auto text-xs font-bold text-[var(--danger)]">{props.urgentTasks.length}</span>}
             </div>
-          </Card>
+            {props.urgentTasks.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)] text-center py-4">Không có việc khẩn ✓</p>
+            ) : props.urgentTasks.slice(0, 6).map((t) => {
+              const person = props.employeeMap.get(t.assignee_id || t.head_id || '')
+              return (
+                <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
+                  className="w-full text-left flex items-start gap-3 rounded-[var(--radius)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] p-3 mb-2 hover:border-[var(--danger)]/40 transition-colors">
+                  <AlertCircle size={14} className="text-[var(--danger)] mt-0.5 shrink-0"/>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{t.title}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{person?.full_name || '—'} · {getUrgentReason(t)}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Chờ duyệt */}
+          <div className={cardCls}>
+            <div className="flex items-center gap-2 mb-3">
+              <Clock size={15} className="text-[var(--info)]"/>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Chờ duyệt / Làm lại</p>
+              {(pendingSteps.length + revisionSteps.length) > 0 && (
+                <span className="ml-auto text-xs font-bold text-[var(--info)]">{pendingSteps.length + revisionSteps.length}</span>
+              )}
+            </div>
+            <DashboardStepList title="Chờ duyệt" steps={pendingSteps.slice(0, 4)} tasks={tasks}
+              emptyText="Không có bước chờ duyệt." onTaskClick={props.setSelectedTask} />
+            {revisionSteps.length > 0 && (
+              <div className="mt-3">
+                <DashboardStepList title="Cần làm lại" steps={revisionSteps.slice(0, 3)} tasks={tasks}
+                  emptyText="" onTaskClick={props.setSelectedTask} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Dashboard Charts ─────────────────────────────────────────────────────────
+
+function DashboardDonut({ data, total }: { data: Array<{ name: string; value: number; color: string }>; total: number }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return <div className="h-48 skeleton rounded-[var(--radius)]" />
+
+  // Dynamic import via inline lazy rendering
+  const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = require('recharts')
+  return (
+    <div className="relative">
+      <ResponsiveContainer width="100%" height={160}>
+        <PieChart>
+          <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={2} dataKey="value">
+            {data.map((entry: { name: string; value: number; color: string }, index: number) => (
+              <Cell key={index} fill={entry.color} strokeWidth={0} />
+            ))}
+          </Pie>
+          <Tooltip formatter={(v: number, name: string) => [`${v} việc`, name]}
+            contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+        <p className="text-2xl font-bold text-[var(--text-primary)]">{total}</p>
+        <p className="text-xs text-[var(--text-muted)]">tổng việc</p>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 justify-center">
+        {data.map((d) => (
+          <span key={d.name} className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+            <span className="h-2 w-2 rounded-full" style={{ background: d.color }}/>
+            {d.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DashboardWorkloadBar({ data }: { data: Array<{ name: string; done: number; doing: number; overdue: number }> }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return <div className="h-48 skeleton rounded-[var(--radius)]" />
+
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } = require('recharts')
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+        <Bar dataKey="done" name="Xong" fill="#4ADE80" radius={[3,3,0,0]} stackId="a" />
+        <Bar dataKey="doing" name="Đang làm" fill="#DADF21" radius={[3,3,0,0]} stackId="a" />
+        <Bar dataKey="overdue" name="Trễ" fill="#F87171" radius={[3,3,0,0]} stackId="a" />
+      </BarChart>
+    </ResponsiveContainer>
   )
 }
 
@@ -7385,13 +7444,17 @@ function MetricCard(props: {
   )
 }
 
-function ProgressBar({ value }: { value: number }) {
+function ProgressBar({ value, showLabel }: { value: number; showLabel?: boolean }) {
+  const clamped = Math.max(0, Math.min(100, value))
   return (
-    <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
-      <div
-        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[var(--accent-hover)] to-[var(--accent)] transition-[width] duration-500"
-        style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
-      />
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--border)]">
+        <div
+          className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[var(--accent-hover)] to-[var(--accent)] transition-[width] duration-500"
+          style={{ width: `${clamped}%` }}
+        />
+      </div>
+      {showLabel && <span className="text-xs font-semibold text-[var(--accent)] w-8 text-right">{clamped}%</span>}
     </div>
   )
 }
@@ -7584,9 +7647,10 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function Avatar({ name }: { name: string }) {
+function Avatar({ name, size }: { name: string; size?: 'sm' | 'md' }) {
+  const dim = size === 'sm' ? 'h-7 w-7 text-xs' : 'h-9 w-9 text-sm'
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] text-sm font-extrabold text-[var(--text-primary)] ring-2 ring-white/20">
+    <div className={`flex ${dim} shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] font-extrabold text-[var(--text-primary)] ring-1 ring-[var(--border)]`}>
       {(name || 'U').slice(0, 1).toUpperCase()}
     </div>
   )
