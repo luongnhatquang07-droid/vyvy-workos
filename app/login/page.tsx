@@ -48,22 +48,17 @@ function LoginForm() {
     setError('')
     setSuccess('')
     setLoading(true)
-
-    // Use server route so email_confirm: true is set — no confirmation email needed
     const res = await fetch('/api/admin/create-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: loginId, password, fullName: fullName.trim(), role: 'admin', position: 'Admin' }),
     })
     const json = await res.json()
-
     if (!res.ok || json.error) {
       setLoading(false)
       setError(json.error || 'Tạo tài khoản thất bại.')
       return
     }
-
-    // Auto sign in after creation
     const authEmail = loginIdentifierToAuthEmail(loginId)
     const { error: signInErr } = await supabase.auth.signInWithPassword({ email: authEmail, password })
     setLoading(false)
@@ -100,95 +95,137 @@ function LoginForm() {
     }
   }
 
-  const inputCls = "h-12 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-4 text-sm text-[#191919] outline-none focus:border-[#aeb300] focus:bg-white placeholder:text-[#b4ab99]"
-  const labelCls = "mb-1.5 block text-sm font-bold text-[#191919]"
+  const inputCls = `w-full h-12 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-input)] px-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)] transition-colors`
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f1ede4] px-4">
-      <div className="pointer-events-none absolute -top-20 -left-20 h-80 w-80 rounded-full bg-[#dadf21]/15 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-[#191919]/5 blur-3xl" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--bg-base)] px-4">
+      {/* Glow blobs */}
+      <div className="pointer-events-none absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[var(--accent)]/5 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -right-20 h-80 w-80 rounded-full bg-[var(--info)]/5 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
+        {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#191919] font-display text-2xl text-[#f1ede4] shadow-xl shadow-[#191919]/25">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent)] font-display text-2xl text-[var(--on-accent)] shadow-[0_4px_20px_-6px_rgba(218,223,33,0.5)]">
             V
           </div>
           <div className="text-center">
-            <h1 className="font-display text-3xl text-[#191919]">VyVy WorkOS</h1>
-            <p className="font-spec mt-2 text-[10px] text-[#6f6b5e]">The Haute Couture of Care</p>
-            <p className="font-serif-brand mt-2 text-base italic text-[#6f6b5e]">Không có từ nào đẹp hơn sự thật.</p>
+            <h1 className="font-display text-3xl text-[var(--text-primary)]">VyVy WorkOS</h1>
+            <p className="font-spec mt-2 text-[10px] text-[var(--text-muted)]">The Haute Couture of Care</p>
+            <p className="font-serif-brand mt-2 text-sm italic text-[var(--text-muted)]">Không có từ nào đẹp hơn sự thật.</p>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#d9d3c5] bg-white shadow-[0_4px_32px_-8px_rgba(38,34,25,0.12)]">
-          <div className="flex border-b border-[#d9d3c5]">
-            <button type="button" onClick={() => { setTab('login'); setError(''); setSuccess('') }}
-              className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${tab === 'login' ? 'border-b-2 border-[#191919] text-[#191919]' : 'text-[#6f6b5e] hover:text-[#191919]'}`}>
-              Đăng nhập
-            </button>
-            <button type="button" onClick={() => { setTab('signup'); setError(''); setSuccess('') }}
-              className={`flex-1 py-3.5 text-sm font-extrabold transition-colors ${tab === 'signup' ? 'border-b-2 border-[#191919] text-[#191919]' : 'text-[#6f6b5e] hover:text-[#191919]'}`}>
-              Tạo tài khoản
-            </button>
+        {/* Card */}
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[0_24px_64px_-16px_rgba(0,0,0,0.8)]">
+          {/* Tabs */}
+          <div className="flex border-b border-[var(--border)]">
+            {(['login', 'signup'] as Tab[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setTab(t); setError(''); setSuccess('') }}
+                className={`flex-1 py-3.5 text-sm font-bold transition-colors border-b-2 -mb-px ${
+                  tab === t
+                    ? 'border-[var(--accent)] text-[var(--accent)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                {t === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}
+              </button>
+            ))}
           </div>
 
           <div className="p-8">
             {tab === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className={labelCls}>Tài khoản</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Tài khoản</label>
                   <input type="text" required autoComplete="username" value={loginId}
                     onChange={(e) => setLoginId(e.target.value)} className={inputCls} placeholder="quang / nhung / admin" />
                 </div>
                 <div>
-                  <label className={labelCls}>Mật khẩu</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Mật khẩu</label>
                   <input type="password" required autoComplete="current-password" value={password}
                     onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
                 </div>
-                {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>}
-                {success && <div className="rounded-xl border border-[#d9d3c5] bg-[#f6f9d4] px-4 py-3 text-sm font-bold text-[#6f7400]">{success}</div>}
+
+                {error && (
+                  <div className="rounded-[var(--radius)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-4 py-3 text-sm font-semibold text-[var(--danger)]">
+                    {error}
+                  </div>
+                )}
+                {success && (
+                  <div className="rounded-[var(--radius)] border border-[var(--success)]/30 bg-[var(--success-soft)] px-4 py-3 text-sm font-semibold text-[var(--success)]">
+                    {success}
+                  </div>
+                )}
+
                 <button type="submit" disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#191919] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#191919]/20 hover:bg-[#1d1c18] disabled:opacity-50">
-                  {loading ? 'Đang đăng nhập...' : 'Đăng nhập →'}
+                  className="btn-accent h-12 w-full rounded-[var(--radius)] text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Đang đăng nhập...
+                    </>
+                  ) : 'Đăng nhập →'}
                 </button>
+
                 {errorParam === 'no_employee' && (
                   <button type="button" disabled={loading || !loginId || !password} onClick={handleFixAdmin}
-                    className="h-10 w-full rounded-xl border border-[#191919] bg-transparent text-xs font-bold text-[#191919] hover:bg-[#191919]/5 disabled:opacity-40">
+                    className="h-10 w-full rounded-[var(--radius)] border border-[var(--border-strong)] bg-transparent text-xs font-semibold text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors">
                     Khôi phục quyền Admin
                   </button>
                 )}
+
+                <p className="text-center text-xs text-[var(--text-muted)]">
+                  Quên mật khẩu? Liên hệ Admin.
+                </p>
               </form>
             ) : (
               <form onSubmit={handleSignup} className="space-y-4">
-                <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-4 py-3 text-xs font-bold text-[#6f6b5e]">
+                <div className="rounded-[var(--radius)] border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3 text-xs font-semibold text-[var(--accent)]">
                   Dùng để tạo tài khoản Admin đầu tiên. Sau khi setup xong, Admin sẽ cấp tài khoản cho nhân viên.
                 </div>
                 <div>
-                  <label className={labelCls}>Họ và tên</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Họ và tên</label>
                   <input type="text" required value={fullName} onChange={(e) => setFullName(e.target.value)}
                     className={inputCls} placeholder="Nguyễn Văn A" />
                 </div>
                 <div>
-                  <label className={labelCls}>Tài khoản Admin</label>
-                  <input type="text" required autoComplete="username" value={loginId}
-                    onChange={(e) => setLoginId(e.target.value)} className={inputCls} placeholder="admin" />
+                  <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Tài khoản đăng nhập</label>
+                  <input type="text" required value={loginId} onChange={(e) => setLoginId(e.target.value)}
+                    className={inputCls} placeholder="quang / nhung / admin" />
                 </div>
                 <div>
-                  <label className={labelCls}>Mật khẩu</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Mật khẩu</label>
                   <input type="password" required minLength={6} autoComplete="new-password" value={password}
                     onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="Tối thiểu 6 ký tự" />
                 </div>
-                {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>}
+                {error && (
+                  <div className="rounded-[var(--radius)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-4 py-3 text-sm font-semibold text-[var(--danger)]">{error}</div>
+                )}
                 <button type="submit" disabled={loading}
-                  className="h-12 w-full rounded-xl bg-[#191919] text-sm font-extrabold text-[#dadf21] shadow-md shadow-[#191919]/20 hover:bg-[#1d1c18] disabled:opacity-50">
-                  {loading ? 'Đang tạo...' : 'Tạo tài khoản Admin →'}
+                  className="btn-accent h-12 w-full rounded-[var(--radius)] text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                      </svg>
+                      Đang tạo...
+                    </>
+                  ) : 'Tạo tài khoản Admin →'}
                 </button>
               </form>
             )}
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-[#b4ab99]">
+        <p className="mt-6 text-center text-xs text-[var(--text-muted)]">
           © {new Date().getFullYear()} VyVyHaircare · Internal Operations Platform
         </p>
       </div>
