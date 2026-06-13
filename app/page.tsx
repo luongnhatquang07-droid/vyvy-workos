@@ -1275,47 +1275,63 @@ export default function Home() {
 
     setUploadingMeetingFileFor(task.id)
     const draft = { ...DEFAULT_MEETING_FILE_DRAFT, ...(meetingFileDrafts[task.id] || {}) }
-    const safeName = file.name.replace(/\s+/g, '-')
-    const filePath = `${task.id}/${Date.now()}-${safeName}`
 
-    const { error: uploadError } = await supabase.storage.from('meeting-files').upload(filePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-    })
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData.session?.access_token
+      if (!token) {
+        toast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'error')
+        setUploadingMeetingFileFor('')
+        return
+      }
 
-    if (uploadError) {
-      console.error(uploadError)
-      toast('Kho upload file họp chưa sẵn sàng. Tạo bucket meeting-files trong Supabase trước.', 'warning')
+      const form = new FormData()
+      form.append('file', file)
+      form.append('taskId', task.id)
+
+      const res = await fetch('/api/upload-meeting-file', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      const result = await res.json() as { ok: boolean; publicUrl?: string; error?: string }
+
+      if (!res.ok || !result.ok) {
+        toast(result.error || 'Upload file họp bị lỗi.', 'error')
+        setUploadingMeetingFileFor('')
+        return
+      }
+
+      const { error } = await supabase.from('recurring_meeting_files').insert({
+        recurring_task_id: task.id,
+        meeting_date: draft.meetingDate || null,
+        title: draft.title.trim() || file.name,
+        file_name: file.name,
+        file_url: result.publicUrl,
+        file_type: file.type || null,
+        note: draft.note.trim() || 'File họp',
+        uploaded_by: currentEmployee?.id || null,
+      })
+
+      if (error) {
+        console.error(error)
+        toast('Upload xong nhưng lưu hồ sơ file họp bị lỗi. Kiểm tra bảng recurring_meeting_files.', 'error')
+        setUploadingMeetingFileFor('')
+        return
+      }
+
+      setMeetingFileDrafts((current) => ({
+        ...current,
+        [task.id]: { ...DEFAULT_MEETING_FILE_DRAFT, meetingDate: draft.meetingDate },
+      }))
+      toast('Đã upload file họp.')
+      await fetchRecurringMeetingFiles()
+    } catch (err) {
+      console.error(err)
+      toast('Không upload được file họp.', 'error')
+    } finally {
       setUploadingMeetingFileFor('')
-      return
     }
-
-    const { data } = supabase.storage.from('meeting-files').getPublicUrl(filePath)
-    const { error } = await supabase.from('recurring_meeting_files').insert({
-      recurring_task_id: task.id,
-      meeting_date: draft.meetingDate || null,
-      title: draft.title.trim() || file.name,
-      file_name: file.name,
-      file_url: data.publicUrl,
-      file_type: file.type || null,
-      note: draft.note.trim() || 'File họp',
-      uploaded_by: currentEmployee?.id || null,
-    })
-
-    setUploadingMeetingFileFor('')
-
-    if (error) {
-      console.error(error)
-      toast('Upload xong nhưng lưu hồ sơ file họp bị lỗi. Kiểm tra bảng recurring_meeting_files.', 'error')
-      return
-    }
-
-    setMeetingFileDrafts((current) => ({
-      ...current,
-      [task.id]: { ...DEFAULT_MEETING_FILE_DRAFT, meetingDate: draft.meetingDate },
-    }))
-    toast('Đã upload file họp.')
-    await fetchRecurringMeetingFiles()
   }
 
   async function deleteRecurringMeetingFile(file: RecurringMeetingFile) {
