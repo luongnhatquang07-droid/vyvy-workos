@@ -4,6 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { displayLoginIdentifier } from '@/lib/internal-auth'
+import {
+  LayoutDashboard, Kanban, FolderKanban, ListTodo, FileText,
+  CalendarClock, Zap, Bot, Users,
+  Plus, Trash2, X, Check, ChevronRight, ChevronDown, ChevronUp,
+  Bell, Search, LogOut, AlertTriangle, Info,
+  Upload, Download, Paperclip,
+  Clock, Calendar, RefreshCw, Play,
+  CheckCircle2, XCircle, AlertCircle,
+  User, Building2, Shield,
+  Edit3, Filter, MoreHorizontal,
+  ArrowRight, Loader2,
+  MessageSquare, Link2, Flag, Activity,
+} from 'lucide-react'
 
 // ─── Module-level toast (no prop drilling needed) ───────────────────────────
 type ToastType = 'success' | 'error' | 'info' | 'warning'
@@ -2833,19 +2846,19 @@ export default function Home() {
 
   if (!authChecked) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f1ede4]">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--bg-base)]">
         <div className="text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#191919] text-2xl font-extrabold text-white mx-auto">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--bg-card)] text-2xl font-extrabold text-[var(--text-primary)] mx-auto">
             V
           </div>
-          <p className="text-sm font-bold text-[#6f6b5e]">Đang xác thực...</p>
+          <p className="text-sm font-bold text-[var(--text-secondary)]">Đang xác thực...</p>
         </div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen bg-[#f1ede4] text-[#191919]">
+    <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       {mobileNavOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -2854,57 +2867,56 @@ export default function Home() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen bg-gradient-to-b from-[#1d1c18] via-[#2d331a] to-[#1d1c18] text-white transition-all duration-200
+        className={`fixed left-0 top-0 z-50 h-screen bg-[var(--bg-surface)] border-r border-[var(--border)] text-[var(--text-primary)] transition-all duration-200
           ${mobileNavOpen ? 'w-[260px]' : 'w-0 overflow-hidden'}
           md:w-[64px] md:overflow-visible ${collapsed ? 'md:w-[64px]' : 'md:w-[240px]'}`}
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-center border-b border-white/10 p-3 md:justify-between md:p-4">
+          <div className="flex items-center justify-center border-b border-[var(--border)] p-3 md:justify-between md:p-4">
             <div className="flex items-center gap-3">
-              {/* Logo nút bấm — tròn, chắc, luôn trong lockup (brand book 03·1) */}
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1ede4] font-display text-base text-[#191919]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] font-display text-base text-[var(--accent)] shadow-[0_2px_12px_-4px_rgba(218,223,33,0.5)]">
                 V
               </div>
               {!collapsed && (
                 <div className="hidden md:block">
-                  <h1 className="font-display text-sm tracking-wide">VyVy WorkOS</h1>
-                  <p className="font-spec text-[9px] text-[#9d9684]">The Haute Couture of Care</p>
+                  <h1 className="font-display text-sm tracking-wide text-[var(--text-primary)]">VyVy WorkOS</h1>
+                  <p className="font-spec text-[9px] text-[var(--text-muted)]">The Haute Couture of Care</p>
                 </div>
               )}
             </div>
-
             <button type="button"
               onClick={() => setCollapsed(!collapsed)}
-              className="hidden rounded-lg px-2 py-1 text-[#9d9684] hover:bg-[#ffffff]/10 md:block"
+              className="hidden rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)] md:block"
             >
-              {collapsed ? <Ico d={IC.chevronRight} size={14}/> : <Ico d={IC.chevronRight} size={14} className="rotate-180"/>}
+              {collapsed ? <ChevronRight size={14}/> : <ChevronRight size={14} className="rotate-180"/>}
             </button>
           </div>
 
-          <nav className="flex-1 space-y-1 p-2 md:p-3">
+          <nav className="flex-1 space-y-0.5 p-2 md:p-3 overflow-y-auto">
             {menu.map((item) => (
               <button type="button"
                 key={item.key}
                 onClick={() => { setView(item.key); setMobileNavOpen(false) }}
                 title={item.label}
-                className={`relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-bold justify-start ${
+                className={`relative flex w-full items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 text-sm font-semibold transition-all ${
                   view === item.key
-                    ? 'bg-[#dadf21] text-[#191919] font-extrabold shadow-sm'
-                    : 'text-[#9d9684] hover:bg-white/[0.07] hover:text-white'
-                } md:justify-start`}
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)]'
+                }`}
               >
                 <span className="shrink-0">{item.icon}</span>
-                <span className={`${collapsed ? 'md:hidden' : ''}`}>{item.label}</span>
+                <span className={`${collapsed ? 'md:hidden' : ''} truncate`}>{item.label}</span>
+                {view === item.key && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-[var(--accent)]" />}
               </button>
             ))}
           </nav>
 
-          <div className="border-t border-white/10 p-2 md:p-3 space-y-1">
-            <div className="flex items-center gap-3 rounded-xl bg-[#ffffff]/5 p-2 md:p-3">
+          <div className="border-t border-[var(--border)] p-2 md:p-3 space-y-1">
+            <div className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-card)] p-2 md:p-3">
               <Avatar name={currentEmployee?.full_name || '?'} />
               <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
-                <p className="truncate text-sm font-bold">{currentEmployee?.full_name || 'Người dùng'}</p>
-                <p className="text-[11px] text-[#9d9684] capitalize">
+                <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{currentEmployee?.full_name || 'Người dùng'}</p>
+                <p className="text-[11px] text-[var(--text-muted)] capitalize">
                   {currentEmployee?.role === 'ceo' ? 'CEO'
                     : currentEmployee?.role === 'coo' ? 'COO'
                     : currentEmployee?.role === 'admin' ? 'Admin'
@@ -2913,13 +2925,12 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
+            <button type="button"
               onClick={() => { logout(); setMobileNavOpen(false) }}
               title="Đăng xuất"
-              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-[#9d9684] hover:bg-[#ffffff]/10 hover:text-white"
+              className="flex w-full items-center gap-2 rounded-[var(--radius)] px-3 py-2 text-xs font-semibold text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--danger)] transition-colors"
             >
-              <span className="shrink-0"><Ico d={IC.logout} size={15}/></span>
+              <LogOut size={14} className="shrink-0"/>
               <span className={collapsed ? 'md:hidden' : ''}>Đăng xuất</span>
             </button>
           </div>
@@ -2927,12 +2938,12 @@ export default function Home() {
       </aside>
 
       <section className={`min-h-screen min-w-0 md:ml-[64px] ${collapsed ? 'md:ml-[64px]' : 'md:ml-[240px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#d9d3c5] bg-[#ffffff]/85 px-3 py-3 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg-surface)]/90 px-3 py-3 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="rounded-lg p-2 text-[#191919] hover:bg-[#ede8df] md:hidden"
+              className="rounded-lg p-2 text-[var(--text-primary)] hover:bg-[#ede8df] md:hidden"
               aria-label="Mở menu"
             >
               <Ico d={IC.menu} size={20}/>
@@ -2949,7 +2960,7 @@ export default function Home() {
               {view === 'assistant' && 'COO Assistant'}
               {view === 'admin' && 'Quản lý nhân sự'}
             </h2>
-            <p className="hidden text-xs text-[#6f6b5e] sm:block">
+            <p className="hidden text-xs text-[var(--text-secondary)] sm:block">
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
             </p>
             </div>
@@ -2958,22 +2969,22 @@ export default function Home() {
           <div className="relative hidden min-w-0 flex-1 max-w-md lg:block">
             <input
               ref={searchInputRef}
-              className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] pl-9 pr-12 text-sm outline-none focus:border-[#aeb300] focus:bg-[#ffffff]"
+              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] pl-9 pr-12 text-sm outline-none focus:border-[var(--accent-hover)] focus:bg-[var(--bg-input)]"
               placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
               value={searchQuery}
               onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true) }}
               onFocus={() => setSearchOpen(true)}
               onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
             />
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#b4ab99]">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
               <Ico d={IC.search} size={15}/>
             </span>
 
             {searchOpen && (searchResults.projects.length > 0 || searchResults.tasks.length > 0) && (
-              <div className="absolute left-0 right-0 top-12 z-30 max-h-96 overflow-y-auto rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 shadow-xl">
+              <div className="absolute left-0 right-0 top-12 z-30 max-h-96 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 shadow-xl">
                 {searchResults.projects.length > 0 && (
                   <>
-                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">Dự án</p>
+                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Dự án</p>
                     {searchResults.projects.map((project) => (
                       <button type="button"
                         key={project.id}
@@ -2985,7 +2996,7 @@ export default function Home() {
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold hover:bg-[#ede8df]"
                       >
-                        <span className="text-[#b4ab99]"><Ico d={IC.folder} size={15}/></span>
+                        <span className="text-[var(--text-muted)]"><Ico d={IC.folder} size={15}/></span>
                         <span className="truncate">{project.name}</span>
                       </button>
                     ))}
@@ -2993,7 +3004,7 @@ export default function Home() {
                 )}
                 {searchResults.tasks.length > 0 && (
                   <>
-                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">Đầu việc</p>
+                    <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Đầu việc</p>
                     {searchResults.tasks.map((task) => (
                       <button type="button"
                         key={task.id}
@@ -3006,13 +3017,13 @@ export default function Home() {
                       >
                         <span>
                           {task.status === 'completed' ? (
-                            <Ico d={IC.check} size={15} className="text-[#6f7400]"/>
+                            <Ico d={IC.check} size={15} className="text-[var(--accent-hover)]"/>
                           ) : (
-                            <Ico d={IC.clock} size={15} className="text-[#b4ab99]"/>
+                            <Ico d={IC.clock} size={15} className="text-[var(--text-muted)]"/>
                           )}
                         </span>
                         <span className="min-w-0 flex-1 truncate font-bold">{task.title}</span>
-                        <span className="shrink-0 text-[10px] text-[#b4ab99]">{task.progress_percent || 0}%</span>
+                        <span className="shrink-0 text-[10px] text-[var(--text-muted)]">{task.progress_percent || 0}%</span>
                       </button>
                     ))}
                   </>
@@ -3031,41 +3042,41 @@ export default function Home() {
                   })
                 }}
                 title="Thông báo & chờ duyệt"
-                className="relative rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2.5 hover:bg-[#faf7f0]"
+                className="relative rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2.5 hover:bg-[var(--bg-surface)]"
               >
                 <Ico d={IC.bell} size={17}/>
                 {(pendingForMe.length + assignmentsForMe.length + unreadCount) > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#dadf21] px-1 text-[10px] font-extrabold text-[#191919]">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent)] px-1 text-[10px] font-extrabold text-[var(--text-primary)]">
                     {pendingForMe.length + assignmentsForMe.length + unreadCount}
                   </span>
                 )}
               </button>
 
               {inboxOpen && (
-                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 shadow-xl">
+                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 shadow-xl">
 
                   {/* Phân công chờ duyệt */}
                   {assignmentsForMe.length > 0 && (
                     <>
-                      <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
+                      <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
                         Phân công chờ duyệt ({assignmentsForMe.length})
                       </p>
                       <div className="max-h-64 space-y-1 overflow-y-auto">
                         {assignmentsForMe.map((task) => (
-                          <div key={task.id} className="rounded-lg border border-[#ede8df] bg-[#faf7f0] p-2">
+                          <div key={task.id} className="rounded-lg border border-[#ede8df] bg-[var(--bg-surface)] p-2">
                             <button type="button"
                               onClick={() => { setSelectedTask(task); setInboxOpen(false) }}
                               className="block w-full text-left"
                             >
                               <p className="truncate text-sm font-bold">{task.title}</p>
-                              <p className="truncate text-[11px] text-[#6f6b5e]">
+                              <p className="truncate text-[11px] text-[var(--text-secondary)]">
                                 Giao cho: {employeeMap.get(task.assignee_id || '')?.full_name || 'Chưa có người'}
                               </p>
                             </button>
                             <div className="mt-1.5 flex gap-1.5">
                               <button type="button"
                                 onClick={() => approveAssignment(task)}
-                                className="rounded-lg bg-[#191919] px-2.5 py-1 text-[11px] font-extrabold text-[#dadf21]"
+                                className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--accent)]"
                               >
                                 Duyệt & chia việc
                               </button>
@@ -3082,11 +3093,11 @@ export default function Home() {
                     </>
                   )}
 
-                  <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
+                  <p className="px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
                     Bước chờ tôi duyệt ({pendingForMe.length})
                   </p>
                   {pendingForMe.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[#6f6b5e]">Không có bước nào chờ duyệt. 🎉</p>
+                    <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Không có bước nào chờ duyệt. 🎉</p>
                   ) : (
                     <div className="max-h-80 space-y-1 overflow-y-auto">
                       {pendingForMe.map((step) => {
@@ -3101,12 +3112,12 @@ export default function Home() {
                               className="block w-full text-left"
                             >
                               <p className="truncate text-sm font-bold">{step.step_title}</p>
-                              <p className="truncate text-[11px] text-[#6f6b5e]">{task?.title || 'Đầu việc'}</p>
+                              <p className="truncate text-[11px] text-[var(--text-secondary)]">{task?.title || 'Đầu việc'}</p>
                             </button>
                             <div className="mt-1.5 flex gap-1.5">
                               <button type="button"
                                 onClick={() => approveCurrentStage(step)}
-                                className="rounded-lg bg-[#191919] px-2.5 py-1 text-[11px] font-extrabold text-white"
+                                className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--text-primary)]"
                               >
                                 Duyệt ngay
                               </button>
@@ -3115,7 +3126,7 @@ export default function Home() {
                                   if (task) setSelectedTask(task)
                                   setInboxOpen(false)
                                 }}
-                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1 text-[11px] font-bold"
+                                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-bold"
                               >
                                 Xem chi tiết
                               </button>
@@ -3127,11 +3138,11 @@ export default function Home() {
                   )}
 
                   {/* Thông báo */}
-                  <p className="mt-1 border-t border-[#ede8df] px-2 pb-1 pt-2 text-[10px] font-extrabold uppercase tracking-wide text-[#b4ab99]">
+                  <p className="mt-1 border-t border-[#ede8df] px-2 pb-1 pt-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
                     Thông báo
                   </p>
                   {notifications.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[#6f6b5e]">Chưa có thông báo.</p>
+                    <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Chưa có thông báo.</p>
                   ) : (
                     <div className="max-h-64 space-y-1 overflow-y-auto">
                       {notifications.map((n) => {
@@ -3143,11 +3154,11 @@ export default function Home() {
                               else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
                               else if (n.type === 'daily_digest') { setView('tasks'); setInboxOpen(false) }
                             }}
-                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[#faf7f0]`}
+                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[var(--bg-surface)]`}
                           >
                             <p className="truncate text-sm font-bold">{n.title}</p>
-                            {n.body && <p className="truncate text-[11px] text-[#6f6b5e]">{n.body}</p>}
-                            <p className="text-[10px] text-[#b4ab99]">
+                            {n.body && <p className="truncate text-[11px] text-[var(--text-secondary)]">{n.body}</p>}
+                            <p className="text-[10px] text-[var(--text-muted)]">
                               {new Date(n.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                               {n.actor_id && employeeMap.get(n.actor_id) ? ` · ${employeeMap.get(n.actor_id)?.full_name}` : ''}
                             </p>
@@ -3162,10 +3173,10 @@ export default function Home() {
 
             {/* Đồng hồ thật — nối thời gian vào phần mềm */}
             <div className="hidden flex-col items-end leading-tight md:flex">
-              <span className="font-display text-sm tabular-nums text-[#191919]">
+              <span className="font-display text-sm tabular-nums text-[var(--text-primary)]">
                 {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}
               </span>
-              <span className="font-spec text-[9px] text-[#6f6b5e]">
+              <span className="font-spec text-[9px] text-[var(--text-secondary)]">
                 {WEEKDAY_LABELS[now.getDay()]} · {now.getDate()}/{now.getMonth() + 1}/{now.getFullYear()}
               </span>
             </div>
@@ -3173,11 +3184,11 @@ export default function Home() {
             <div
               title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
-                ${realtimeStatus === 'live' ? 'bg-[#f6f9d4] text-[#6f7400]' :
+                ${realtimeStatus === 'live' ? 'bg-[#f6f9d4] text-[var(--accent-hover)]' :
                   realtimeStatus === 'connecting' ? 'bg-amber-50 text-amber-700' :
                   'bg-red-50 text-red-700'}`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[#aeb300]' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[var(--accent-hover)]' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
               {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
             </div>
             {primaryAction && (
@@ -3185,7 +3196,7 @@ export default function Home() {
                 onClick={primaryAction.onClick}
                 disabled={primaryAction.disabled}
                 title={primaryAction.title}
-                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#191919] shadow-sm hover:bg-[#cfd41d] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
+                className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-extrabold text-[var(--text-primary)] shadow-sm hover:bg-[#cfd41d] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
               >
                 {primaryAction.label}
               </button>
@@ -3465,22 +3476,22 @@ export default function Home() {
       {confirmState && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/40 p-4" onClick={() => answerConfirm(false)}>
           <div
-            className="w-full max-w-sm rounded-2xl bg-[#ffffff] p-5 shadow-2xl"
+            className="w-full max-w-sm rounded-2xl bg-[var(--bg-card)] p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600"><Ico d={IC.warning} size={20}/></div>
-            <p className="text-sm font-bold text-[#191919]">{confirmState.message}</p>
-            <p className="mt-1 text-xs text-[#6f6b5e]">Hành động này không thể hoàn tác.</p>
+            <p className="text-sm font-bold text-[var(--text-primary)]">{confirmState.message}</p>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">Hành động này không thể hoàn tác.</p>
             <div className="mt-4 flex justify-end gap-2">
               <button type="button"
                 onClick={() => answerConfirm(false)}
-                className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-4 py-2 text-sm font-bold text-[#191919]"
+                className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm font-bold text-[var(--text-primary)]"
               >
                 Hủy
               </button>
               <button type="button"
                 onClick={() => answerConfirm(true)}
-                className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-[#efe9dd]"
+                className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
               >
                 Xóa
               </button>
@@ -3496,10 +3507,10 @@ export default function Home() {
             key={t.id}
             className={`toast-enter pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg
               transition-all duration-300 max-w-[340px]
-              ${t.type === 'error' ? 'bg-[#191919] text-[#efe9dd] border border-red-400/40' :
-                t.type === 'warning' ? 'bg-[#191919] text-[#dadf21] border border-[#dadf21]/30' :
-                t.type === 'info' ? 'bg-[#191919] text-[#efe9dd]' :
-                'bg-[#dadf21] text-[#191919]'}`}
+              ${t.type === 'error' ? 'bg-[var(--accent)] text-[var(--accent)] border border-red-400/40' :
+                t.type === 'warning' ? 'bg-[var(--bg-card)] text-[var(--accent)] border border-[var(--accent)]/30' :
+                t.type === 'info' ? 'bg-[var(--accent)] text-[var(--accent)]' :
+                'bg-[var(--accent)] text-[var(--text-primary)]'}`}
           >
             <span className="shrink-0 mt-0.5">
               {t.type === 'error' ? <Ico d={IC.x} size={15}/> : t.type === 'warning' ? <Ico d={IC.warning} size={15}/> : t.type === 'info' ? <IcoCircle d={IC.info} size={15}/> : <Ico d={IC.check} size={15}/>}
@@ -3542,7 +3553,7 @@ function DashboardView(props: {
     {
       label: 'Đang làm',
       count: doing,
-      color: 'bg-[#2d331a]',
+      color: 'bg-[var(--bg-card-hover)]',
     },
     {
       label: 'Pending',
@@ -3552,7 +3563,7 @@ function DashboardView(props: {
     {
       label: 'Hoàn thành',
       count: done,
-      color: 'bg-[#191919]',
+      color: 'bg-[var(--bg-card)]',
     },
     {
       label: 'Trễ deadline',
@@ -3591,7 +3602,7 @@ function DashboardView(props: {
           <Card>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-extrabold">Báo cáo theo dự án</h3>
-              <span className="text-sm font-bold text-[#6f6b5e]">{props.projectCards.length} dự án</span>
+              <span className="text-sm font-bold text-[var(--text-secondary)]">{props.projectCards.length} dự án</span>
             </div>
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -3602,16 +3613,16 @@ function DashboardView(props: {
                     props.setSelectedProjectId(project.id)
                     props.setView('coo')
                   }}
-                  className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-4 text-left hover:shadow-md"
+                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-md"
                 >
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div>
                       <p className="font-extrabold">{project.name}</p>
-                      <p className="mt-1 text-sm text-[#6f6b5e]">{project.total} việc</p>
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">{project.total} việc</p>
                     </div>
                     <div className="text-right">
                       <ProjectHealthBadge health={project.health} />
-                      <p className="mt-2 text-2xl font-extrabold text-[#6f7400]">{project.rate}%</p>
+                      <p className="mt-2 text-2xl font-extrabold text-[var(--accent-hover)]">{project.rate}%</p>
                     </div>
                   </div>
 
@@ -3636,12 +3647,12 @@ function DashboardView(props: {
                 return (
                   <div
                     key={row.employee.id}
-                    className={`rounded-xl border border-[#d9d3c5] p-4 ${needsAttention ? 'bg-red-50/70' : 'bg-[#ffffff]'}`}
+                    className={`rounded-xl border border-[var(--border)] p-4 ${needsAttention ? 'bg-red-50/70' : 'bg-[var(--bg-card)]'}`}
                   >
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_1fr_160px]">
                       <div>
-                        <p className="text-base font-extrabold text-[#191919]">{row.employee.full_name}</p>
-                        <p className="mt-1 text-xs font-bold uppercase text-[#b4ab99]">Nhân sự phụ trách</p>
+                        <p className="text-base font-extrabold text-[var(--text-primary)]">{row.employee.full_name}</p>
+                        <p className="mt-1 text-xs font-bold uppercase text-[var(--text-muted)]">Nhân sự phụ trách</p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
@@ -3655,8 +3666,8 @@ function DashboardView(props: {
 
                       <div className="flex flex-col justify-center">
                         <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="font-bold text-[#6f6b5e]">Tỷ lệ</span>
-                          <span className="font-extrabold text-[#6f7400]">{row.rate}%</span>
+                          <span className="font-bold text-[var(--text-secondary)]">Tỷ lệ</span>
+                          <span className="font-extrabold text-[var(--accent-hover)]">{row.rate}%</span>
                         </div>
                         <ProgressBar value={row.rate} />
                       </div>
@@ -3682,12 +3693,12 @@ function DashboardView(props: {
                       props.setSelectedProjectId(project.id)
                       props.setView('coo')
                     }}
-                    className="w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-4 text-left hover:shadow-md"
+                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-md"
                   >
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <p className="font-extrabold">{project.name}</p>
-                        <p className="mt-1 text-sm font-bold text-[#6f6b5e]">
+                        <p className="mt-1 text-sm font-bold text-[var(--text-secondary)]">
                           {project.health.totalWarnings} cảnh báo
                         </p>
                       </div>
@@ -3717,10 +3728,10 @@ function DashboardView(props: {
                       className="w-full rounded-xl border border-red-100 bg-red-50/70 p-4 text-left hover:bg-red-50"
                     >
                       <p className="font-extrabold">{task.title}</p>
-                      <p className="mt-1 text-sm text-[#6f6b5e]">
+                      <p className="mt-1 text-sm text-[var(--text-secondary)]">
                         {person?.full_name || 'Chưa gắn người'} · {project?.name || 'Chưa gắn dự án'}
                       </p>
-                      <span className="mt-3 inline-flex rounded-full bg-[#ffffff] px-3 py-1 text-xs font-bold text-red-600">
+                      <span className="mt-3 inline-flex rounded-full bg-[var(--bg-card)] px-3 py-1 text-xs font-bold text-red-600">
                         {getUrgentReason(task)}
                       </span>
                     </button>
@@ -3734,7 +3745,7 @@ function DashboardView(props: {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-extrabold">Việc chờ duyệt / cần làm lại</h3>
-                <p className="mt-1 text-sm text-[#6f6b5e]">
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
                   {pendingSteps.length} chờ duyệt · {revisionSteps.length} cần làm lại
                 </p>
               </div>
@@ -3761,7 +3772,7 @@ function DashboardView(props: {
 
           <Card>
             <h3 className="text-lg font-extrabold">Bước thiếu báo cáo</h3>
-            <p className="mt-1 text-sm text-[#6f6b5e]">{missingReportSteps.length} bước chưa có file hoặc link</p>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">{missingReportSteps.length} bước chưa có file hoặc link</p>
 
             <div className="mt-4">
               <DashboardStepList
@@ -3890,32 +3901,32 @@ function CooBoard(props: {
           const isProjectExpanded = expandedProjects.has(project.id)
 
           return (
-            <div key={project.id} className="rounded-2xl border border-[#d9d3c5] bg-white overflow-hidden">
+            <div key={project.id} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
               {/* Project header */}
-              <div className="flex items-center gap-2 px-5 py-4 hover:bg-[#faf7f0] transition-colors">
+              <div className="flex items-center gap-2 px-5 py-4 hover:bg-[var(--bg-surface)] transition-colors">
                 <button
                   type="button"
                   onClick={() => toggleProject(project.id)}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <span className="w-4 shrink-0 text-sm font-bold text-[#6f6b5e]">
+                  <span className="w-4 shrink-0 text-sm font-bold text-[var(--text-secondary)]">
                     {isProjectExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-[#191919] truncate">{project.name}</span>
-                      <span className="shrink-0 rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
+                      <span className="font-extrabold text-[var(--text-primary)] truncate">{project.name}</span>
+                      <span className="shrink-0 rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
                         {projectWorkstreams.length} đầu việc lớn
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
                       <div className="h-1.5 w-32 rounded-full bg-[#d9d3c5]">
                         <div
-                          className="h-1.5 rounded-full bg-[#dadf21] transition-all"
+                          className="h-1.5 rounded-full bg-[var(--accent)] transition-all"
                           style={{ width: `${projectProgress}%` }}
                         />
                       </div>
-                      <span className="text-xs font-bold text-[#6f6b5e]">{projectProgress}%</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">{projectProgress}%</span>
                     </div>
                   </div>
                 </button>
@@ -3923,7 +3934,7 @@ function CooBoard(props: {
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); props.openWorkstreamForm(project.id) }}
-                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#dadf21] px-3 py-1.5 text-xs font-extrabold text-[#191919] hover:bg-[#cfd41d]"
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-extrabold text-[var(--text-primary)] hover:bg-[#cfd41d]"
                 >
                   <Ico d={IC.plus} size={13}/>
                   Đầu việc lớn
@@ -3933,9 +3944,9 @@ function CooBoard(props: {
 
               {/* Workstreams */}
               {isProjectExpanded && (
-                <div className="border-t border-[#d9d3c5]">
+                <div className="border-t border-[var(--border)]">
                   {projectWorkstreams.length === 0 ? (
-                    <div className="px-8 py-4 text-sm text-[#6f6b5e]">Chưa có đầu việc lớn.</div>
+                    <div className="px-8 py-4 text-sm text-[var(--text-secondary)]">Chưa có đầu việc lớn.</div>
                   ) : (
                     projectWorkstreams.map((ws) => {
                       const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
@@ -3944,28 +3955,28 @@ function CooBoard(props: {
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
                       return (
-                        <div key={ws.id} className="border-b border-[#d9d3c5] last:border-b-0">
-                          <div className="flex items-center gap-2 pl-8 pr-3 py-3 hover:bg-[#faf7f0] transition-colors">
+                        <div key={ws.id} className="border-b border-[var(--border)] last:border-b-0">
+                          <div className="flex items-center gap-2 pl-8 pr-3 py-3 hover:bg-[var(--bg-surface)] transition-colors">
                             <button
                               type="button"
                               onClick={() => toggleWorkstream(ws.id)}
                               className="flex min-w-0 flex-1 items-center gap-3 text-left"
                             >
-                              <span className="w-3 shrink-0 text-xs font-bold text-[#6f6b5e]">
+                              <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
                                 {isWsExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                               </span>
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <span className="truncate text-sm font-bold text-[#191919]">{ws.title}</span>
+                                  <span className="truncate text-sm font-bold text-[var(--text-primary)]">{ws.title}</span>
                                   <IssueBadge issueStatus={ws.issue_status} />
-                                  <span className="rounded-full bg-[#f1ede4] px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
+                                  <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
                                     {subtasks.length} việc con
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center gap-3 text-xs text-[#6f6b5e]">
+                                <div className="mt-1 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
                                   <span>{wsHead?.full_name || 'Chưa gắn head'}</span>
                                   {ws.due_date && <span>· {ws.due_date}</span>}
-                                  <span className="font-bold text-[#191919]">{wsProgress}%</span>
+                                  <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                                 </div>
                               </div>
                             </button>
@@ -3973,14 +3984,14 @@ function CooBoard(props: {
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
                                   onClick={() => props.openSubtaskForm(ws)}
-                                  className="rounded-lg bg-[#191919] px-2.5 py-1 text-xs font-bold text-[#dadf21]"
+                                  className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--accent)]"
                                 >
                                   + Việc con
                                 </button>
                               )}
                               <button type="button"
                                 onClick={() => props.setSelectedTask(ws)}
-                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1 text-xs font-bold text-[#191919]"
+                                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
                               >
                                 Chi tiết
                               </button>
@@ -4010,9 +4021,9 @@ function CooBoard(props: {
                           )}
 
                           {isWsExpanded && (
-                            <div className="border-t border-[#d9d3c5] bg-[#faf7f0]">
+                            <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]">
                               {subtasks.length === 0 ? (
-                                <div className="py-3 pl-14 text-xs text-[#6f6b5e]">Chưa có đầu việc con.</div>
+                                <div className="py-3 pl-14 text-xs text-[var(--text-secondary)]">Chưa có đầu việc con.</div>
                               ) : (
                                 subtasks.map((subtask) => {
                                   const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
@@ -4024,35 +4035,35 @@ function CooBoard(props: {
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
 
                                   return (
-                                    <div key={subtask.id} className="border-b border-[#d9d3c5] last:border-b-0">
-                                      <div className="flex items-center gap-2 pl-14 pr-3 py-2.5 hover:bg-[#f1ede4] transition-colors">
+                                    <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
+                                      <div className="flex items-center gap-2 pl-14 pr-3 py-2.5 hover:bg-[var(--bg-base)] transition-colors">
                                         <button
                                           type="button"
                                           onClick={() => toggleSubtask(subtask.id)}
                                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                                         >
-                                          <span className="w-3 shrink-0 text-xs font-bold text-[#6f6b5e]">
+                                          <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
                                             {isSubtaskExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
                                           </span>
                                           <div className="min-w-0 flex-1">
                                             <div className="flex flex-wrap items-center gap-2">
-                                              <span className="truncate text-sm font-bold text-[#191919]">{subtask.title}</span>
+                                              <span className="truncate text-sm font-bold text-[var(--text-primary)]">{subtask.title}</span>
                                               <IssueBadge issueStatus={subtask.issue_status} />
-                                              <span className="rounded-full border border-[#d9d3c5] bg-white px-2 py-0.5 text-xs font-bold text-[#6f6b5e]">
+                                              <span className="rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
                                                 {stepsForSubtask.length} bước
                                               </span>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-3 text-xs text-[#6f6b5e]">
+                                            <div className="mt-1 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
                                               {subtaskAssignee && <span>{subtaskAssignee.full_name}</span>}
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
-                                              <span className="font-bold text-[#191919]">{subtaskProgress}%</span>
+                                              <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
                                             </div>
                                           </div>
                                         </button>
                                         <div className="flex shrink-0 gap-1.5">
                                           <button type="button"
                                             onClick={() => props.setSelectedTask(subtask)}
-                                            className="rounded-lg border border-[#d9d3c5] bg-white px-2.5 py-1 text-xs font-bold text-[#191919]"
+                                            className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
                                           >
                                             Chi tiết
                                           </button>
@@ -4144,7 +4155,7 @@ function InlineSubtaskForm(props: {
   cancel: () => void
 }) {
   return (
-    <div className="mt-5 rounded-2xl border border-[#d9d3c5] bg-[#faf7f0] p-4">
+    <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
       <h4 className="mb-3 font-extrabold">Tạo đầu việc con</h4>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -4193,7 +4204,7 @@ function InlineSubtaskForm(props: {
         </Select>
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
           value={props.form.dueDate}
           onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
         />
@@ -4210,13 +4221,13 @@ function InlineSubtaskForm(props: {
       <div className="mt-4 flex gap-2">
         <button type="button"
           onClick={() => props.createSubtask(props.parent)}
-          className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
+          className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
         >
           Lưu đầu việc con
         </button>
         <button type="button"
           onClick={props.cancel}
-          className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
+          className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-bold"
         >
           Hủy
         </button>
@@ -4276,7 +4287,7 @@ function SubtaskCard(props: {
   const problem = isTaskProblem(props.task)
 
   return (
-    <div className={`rounded-2xl border bg-[#ffffff] p-5 shadow-sm ${overdue || problem ? 'border-red-200' : 'border-[#d9d3c5]'}`}>
+    <div className={`rounded-2xl border bg-[var(--bg-card)] p-5 shadow-sm ${overdue || problem ? 'border-red-200' : 'border-[var(--border)]'}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -4287,7 +4298,7 @@ function SubtaskCard(props: {
             {overdue && <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">Quá hạn</span>}
           </div>
 
-          <p className="text-sm text-[#6f6b5e]">
+          <p className="text-sm text-[var(--text-secondary)]">
             Head: <b>{head?.full_name || 'Chưa gắn'}</b> · Phòng ban:{' '}
             <b>{department?.name || 'Chưa gắn'}</b> · Deadline:{' '}
             <b>{props.task.due_date || 'Chưa có'}</b>
@@ -4296,7 +4307,7 @@ function SubtaskCard(props: {
 
         <div className="flex flex-wrap gap-2">
           <select
-            className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
+            className="h-10 rounded-xl border border-[var(--border)] px-2 text-xs font-bold"
             value={props.task.status}
             onChange={(event) => props.updateTaskStatus(props.task.id, event.target.value)}
           >
@@ -4308,7 +4319,7 @@ function SubtaskCard(props: {
           </select>
 
           <select
-            className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
+            className="h-10 rounded-xl border border-[var(--border)] px-2 text-xs font-bold"
             value={props.task.issue_status || 'normal'}
             onChange={(event) => props.updateIssueStatus(props.task.id, event.target.value)}
           >
@@ -4320,7 +4331,7 @@ function SubtaskCard(props: {
 
           <button type="button"
             onClick={() => props.setSelectedTask(props.task)}
-            className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-xs font-bold"
+            className="h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold"
           >
             Chi tiết / File
           </button>
@@ -4337,17 +4348,17 @@ function SubtaskCard(props: {
       <div className="mb-4">
         <div className="mb-2 flex justify-between text-sm">
           <span className="font-bold">Tiến độ theo bước đã duyệt</span>
-          <span className="font-extrabold text-[#6f7400]">{progress}%</span>
+          <span className="font-extrabold text-[var(--accent-hover)]">{progress}%</span>
         </div>
         <ProgressBar value={progress} />
       </div>
 
-      <div className="rounded-2xl bg-[#faf7f0] p-4">
+      <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
         <div className="mb-3 flex items-center justify-between">
           <p className="font-extrabold">Các bước thực hiện & duyệt</p>
           <button type="button"
             onClick={() => props.openStepForm(props.task)}
-            className="rounded-lg bg-[#ffffff] px-3 py-1 text-xs font-bold"
+            className="rounded-lg bg-[var(--bg-card)] px-3 py-1 text-xs font-bold"
           >
             + Bước
           </button>
@@ -4366,7 +4377,7 @@ function SubtaskCard(props: {
 
         <div className="mt-3 space-y-3">
           {props.steps.length === 0 ? (
-            <p className="text-sm text-[#6f6b5e]">Chưa có bước thực hiện.</p>
+            <p className="text-sm text-[var(--text-secondary)]">Chưa có bước thực hiện.</p>
           ) : (
             props.steps.map((step, index) => {
               const previousStep = index > 0 ? props.steps[index - 1] : null
@@ -4406,12 +4417,12 @@ function SubtaskCard(props: {
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl bg-[#faf7f0] p-4">
+        <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
           <p className="mb-3 font-extrabold">Người hỗ trợ</p>
 
           <div className="mb-3 flex gap-2">
             <select
-              className="h-10 flex-1 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
+              className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
               value={props.supporterDrafts[props.task.id] || ''}
               onChange={(event) =>
                 props.setSupporterDrafts({
@@ -4430,7 +4441,7 @@ function SubtaskCard(props: {
 
             <button type="button"
               onClick={() => props.createSupporter(props.task.id)}
-              className="rounded-xl bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-xl bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Thêm
             </button>
@@ -4438,13 +4449,13 @@ function SubtaskCard(props: {
 
           <div className="space-y-2">
             {props.supporters.length === 0 ? (
-              <p className="text-sm text-[#6f6b5e]">Chưa có người hỗ trợ.</p>
+              <p className="text-sm text-[var(--text-secondary)]">Chưa có người hỗ trợ.</p>
             ) : (
               props.supporters.map((supporter) => (
-                <div key={supporter.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#ffffff] p-3">
+                <div key={supporter.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--bg-card)] p-3">
                   <div>
                     <p className="text-sm font-bold">{supporter.employees?.full_name || 'Không rõ'}</p>
-                    <p className="text-xs text-[#6f6b5e]">{supporter.role_note || 'Hỗ trợ'}</p>
+                    <p className="text-xs text-[var(--text-secondary)]">{supporter.role_note || 'Hỗ trợ'}</p>
                   </div>
                   <button type="button"
                     onClick={() => props.deleteSupporter(supporter)}
@@ -4458,9 +4469,9 @@ function SubtaskCard(props: {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-[#faf7f0] p-4">
+        <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
           <p className="font-extrabold">File báo cáo đầu việc</p>
-          <p className="mt-1 text-sm text-[#6f6b5e]">{props.reports.length} file đã upload ở cấp đầu việc.</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">{props.reports.length} file đã upload ở cấp đầu việc.</p>
         </div>
       </div>
     </div>
@@ -4476,7 +4487,7 @@ function InlineStepForm(props: {
   cancel: () => void
 }) {
   return (
-    <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-4">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
       <h4 className="mb-3 font-extrabold">Tạo bước thực hiện</h4>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -4509,7 +4520,7 @@ function InlineStepForm(props: {
         </Select>
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
           value={props.form.dueDate}
           onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
         />
@@ -4518,13 +4529,13 @@ function InlineStepForm(props: {
       <div className="mt-4 flex gap-2">
         <button type="button"
           onClick={() => props.createStep(props.taskId)}
-          className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
+          className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
         >
           Lưu bước
         </button>
         <button type="button"
           onClick={props.cancel}
-          className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
+          className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-bold"
         >
           Hủy
         </button>
@@ -4568,7 +4579,7 @@ function StepWorkflowCard(props: {
   const approveButtonLabel = getApproveButtonLabel(stage)
 
   return (
-    <div className={`rounded-2xl border bg-[#ffffff] p-4 ${props.locked ? 'opacity-60' : ''}`}>
+    <div className={`rounded-2xl border bg-[var(--bg-card)] p-4 ${props.locked ? 'opacity-60' : ''}`}>
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <div>
@@ -4584,7 +4595,7 @@ function StepWorkflowCard(props: {
               )}
             </div>
 
-            <p className="mt-1 text-sm text-[#6f6b5e]">
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
               Phụ trách: <b>{owner?.full_name || 'Chưa gắn'}</b> · Trưởng bộ phận:{' '}
               <b>{departmentApprover?.full_name || 'Chưa gắn'}</b> · Deadline:{' '}
               <b>{props.step.due_date || 'Chưa có'}</b>
@@ -4615,18 +4626,18 @@ function StepWorkflowCard(props: {
 
         <input
           type="date"
-          className="h-12 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
+          className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
           value={props.step.due_date || ''}
           onChange={(event) => props.updateStep(props.step, { due_date: event.target.value || null } as Partial<TaskStep>)}
         />
       </div>
 
-      <div className="mt-3 rounded-xl bg-[#faf7f0] p-3">
+      <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3">
         <p className="mb-3 text-sm font-extrabold">Tuyến duyệt: {approvalRoute}</p>
 
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           <div>
-            <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">Trưởng bộ phận duyệt</p>
+            <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">Trưởng bộ phận duyệt</p>
             <Select
               value={props.step.department_approver_id || props.step.approver_id || ''}
               onChange={(value) =>
@@ -4645,7 +4656,7 @@ function StepWorkflowCard(props: {
             </Select>
           </div>
 
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm font-bold">
+          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm font-bold">
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_coo_approval)}
@@ -4659,7 +4670,7 @@ function StepWorkflowCard(props: {
             Cần COO duyệt
           </label>
 
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm font-bold">
+          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm font-bold">
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_ceo_approval)}
@@ -4678,7 +4689,7 @@ function StepWorkflowCard(props: {
           <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
             {props.step.requires_coo_approval && (
               <div>
-                <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">COO duyệt vận hành</p>
+                <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">COO duyệt vận hành</p>
                 <Select
                   value={props.step.coo_approver_id || ''}
                   onChange={(value) => props.updateStep(props.step, { coo_approver_id: value || null } as Partial<TaskStep>)}
@@ -4695,7 +4706,7 @@ function StepWorkflowCard(props: {
 
             {props.step.requires_ceo_approval && (
               <div>
-                <p className="mb-1 text-xs font-extrabold text-[#6f6b5e]">CEO duyệt cuối</p>
+                <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">CEO duyệt cuối</p>
                 <Select
                   value={props.step.ceo_approver_id || ''}
                   onChange={(value) => props.updateStep(props.step, { ceo_approver_id: value || null } as Partial<TaskStep>)}
@@ -4718,7 +4729,7 @@ function StepWorkflowCard(props: {
           <ApprovalStatusPill label="CEO" status={props.step.ceo_approval_status || 'not_required'} />
         </div>
 
-        <p className="mt-2 text-xs text-[#6f6b5e]">
+        <p className="mt-2 text-xs text-[var(--text-secondary)]">
           Người duyệt: Trưởng bộ phận {departmentApprover?.full_name || 'chưa gắn'}
           {props.step.requires_coo_approval ? ` · COO ${cooApprover?.full_name || 'chưa gắn'}` : ''}
           {props.step.requires_ceo_approval ? ` · CEO ${ceoApprover?.full_name || 'chưa gắn'}` : ''}
@@ -4738,14 +4749,14 @@ function StepWorkflowCard(props: {
       )}
 
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <div className="rounded-xl bg-[#faf7f0] p-3">
+        <div className="rounded-xl bg-[var(--bg-surface)] p-3">
           <p className="mb-2 text-sm font-extrabold">File / link báo cáo</p>
 
           <input
             type="file"
             disabled={props.locked}
             onChange={(event) => props.uploadStepFile(props.step, event.target.files?.[0])}
-            className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-2 text-xs"
+            className="block w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 text-xs"
           />
 
           {props.step.report_file_url && (
@@ -4754,7 +4765,7 @@ function StepWorkflowCard(props: {
                 href={props.step.report_file_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-white"
+                className="inline-flex rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
               >
                 Mở file
               </a>
@@ -4769,7 +4780,7 @@ function StepWorkflowCard(props: {
 
           <div className="mt-3 flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
               placeholder="Dán link báo cáo... (tự lưu khi rời ô)"
               value={props.linkDrafts[props.step.id] ?? props.step.report_link ?? ''}
               onChange={(event) =>
@@ -4790,7 +4801,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.saveStepLink(props.step)}
-              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Lưu
             </button>
@@ -4801,19 +4812,19 @@ function StepWorkflowCard(props: {
               href={props.step.report_link}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 block text-xs font-bold text-[#6f7400]"
+              className="mt-2 block text-xs font-bold text-[var(--accent-hover)]"
             >
               Mở link báo cáo
             </a>
           )}
         </div>
 
-        <div className="rounded-xl bg-[#faf7f0] p-3">
+        <div className="rounded-xl bg-[var(--bg-surface)] p-3">
           <p className="mb-2 text-sm font-extrabold">Bình luận / cần hỗ trợ</p>
 
           <div className="mb-3 flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
               placeholder="VD: Em cần công cụ hỗ trợ... (Enter để lưu)"
               value={props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''}
               onChange={(event) =>
@@ -4828,7 +4839,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.saveSupportRequest(props.step)}
-              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Lưu
             </button>
@@ -4836,12 +4847,12 @@ function StepWorkflowCard(props: {
 
           <div className="mb-3 max-h-28 space-y-2 overflow-y-auto">
             {props.comments.length === 0 ? (
-              <p className="text-xs text-[#6f6b5e]">Chưa có bình luận.</p>
+              <p className="text-xs text-[var(--text-secondary)]">Chưa có bình luận.</p>
             ) : (
               props.comments.map((comment) => (
-                <div key={comment.id} className="rounded-lg bg-[#ffffff] p-2 text-xs">
+                <div key={comment.id} className="rounded-lg bg-[var(--bg-card)] p-2 text-xs">
                   <p className="font-bold">{comment.employees?.full_name || 'Không rõ'}</p>
-                  <p className="text-[#6f6b5e]">{comment.comment}</p>
+                  <p className="text-[var(--text-secondary)]">{comment.comment}</p>
                 </div>
               ))
             )}
@@ -4849,7 +4860,7 @@ function StepWorkflowCard(props: {
 
           <div className="flex gap-2">
             <input
-              className="h-9 flex-1 rounded-lg border border-[#d9d3c5] px-3 text-xs outline-none"
+              className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
               placeholder="Nhập bình luận... (Enter để gửi)"
               value={props.commentDrafts[props.step.id] || ''}
               onChange={(event) =>
@@ -4864,7 +4875,7 @@ function StepWorkflowCard(props: {
             />
             <button type="button"
               onClick={() => props.addComment(props.step.id)}
-              className="rounded-lg bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
+              className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Gửi
             </button>
@@ -4889,7 +4900,7 @@ function StepWorkflowCard(props: {
           <button type="button"
             disabled={props.locked}
             onClick={() => props.requestRevision(props.step)}
-            className="rounded-lg bg-red-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+            className="rounded-lg bg-red-600 px-3 text-xs font-bold text-[var(--text-primary)] disabled:opacity-40"
           >
             Gửi
           </button>
@@ -4900,7 +4911,7 @@ function StepWorkflowCard(props: {
         <button type="button"
           disabled={props.locked || status === 'approved'}
           onClick={() => props.submitStep(props.step)}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-extrabold text-white disabled:opacity-40"
+          className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-extrabold text-[var(--text-primary)] disabled:opacity-40"
         >
           Gửi duyệt
         </button>
@@ -4908,7 +4919,7 @@ function StepWorkflowCard(props: {
         <button type="button"
           disabled={props.locked}
           onClick={() => props.approveStep(props.step)}
-          className="rounded-xl bg-[#191919] px-4 py-2 text-xs font-extrabold text-white disabled:opacity-40"
+          className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-xs font-extrabold text-[var(--text-primary)] disabled:opacity-40"
         >
           {approveButtonLabel}
         </button>
@@ -4979,9 +4990,9 @@ function ProjectsView(props: {
   function Sec({ n, title, desc }: { n: string; title: string; desc?: string }) {
     return (
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-2">
-        <span className="rounded-md bg-[#191919] px-2 py-0.5 font-mono text-[11px] font-bold text-[#dadf21]">{n}</span>
-        <h2 className="font-display text-lg text-[#191919]">{title}</h2>
-        {desc && <p className="text-xs text-[#9d9684]">{desc}</p>}
+        <span className="rounded-md bg-[var(--bg-card)] px-2 py-0.5 font-mono text-[11px] font-bold text-[var(--accent)]">{n}</span>
+        <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
+        {desc && <p className="text-xs text-[var(--text-muted)]">{desc}</p>}
       </div>
     )
   }
@@ -4990,22 +5001,22 @@ function ProjectsView(props: {
     <div className="space-y-5">
 
       {/* ══ Hero — đích cuối ══ */}
-      <div className="overflow-hidden rounded-2xl border border-[#2d331a] bg-[#2d331a] text-[#f1ede4]">
+      <div className="overflow-hidden rounded-2xl border border-[#2d331a] bg-[var(--bg-card-hover)] text-[var(--text-primary)]">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
           <div className="shrink-0 sm:w-44">
-            <p className="font-spec text-[10px] text-[#b4ab99]">Đích cuối</p>
-            <p className="font-display text-4xl leading-none text-[#dadf21]">100<span className="text-base">%</span></p>
-            <p className="mt-1 text-xs text-[#b4ab99]">hoàn thành toàn bộ dự án</p>
+            <p className="font-spec text-[10px] text-[var(--text-muted)]">Đích cuối</p>
+            <p className="font-display text-4xl leading-none text-[var(--accent)]">100<span className="text-base">%</span></p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">hoàn thành toàn bộ dự án</p>
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex items-baseline justify-between">
-              <p className="text-sm font-bold">Hiện tại: <span className="tabular-nums text-[#dadf21]">{overallRate}%</span> · {totalDone}/{totalTasks} đầu việc</p>
-              <p className="text-xs text-[#b4ab99]">{props.projectCards.length} dự án</p>
+              <p className="text-sm font-bold">Hiện tại: <span className="tabular-nums text-[var(--accent)]">{overallRate}%</span> · {totalDone}/{totalTasks} đầu việc</p>
+              <p className="text-xs text-[var(--text-muted)]">{props.projectCards.length} dự án</p>
             </div>
             <div className="relative h-5 overflow-hidden rounded-full bg-[#3a3f27]">
-              <div className="h-5 rounded-full bg-[#dadf21] transition-all" style={{ width: `${Math.max(overallRate, 1)}%` }} />
+              <div className="h-5 rounded-full bg-[var(--accent)] transition-all" style={{ width: `${Math.max(overallRate, 1)}%` }} />
             </div>
-            <p className="mt-1.5 text-[11px] text-[#9d9684]">Thanh này tự cộng từ tiến độ thật của mọi dự án — không nhập tay.</p>
+            <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">Thanh này tự cộng từ tiến độ thật của mọi dự án — không nhập tay.</p>
           </div>
         </div>
       </div>
@@ -5014,56 +5025,56 @@ function ProjectsView(props: {
       <Sec n="00·1" title="Tuần này — liếc 5 giây" desc="ba ô tự gom từ dữ liệu thật — không nhập tay" />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {/* Phải xong tuần này */}
-        <div className="rounded-2xl border border-[#d9d3c5] bg-white">
-          <div className="flex items-center justify-between border-b border-[#d9d3c5] px-4 py-2.5">
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Phải xong tuần này</p>
-            <span className="rounded-full bg-[#f0f5c4] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[#6f7400]">{dueThisWeek.length}</span>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Phải xong tuần này</p>
+            <span className="rounded-full bg-[#f0f5c4] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[var(--accent-hover)]">{dueThisWeek.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
             {dueThisWeek.length === 0 ? (
-              <p className="px-4 py-4 text-xs text-[#9d9684]">Không có việc đến hạn trong tuần.</p>
+              <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có việc đến hạn trong tuần.</p>
             ) : dueThisWeek.slice(0, 8).map((t) => (
               <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[#faf7f0]">
-                <span className="truncate text-sm font-bold text-[#191919]">{t.title}</span>
-                <span className="shrink-0 text-[10px] font-bold tabular-nums text-[#9d9684]">{t.due_date?.slice(5)}</span>
+                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[var(--bg-surface)]">
+                <span className="truncate text-sm font-bold text-[var(--text-primary)]">{t.title}</span>
+                <span className="shrink-0 text-[10px] font-bold tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5)}</span>
               </button>
             ))}
           </div>
         </div>
         {/* Đang kẹt / quá hạn */}
-        <div className={`rounded-2xl border bg-white ${stuck.length > 0 ? 'border-red-200' : 'border-[#d9d3c5]'}`}>
-          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[#d9d3c5]'}`}>
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Đang kẹt / quá hạn</p>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-red-100 text-red-700' : 'bg-[#eeeae1] text-[#9d9684]'}`}>{stuck.length}</span>
+        <div className={`rounded-2xl border bg-[var(--bg-card)] ${stuck.length > 0 ? 'border-red-200' : 'border-[var(--border)]'}`}>
+          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[var(--border)]'}`}>
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Đang kẹt / quá hạn</p>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-red-100 text-red-700' : 'bg-[#eeeae1] text-[var(--text-muted)]'}`}>{stuck.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
             {stuck.length === 0 ? (
-              <p className="px-4 py-4 text-xs text-[#9d9684]">Không có gì kẹt. Tốt.</p>
+              <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có gì kẹt. Tốt.</p>
             ) : stuck.slice(0, 8).map((t) => (
               <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                 className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-red-50">
                 <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${isTaskOverdue(t) ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                   {isTaskOverdue(t) ? 'TRỄ' : 'KẸT'}
                 </span>
-                <span className="truncate text-sm font-bold text-[#191919]">{t.title}</span>
+                <span className="truncate text-sm font-bold text-[var(--text-primary)]">{t.title}</span>
               </button>
             ))}
           </div>
         </div>
         {/* Chờ duyệt */}
-        <div className="rounded-2xl border border-[#d9d3c5] bg-white">
-          <div className="flex items-center justify-between border-b border-[#d9d3c5] px-4 py-2.5">
-            <p className="text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">Chờ duyệt</p>
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Chờ duyệt</p>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-extrabold tabular-nums text-amber-700">{pendingSteps.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
             {pendingSteps.length === 0 ? (
-              <p className="px-4 py-4 text-xs text-[#9d9684]">Không có bước nào chờ duyệt.</p>
+              <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có bước nào chờ duyệt.</p>
             ) : pendingSteps.slice(0, 8).map((s) => (
               <button key={s.id} type="button" onClick={() => openTaskOfStep(s)}
-                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[#faf7f0]">
-                <span className="truncate text-sm font-bold text-[#191919]">{s.step_title}</span>
+                className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[var(--bg-surface)]">
+                <span className="truncate text-sm font-bold text-[var(--text-primary)]">{s.step_title}</span>
                 <span className="shrink-0 text-[10px] font-bold text-amber-600">duyệt →</span>
               </button>
             ))}
@@ -5074,15 +5085,15 @@ function ProjectsView(props: {
       {/* ══ 00·2 Nối dự án ══ */}
       <Sec n="00·2" title="Nối dự án — sức khỏe từng dự án" desc="bấm dự án → sổ ra chi tiết, vì sao đang màu này" />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
-        <div className="overflow-hidden rounded-2xl border border-[#d9d3c5] bg-white">
+        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
           <div className="divide-y divide-[#d9d3c5]">
             {props.projectCards.map((project) => {
               const isFocus = focusProject === project.id
               const healthColor =
-                project.health.label === 'Tốt' ? 'bg-[#dadf21]' :
+                project.health.label === 'Tốt' ? 'bg-[var(--accent)]' :
                 project.health.label === 'Chú ý' ? 'bg-amber-400' : 'bg-red-500'
               const dotColor =
-                project.health.label === 'Tốt' ? 'bg-[#aeb300]' :
+                project.health.label === 'Tốt' ? 'bg-[var(--accent-hover)]' :
                 project.health.label === 'Chú ý' ? 'bg-amber-500' : 'bg-red-500'
 
               return (
@@ -5090,28 +5101,28 @@ function ProjectsView(props: {
                   key={project.id}
                   type="button"
                   onClick={() => setFocusProject(isFocus ? null : project.id)}
-                  className={`flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors ${isFocus ? 'bg-[#f5f2e8]' : 'hover:bg-[#faf7f0]'}`}
+                  className={`flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors ${isFocus ? 'bg-[#f5f2e8]' : 'hover:bg-[var(--bg-surface)]'}`}
                 >
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
                   <div className="w-36 shrink-0">
-                    <p className="truncate text-sm font-extrabold text-[#191919]">{project.name}</p>
-                    {project.code && <p className="text-[10px] text-[#b4ab99]">{project.code}</p>}
+                    <p className="truncate text-sm font-extrabold text-[var(--text-primary)]">{project.name}</p>
+                    {project.code && <p className="text-[10px] text-[var(--text-muted)]">{project.code}</p>}
                   </div>
                   <div className="flex flex-1 items-center gap-2">
                     <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
                       <div className={`h-5 rounded-full transition-all ${healthColor}`} style={{ width: `${Math.max(project.rate, 1)}%` }} />
                       {project.rate > 10 && (
-                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[#191919]">{project.rate}%</span>
+                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[var(--text-primary)]">{project.rate}%</span>
                       )}
                     </div>
-                    {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[#191919]">{project.rate}%</span>}
+                    {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[var(--text-primary)]">{project.rate}%</span>}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
-                    <span className="font-bold text-[#6f7400]">{project.done}<span className="font-normal text-[#9d9684]">/{project.total}</span></span>
+                    <span className="font-bold text-[var(--accent-hover)]">{project.done}<span className="font-normal text-[var(--text-muted)]">/{project.total}</span></span>
                     {project.overdue > 0 && <span className="font-bold text-red-600">⚠ {project.overdue}</span>}
                     {project.problem > 0 && <span className="font-bold text-amber-600">! {project.problem}</span>}
                   </div>
-                  <Ico d={IC.chevronRight} size={13} className={`shrink-0 text-[#b4ab99] transition-transform ${isFocus ? 'rotate-90' : ''}`} />
+                  <Ico d={IC.chevronRight} size={13} className={`shrink-0 text-[var(--text-muted)] transition-transform ${isFocus ? 'rotate-90' : ''}`} />
                 </button>
               )
             })}
@@ -5121,12 +5132,12 @@ function ProjectsView(props: {
         {/* Panel phải */}
         <div className="flex flex-col gap-4">
           {focusedProject ? (
-            <div className="rounded-2xl border border-[#d9d3c5] bg-white">
-              <div className="flex items-center justify-between border-b border-[#d9d3c5] bg-[#faf7f0] px-4 py-3">
-                <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[#6f6b5e]">{focusedProject.name}</p>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
+              <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3">
+                <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">{focusedProject.name}</p>
                 <button type="button"
                   onClick={() => { props.setSelectedProjectId(focusedProject.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[#191919] px-3 py-1 text-xs font-bold text-[#dadf21]">
+                  className="shrink-0 rounded-lg bg-[var(--bg-card)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
                   Mở COO Board
                 </button>
               </div>
@@ -5134,13 +5145,13 @@ function ProjectsView(props: {
                 <ProjectHealthSummary health={focusedProject.health} />
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[
-                    { label: 'Tổng', v: focusedProject.total, c: 'text-[#191919]' },
-                    { label: 'Xong', v: focusedProject.done, c: 'text-[#6f7400]' },
-                    { label: 'Trễ', v: focusedProject.overdue, c: focusedProject.overdue > 0 ? 'text-red-600' : 'text-[#9d9684]' },
+                    { label: 'Tổng', v: focusedProject.total, c: 'text-[var(--text-primary)]' },
+                    { label: 'Xong', v: focusedProject.done, c: 'text-[var(--accent-hover)]' },
+                    { label: 'Trễ', v: focusedProject.overdue, c: focusedProject.overdue > 0 ? 'text-red-600' : 'text-[var(--text-muted)]' },
                   ].map((n) => (
-                    <div key={n.label} className="rounded-xl bg-[#faf7f0] py-2">
+                    <div key={n.label} className="rounded-xl bg-[var(--bg-surface)] py-2">
                       <p className={`text-xl font-extrabold tabular-nums ${n.c}`}>{n.v}</p>
-                      <p className="text-[10px] font-bold text-[#9d9684]">{n.label}</p>
+                      <p className="text-[10px] font-bold text-[var(--text-muted)]">{n.label}</p>
                     </div>
                   ))}
                 </div>
@@ -5148,7 +5159,7 @@ function ProjectsView(props: {
                   const urg = props.tasks.filter((t) => t.project_id === focusedProject.id && (isTaskOverdue(t) || isTaskProblem(t))).slice(0, 5)
                   return urg.length > 0 ? (
                     <div>
-                      <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#6f6b5e]">Cần chú ý</p>
+                      <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Cần chú ý</p>
                       <div className="space-y-1">
                         {urg.map((t) => (
                           <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
@@ -5159,7 +5170,7 @@ function ProjectsView(props: {
                         ))}
                       </div>
                     </div>
-                  ) : <p className="text-xs text-[#9d9684]">Không có cảnh báo.</p>
+                  ) : <p className="text-xs text-[var(--text-muted)]">Không có cảnh báo.</p>
                 })()}
                 {props.canDeleteProject && (
                   <button type="button" onClick={() => props.deleteProject(focusedProject)}
@@ -5170,23 +5181,23 @@ function ProjectsView(props: {
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-[#d4cbb8] bg-[#faf7f0] px-4 py-6 text-center">
-              <p className="text-sm font-bold text-[#9d9684]">Bấm vào một dự án bên trái<br/>để sổ ra chi tiết tại đây</p>
+            <div className="rounded-2xl border border-dashed border-[#d4cbb8] bg-[var(--bg-surface)] px-4 py-6 text-center">
+              <p className="text-sm font-bold text-[var(--text-muted)]">Bấm vào một dự án bên trái<br/>để sổ ra chi tiết tại đây</p>
             </div>
           )}
 
           {/* Legend */}
-          <div className="rounded-2xl border border-[#d9d3c5] bg-white px-4 py-3">
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[#6f6b5e]">Màu sức khỏe</p>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Màu sức khỏe</p>
             <div className="space-y-1.5">
               {[
-                { color: 'bg-[#dadf21]', label: 'Tốt — đúng tiến độ' },
+                { color: 'bg-[var(--accent)]', label: 'Tốt — đúng tiến độ' },
                 { color: 'bg-amber-400', label: 'Chú ý — có rủi ro' },
                 { color: 'bg-red-500', label: 'Nghiêm trọng — cần can thiệp' },
               ].map((l) => (
                 <div key={l.label} className="flex items-center gap-2">
                   <div className={`h-3 w-12 rounded-full ${l.color}`} />
-                  <p className="text-xs text-[#6f6b5e]">{l.label}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{l.label}</p>
                 </div>
               ))}
             </div>
@@ -5196,21 +5207,21 @@ function ProjectsView(props: {
 
       {/* ══ 00·3 Tải người ══ */}
       <Sec n="00·3" title="Tải người — ai đang gánh bao nhiêu" desc="tự đếm từ đầu việc đang mở · >5 việc = đỏ" />
-      <div className="rounded-2xl border border-[#d9d3c5] bg-white p-5">
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         {workload.length === 0 ? (
-          <p className="text-sm text-[#9d9684]">Chưa có việc nào được giao.</p>
+          <p className="text-sm text-[var(--text-muted)]">Chưa có việc nào được giao.</p>
         ) : (
           <div className="space-y-2.5">
             {workload.map((w) => (
               <div key={w.id} className="flex items-center gap-3">
-                <p className="w-36 shrink-0 truncate text-sm font-bold text-[#191919]">{w.name}</p>
+                <p className="w-36 shrink-0 truncate text-sm font-bold text-[var(--text-primary)]">{w.name}</p>
                 <div className="h-4 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
                   <div
-                    className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-red-500' : 'bg-[#dadf21]'}`}
+                    className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-red-500' : 'bg-[var(--accent)]'}`}
                     style={{ width: `${(w.n / maxLoad) * 100}%` }}
                   />
                 </div>
-                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-red-600' : 'text-[#191919]'}`}>{w.n} việc</p>
+                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-red-600' : 'text-[var(--text-primary)]'}`}>{w.n} việc</p>
               </div>
             ))}
           </div>
@@ -5222,28 +5233,28 @@ function ProjectsView(props: {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {props.projectCards.map((project) => {
           const dotColor =
-            project.health.label === 'Tốt' ? 'bg-[#aeb300]' :
+            project.health.label === 'Tốt' ? 'bg-[var(--accent-hover)]' :
             project.health.label === 'Chú ý' ? 'bg-amber-500' : 'bg-red-500'
           return (
             <button
               key={project.id}
               type="button"
               onClick={() => setBoardProject(project.id)}
-              className="rounded-2xl border border-[#d9d3c5] bg-white p-5 text-left transition-shadow hover:shadow-md"
+              className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 text-left transition-shadow hover:shadow-md"
             >
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-extrabold text-[#191919]">{project.name}</p>
-                  {project.code && <p className="text-[10px] text-[#b4ab99]">{project.code}</p>}
+                  <p className="truncate font-extrabold text-[var(--text-primary)]">{project.name}</p>
+                  {project.code && <p className="text-[10px] text-[var(--text-muted)]">{project.code}</p>}
                 </div>
                 <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
               </div>
               <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[#eeeae1]">
-                <div className="h-2.5 rounded-full bg-[#dadf21]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
+                <div className="h-2.5 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold tabular-nums text-[#6f6b5e]">{project.rate}% · {project.done}/{project.total} việc</span>
-                <span className="font-extrabold text-[#191919]">Mở bảng →</span>
+                <span className="font-bold tabular-nums text-[var(--text-secondary)]">{project.rate}% · {project.done}/{project.total} việc</span>
+                <span className="font-extrabold text-[var(--text-primary)]">Mở bảng →</span>
               </div>
             </button>
           )
@@ -5265,51 +5276,51 @@ function ProjectsView(props: {
 
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
-            <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-[var(--bg-card)] shadow-2xl ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
 
               {/* ── Sticky header ── */}
-              <div className="sticky top-0 z-10 flex items-center gap-3 bg-[#191919] px-5 py-3.5">
+              <div className="sticky top-0 z-10 flex items-center gap-3 bg-[var(--bg-card)] px-5 py-3.5">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-white/50 uppercase tracking-widest" style={{fontSize:'10px'}}>
+                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]/50 uppercase tracking-widest" style={{fontSize:'10px'}}>
                     {boardProjectCard.code || 'PROJECT'}
                   </p>
-                  <p className="truncate text-base font-bold text-white leading-snug">{boardProjectCard.name}</p>
+                  <p className="truncate text-base font-bold text-[var(--text-primary)] leading-snug">{boardProjectCard.name}</p>
                 </div>
                 <button type="button"
                   onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[#dadf21] px-3.5 py-1.5 text-xs font-bold text-[#191919] hover:bg-[#c8cc18] transition-colors">
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[#c8cc18] transition-colors">
                   Mở COO Board
                 </button>
                 <button type="button" onClick={() => setBoardProject(null)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/10 transition-colors">
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-primary)]/60 hover:bg-[var(--bg-card)]/10 transition-colors">
                   <Ico d={IC.x} size={16} />
                 </button>
               </div>
 
               {/* ── Progress bar ── */}
               <div className="h-1 w-full bg-[#e8e4da]">
-                <div className="h-full bg-[#dadf21] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
+                <div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
               </div>
 
               <div className="p-5 space-y-6">
 
                 {/* ── Description ── */}
                 {boardProjectCard.description && (
-                  <p className="text-sm text-[#6f6b5e] leading-relaxed">{boardProjectCard.description}</p>
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{boardProjectCard.description}</p>
                 )}
 
                 {/* ── Stats row ── */}
                 <div className="grid grid-cols-4 gap-3">
                   {[
-                    { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[#191919]' },
-                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[#6f7400]' : 'text-[#9d9684]' },
-                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-red-600' : 'text-[#9d9684]' },
-                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-amber-600' : 'text-[#9d9684]' },
+                    { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[var(--text-primary)]' },
+                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[var(--accent-hover)]' : 'text-[var(--text-muted)]' },
+                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-red-600' : 'text-[var(--text-muted)]' },
+                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-amber-600' : 'text-[var(--text-muted)]' },
                   ].map((x) => (
-                    <div key={x.label} className="rounded-xl bg-[#faf7f0] px-3.5 py-3">
+                    <div key={x.label} className="rounded-xl bg-[var(--bg-surface)] px-3.5 py-3">
                       <p className={`text-2xl font-extrabold tabular-nums leading-none ${x.c}`}>{x.v}</p>
-                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[#9d9684]">{x.label}</p>
-                      <p className="mt-0.5 text-[10px] text-[#b4ab99]">{x.sub}</p>
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{x.label}</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{x.sub}</p>
                     </div>
                   ))}
                 </div>
@@ -5317,8 +5328,8 @@ function ProjectsView(props: {
                 {/* ── Task workstreams ── */}
                 <div>
                   <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-widest text-[#9d9684]">Việc theo mảng</p>
-                    <p className="text-xs text-[#b4ab99]">bấm để mở chi tiết</p>
+                    <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Việc theo mảng</p>
+                    <p className="text-xs text-[var(--text-muted)]">bấm để mở chi tiết</p>
                   </div>
                   <div className="space-y-2">
                     {workstreams.map((ws) => {
@@ -5326,15 +5337,15 @@ function ProjectsView(props: {
                       const doneCount = children.filter((c) => c.status === 'completed').length
                       const wsProgress = children.length > 0 ? Math.round((doneCount / children.length) * 100) : 0
                       return (
-                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-white">
+                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-[var(--bg-card)]">
                           {/* Workstream header */}
                           <div className="flex items-center gap-3 px-4 py-2.5">
-                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[#191919]">{ws.title}</p>
+                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)]">{ws.title}</p>
                             <div className="flex items-center gap-2 shrink-0">
                               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[#e8e4da]">
-                                <div className="h-full rounded-full bg-[#dadf21]" style={{ width: `${wsProgress}%` }} />
+                                <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${wsProgress}%` }} />
                               </div>
-                              <span className="w-10 text-right text-[10px] font-bold tabular-nums text-[#9d9684]">{doneCount}/{children.length}</span>
+                              <span className="w-10 text-right text-[10px] font-bold tabular-nums text-[var(--text-muted)]">{doneCount}/{children.length}</span>
                             </div>
                           </div>
                           {/* Child tasks */}
@@ -5344,18 +5355,18 @@ function ProjectsView(props: {
                                 const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
                                   || (t.description?.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || '—'
                                 const st =
-                                  t.status === 'completed' ? { dot: 'bg-[#6f7400]', txt: 'Xong', cls: 'text-[#6f7400] bg-[#f0f5c4]' } :
+                                  t.status === 'completed' ? { dot: 'bg-[var(--accent-hover)]', txt: 'Xong', cls: 'text-[var(--accent-hover)] bg-[#f0f5c4]' } :
                                   isTaskOverdue(t) ? { dot: 'bg-red-500', txt: 'Trễ', cls: 'text-red-700 bg-red-50' } :
-                                  t.status === 'in_progress' ? { dot: 'bg-[#dadf21]', txt: 'Đang', cls: 'text-[#6f7400] bg-[#f6f9d4]' } :
+                                  t.status === 'in_progress' ? { dot: 'bg-[var(--accent)]', txt: 'Đang', cls: 'text-[var(--accent-hover)] bg-[#f6f9d4]' } :
                                   t.status === 'pending' ? { dot: 'bg-amber-400', txt: 'Kẹt', cls: 'text-amber-700 bg-amber-50' } :
-                                  { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[#9d9684] bg-[#f5f2ec]' }
+                                  { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[#f5f2ec]' }
                                 return (
                                   <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                                    className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-[#faf7f0] transition-colors group">
+                                    className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-[var(--bg-surface)] transition-colors group">
                                     <span className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                                    <span className="min-w-0 flex-1 truncate text-sm text-[#191919] group-hover:text-[#2d331a]">{t.title}</span>
-                                    <span className="w-20 shrink-0 truncate text-right text-xs text-[#9d9684]">{who}</span>
-                                    <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-[#b4ab99]">{t.due_date?.slice(5) || '—'}</span>
+                                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[#2d331a]">{t.title}</span>
+                                    <span className="w-20 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
+                                    <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
                                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
                                   </button>
                                 )
@@ -5366,7 +5377,7 @@ function ProjectsView(props: {
                       )
                     })}
                     {workstreams.length === 0 && (
-                      <p className="py-6 text-center text-sm text-[#9d9684]">Chưa có việc trong dự án này.</p>
+                      <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có việc trong dự án này.</p>
                     )}
                   </div>
                 </div>
@@ -5434,7 +5445,7 @@ function TasksView(props: {
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="h-9 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-xs font-bold outline-none"
+            className="h-9 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-bold outline-none"
           >
             <option value="all">Tất cả ({props.tasks.length})</option>
             <option value="not_started">Chưa bắt đầu</option>
@@ -5446,7 +5457,7 @@ function TasksView(props: {
           </select>
           <button type="button"
             onClick={exportCsv}
-            className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 py-2 text-xs font-bold hover:bg-[#faf7f0]"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs font-bold hover:bg-[var(--bg-surface)]"
           >
             ⬇ Xuất CSV
           </button>
@@ -5456,7 +5467,7 @@ function TasksView(props: {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1000px] text-left text-sm">
           <thead>
-            <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
+            <tr className="border-b bg-[var(--bg-surface)] text-xs uppercase text-[var(--text-secondary)]">
               <th className="p-3">Công việc</th>
               <th className="p-3">Cấp</th>
               <th className="p-3">Head</th>
@@ -5475,18 +5486,18 @@ function TasksView(props: {
               const problem = isTaskProblem(task)
 
               return (
-                <tr key={task.id} className="border-b hover:bg-[#faf7f0]">
+                <tr key={task.id} className="border-b hover:bg-[var(--bg-surface)]">
                   <td className="p-3">
                     <p className="font-extrabold">{task.title}</p>
-                    <p className="text-xs text-[#6f6b5e]">{task.description || 'Chưa có mô tả'}</p>
+                    <p className="text-xs text-[var(--text-secondary)]">{task.description || 'Chưa có mô tả'}</p>
                   </td>
                   <td className="p-3">
-                    <span className="rounded-full bg-[#ede8df] px-3 py-1 text-xs font-bold text-[#6f6b5e]">
+                    <span className="rounded-full bg-[#ede8df] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
                       {task.task_level === 'workstream' ? 'Đầu việc lớn' : task.parent_task_id ? 'Đầu việc con' : 'Task'}
                     </span>
                   </td>
                   <td className="p-3 font-bold">{head?.full_name || 'Chưa gắn'}</td>
-                  <td className="p-3 text-[#6f6b5e]">{project?.name || 'Chưa gắn'}</td>
+                  <td className="p-3 text-[var(--text-secondary)]">{project?.name || 'Chưa gắn'}</td>
                   <td className="p-3 font-bold">{task.due_date || 'Chưa có'}</td>
                   <td className="p-3">
                     <StatusBadge status={task.status} label={props.getStatusLabel(task.status)} />
@@ -5497,13 +5508,13 @@ function TasksView(props: {
                         {getUrgentReason(task)}
                       </span>
                     ) : (
-                      <span className="text-[#b4ab99]">Ổn</span>
+                      <span className="text-[var(--text-muted)]">Ổn</span>
                     )}
                   </td>
                   <td className="p-3">
                     <div className="flex gap-2">
                       <select
-                        className="h-10 rounded-xl border border-[#d9d3c5] px-2 text-xs font-bold"
+                        className="h-10 rounded-xl border border-[var(--border)] px-2 text-xs font-bold"
                         value={task.status}
                         onChange={(event) => props.updateTaskStatus(task.id, event.target.value)}
                       >
@@ -5516,7 +5527,7 @@ function TasksView(props: {
 
                       <button type="button"
                         onClick={() => props.setSelectedTask(task)}
-                        className="rounded-xl bg-[#191919] px-3 text-xs font-bold text-[#efe9dd]"
+                        className="rounded-xl bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
                       >
                         Chi tiết
                       </button>
@@ -5587,7 +5598,7 @@ function MeetingView(props: {
     urgent: { label: 'Cần xử lý', cls: 'bg-red-50 text-red-700 border-red-200' },
     ok:     { label: 'Tạm ổn',    cls: 'bg-green-50 text-green-700 border-green-200' },
     hard:   { label: 'Còn khó',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    pending:{ label: 'Chưa chốt', cls: 'bg-[#f5f2ec] text-[#6f6b5e] border-[#d9d3c5]' },
+    pending:{ label: 'Chưa chốt', cls: 'bg-[#f5f2ec] text-[var(--text-secondary)] border-[var(--border)]' },
   }
 
   function updateRow(rowId: string, patch: Partial<NotexRow>) {
@@ -5601,8 +5612,8 @@ function MeetingView(props: {
   function SH({ n, title }: { n: string; title: string }) {
     return (
       <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-[#191919] text-[10px] font-bold text-[#dadf21]">{n}</span>
-        <p className="text-xs font-bold uppercase tracking-widest text-[#9d9684]">{title}</p>
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-card)] text-[10px] font-bold text-[var(--accent)]">{n}</span>
+        <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">{title}</p>
       </div>
     )
   }
@@ -5615,22 +5626,22 @@ function MeetingView(props: {
         <SH n="①" title="Thông tin cuộc họp" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="xl:col-span-2">
-            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Tên biên bản</label>
-            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+            <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Tên biên bản</label>
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
               value={props.meetingTitle}
               onChange={(e) => props.setMeetingTitle(e.target.value)}
               placeholder="VD: Recap họp Dữ liệu & Tăng trưởng đa kênh"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Ngày họp</label>
-            <input type="date" className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+            <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Ngày họp</label>
+            <input type="date" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
               value={r.date} onChange={(e) => set({ date: e.target.value })}
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Nền tảng / Context</label>
-            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+            <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Nền tảng / Context</label>
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
               value={r.platforms} onChange={(e) => set({ platforms: e.target.value })}
               placeholder="TikTok Shop, Facebook, Shopee"
             />
@@ -5643,16 +5654,16 @@ function MeetingView(props: {
         <SH n="②" title="Tình hình kinh doanh" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {r.metrics.map((m, i) => (
-            <div key={i} className="rounded-xl border border-[#e8e4da] bg-[#faf7f0] p-3 space-y-2">
-              <input className="h-8 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs font-semibold outline-none"
+            <div key={i} className="rounded-xl border border-[#e8e4da] bg-[var(--bg-surface)] p-3 space-y-2">
+              <input className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs font-semibold outline-none"
                 placeholder="Nhãn (VD: CDA Affiliate tháng 6)"
                 value={m.label} onChange={(e) => patchMetric(i, { label: e.target.value })}
               />
-              <input className="h-9 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-lg font-extrabold outline-none"
+              <input className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-lg font-extrabold outline-none"
                 placeholder="Giá trị"
                 value={m.value} onChange={(e) => patchMetric(i, { value: e.target.value })}
               />
-              <input className="h-8 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs outline-none"
+              <input className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
                 placeholder="Badge (VD: ⚠ Đang rớt)"
                 value={m.badge} onChange={(e) => patchMetric(i, { badge: e.target.value })}
               />
@@ -5666,18 +5677,18 @@ function MeetingView(props: {
         <div className="mb-3 flex items-center justify-between">
           <SH n="③" title="Vấn đề nổi bật" />
           <button type="button" onClick={addIssue}
-            className="rounded-lg bg-[#191919] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#2d331a]">
+            className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)]">
             + Thêm vấn đề
           </button>
         </div>
         {r.issues.length === 0 ? (
-          <p className="py-4 text-center text-sm text-[#b4ab99]">Bấm "+ Thêm vấn đề" để thêm vào.</p>
+          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm "+ Thêm vấn đề" để thêm vào.</p>
         ) : (
           <div className="space-y-3">
             {r.issues.map((iss) => (
-              <div key={iss.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-white">
-                <div className="flex items-center gap-2 border-b border-[#f1ede4] bg-[#faf7f0] px-3 py-2">
-                  <input className="h-8 min-w-0 flex-1 rounded-lg border border-[#d9d3c5] bg-white px-2 text-sm font-semibold outline-none"
+              <div key={iss.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-[var(--bg-card)]">
+                <div className="flex items-center gap-2 border-b border-[#f1ede4] bg-[var(--bg-surface)] px-3 py-2">
+                  <input className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm font-semibold outline-none"
                     placeholder="Nguồn / chủ đề (VD: TikTok Shop — GM Max)"
                     value={iss.source} onChange={(e) => patchIssue(iss.id, { source: e.target.value })}
                   />
@@ -5691,9 +5702,9 @@ function MeetingView(props: {
                     ))}
                   </select>
                   <button type="button" onClick={() => removeIssue(iss.id)}
-                    className="h-8 w-8 shrink-0 rounded-lg text-[#9d9684] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
+                    className="h-8 w-8 shrink-0 rounded-lg text-[var(--text-muted)] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
                 </div>
-                <textarea className="block w-full resize-none p-3 text-sm text-[#191919] outline-none"
+                <textarea className="block w-full resize-none p-3 text-sm text-[var(--text-primary)] outline-none"
                   rows={2}
                   placeholder="Mô tả chi tiết vấn đề, nguyên nhân, hướng xử lý..."
                   value={iss.detail} onChange={(e) => patchIssue(iss.id, { detail: e.target.value })}
@@ -5711,8 +5722,8 @@ function MeetingView(props: {
           <div className="space-y-2">
             {r.focuses.map((f, i) => (
               <div key={i} className="flex items-center gap-2">
-                <span className="w-5 shrink-0 text-center text-xs font-bold text-[#9d9684]">{i + 1}</span>
-                <input className="h-10 flex-1 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+                <span className="w-5 shrink-0 text-center text-xs font-bold text-[var(--text-muted)]">{i + 1}</span>
+                <input className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
                   placeholder={i === 0 ? 'VD: Dữ liệu — gom, làm sạch, dựng dashboard' : 'VD: Gap mục tiêu — đang hụt bao nhiêu, hụt ở đâu'}
                   value={f}
                   onChange={(e) => {
@@ -5730,23 +5741,23 @@ function MeetingView(props: {
           <SH n="⑤" title="Hướng tăng trưởng được chốt" />
           <div className="mb-3 flex flex-wrap gap-1.5">
             {r.directions.map((d) => (
-              <span key={d} className="flex items-center gap-1 rounded-full bg-[#191919] px-3 py-1 text-xs font-bold text-[#dadf21]">
+              <span key={d} className="flex items-center gap-1 rounded-full bg-[var(--bg-card)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
                 {d}
-                <button type="button" onClick={() => removeDirection(d)} className="ml-0.5 text-[#dadf21]/60 hover:text-[#dadf21]">×</button>
+                <button type="button" onClick={() => removeDirection(d)} className="ml-0.5 text-[var(--accent)]/60 hover:text-[var(--accent)]">×</button>
               </span>
             ))}
           </div>
           <div className="flex gap-2">
-            <input className="h-9 flex-1 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+            <input className="h-9 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
               placeholder="VD: Affiliate + KOL"
               value={directionInput}
               onChange={(e) => setDirectionInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { addDirection(directionInput); setDirectionInput('') } }}
             />
             <button type="button" onClick={() => { addDirection(directionInput); setDirectionInput('') }}
-              className="rounded-xl bg-[#191919] px-4 text-xs font-bold text-white">+ Thêm</button>
+              className="rounded-xl bg-[var(--bg-card)] px-4 text-xs font-bold text-[var(--text-primary)]">+ Thêm</button>
           </div>
-          <textarea className="mt-3 w-full resize-none rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none focus:border-[#191919]"
+          <textarea className="mt-3 w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[#191919]"
             rows={2}
             placeholder="Mô tả thêm về hướng tăng trưởng..."
             value={r.directionNote} onChange={(e) => set({ directionNote: e.target.value })}
@@ -5759,17 +5770,17 @@ function MeetingView(props: {
         <div className="mb-3 flex items-center justify-between">
           <SH n="⑥" title="Phân công — Deadline tuần này" />
           <button type="button" onClick={addAssignment}
-            className="rounded-lg bg-[#191919] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#2d331a]">
+            className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)]">
             + Thêm người
           </button>
         </div>
         {r.assignments.length === 0 ? (
-          <p className="py-4 text-center text-sm text-[#b4ab99]">Bấm "+ Thêm người" để thêm phân công.</p>
+          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm "+ Thêm người" để thêm phân công.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-[#e8e4da] text-[10px] font-bold uppercase tracking-wide text-[#9d9684]">
+                <tr className="border-b border-[#e8e4da] text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">
                   <th className="pb-2 pl-1 text-left w-40">Người phụ trách</th>
                   <th className="pb-2 pl-3 text-left">Đầu việc (mỗi dòng / dấu · = 1 task)</th>
                   <th className="pb-2 pl-3 text-left w-36">Deadline</th>
@@ -5780,7 +5791,7 @@ function MeetingView(props: {
                 {r.assignments.map((a) => (
                   <tr key={a.id} className="align-top">
                     <td className="py-2 pl-1 pr-2">
-                      <select className="h-9 w-full rounded-xl border border-[#d9d3c5] bg-white px-2 text-sm outline-none"
+                      <select className="h-9 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm outline-none"
                         value={a.personId}
                         onChange={(e) => {
                           const emp = props.employees.find((em) => em.id === e.target.value)
@@ -5790,14 +5801,14 @@ function MeetingView(props: {
                         <option value="">Chọn người</option>
                         {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
                       </select>
-                      <input className="mt-1 h-7 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs outline-none"
+                      <input className="mt-1 h-7 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
                         placeholder="Hoặc nhập tên thủ công"
                         value={a.personName}
                         onChange={(e) => patchAssignment(a.id, { personName: e.target.value })}
                       />
                     </td>
                     <td className="py-2 pl-3 pr-2">
-                      <textarea className="w-full resize-none rounded-xl border border-[#d9d3c5] p-2 text-sm outline-none focus:border-[#191919]"
+                      <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-2 text-sm outline-none focus:border-[#191919]"
                         rows={3}
                         placeholder={"Gom số liệu (ưu tiên của Yến)\nNghiên cứu so sánh tool\nKiểm tra MCP tất cả FB"}
                         value={a.tasks}
@@ -5805,13 +5816,13 @@ function MeetingView(props: {
                       />
                     </td>
                     <td className="py-2 pl-3 pr-2">
-                      <input type="date" className="h-9 w-full rounded-xl border border-[#d9d3c5] bg-white px-2 text-sm outline-none"
+                      <input type="date" className="h-9 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm outline-none"
                         value={a.deadline} onChange={(e) => patchAssignment(a.id, { deadline: e.target.value })}
                       />
                     </td>
                     <td className="py-2">
                       <button type="button" onClick={() => removeAssignment(a.id)}
-                        className="h-8 w-8 rounded-lg text-[#9d9684] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
+                        className="h-8 w-8 rounded-lg text-[var(--text-muted)] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
                     </td>
                   </tr>
                 ))}
@@ -5825,7 +5836,7 @@ function MeetingView(props: {
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
           <SH n="⑦" title="Quote / câu chốt cuộc họp" />
-          <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm italic outline-none focus:border-[#191919]"
+          <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm italic outline-none focus:border-[#191919]"
             placeholder='"Họp phải có số liệu, dashboard, đường dây chỉ số rõ ràng."'
             value={r.quote} onChange={(e) => set({ quote: e.target.value })}
           />
@@ -5833,7 +5844,7 @@ function MeetingView(props: {
 
         <Card>
           <SH n="⑧" title="Tóm lại — điểm cần nhớ trước họp" />
-          <textarea className="w-full resize-none rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none focus:border-[#191919]"
+          <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[#191919]"
             rows={3}
             placeholder={"Vào họp mở thẳng bằng gap mục tiêu\nYến cần confirm đã xin quyền TikTok Seller\nVũ cần có kết quả scan MCP Facebook"}
             value={r.notes} onChange={(e) => set({ notes: e.target.value })}
@@ -5846,24 +5857,24 @@ function MeetingView(props: {
         <SH n="⑨" title="Import vào COO Board" />
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[220px] flex-1">
-            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Tên dự án import vào</label>
-            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+            <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Tên dự án import vào</label>
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
               placeholder="Tên dự án mới hoặc hiện có"
               value={props.notexProjectName}
               onChange={(e) => props.setNotexProjectName(e.target.value)}
             />
           </div>
           <button type="button" onClick={props.saveMeeting}
-            className="h-10 rounded-xl border border-[#d9d3c5] bg-white px-5 text-sm font-bold text-[#191919] hover:bg-[#faf7f0] transition-colors">
+            className="h-10 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors">
             Lưu biên bản
           </button>
           <button type="button" onClick={props.splitNotexRows}
-            className="h-10 rounded-xl bg-[#191919] px-5 text-sm font-extrabold text-white hover:bg-[#2d331a] transition-colors">
+            className="h-10 rounded-xl bg-[var(--bg-card)] px-5 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)] transition-colors">
             Tách đầu việc từ phân công
           </button>
           <button type="button" onClick={props.importNotexRows}
             disabled={props.importing || props.notexRows.length === 0}
-            className="h-10 rounded-xl bg-[#dadf21] px-5 text-sm font-extrabold text-[#191919] disabled:opacity-40 hover:bg-[#c8cc18] transition-colors">
+            className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-40 hover:bg-[#c8cc18] transition-colors">
             {props.importing ? 'Đang import...' : `Import ${props.notexRows.length > 0 ? `(${props.notexRows.length} việc)` : ''}`}
           </button>
         </div>
@@ -5875,13 +5886,13 @@ function MeetingView(props: {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h3 className="text-base font-extrabold">Preview đầu việc</h3>
-            <p className="mt-0.5 text-sm text-[#6f6b5e]">{props.notexRows.length} dòng — kiểm tra rồi bấm Import.</p>
+            <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{props.notexRows.length} dòng — kiểm tra rồi bấm Import.</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1500px] text-left text-sm">
             <thead>
-              <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
+              <tr className="border-b bg-[var(--bg-surface)] text-xs uppercase text-[var(--text-secondary)]">
                 <th className="p-3">Đầu việc lớn</th>
                 <th className="p-3">Đầu việc con</th>
                 <th className="p-3">Trách nhiệm</th>
@@ -5898,48 +5909,48 @@ function MeetingView(props: {
               {props.notexRows.map((row) => (
                 <tr key={row.id} className="border-b align-top">
                   <td className="p-3">
-                    <input className="h-10 w-48 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                    <input className="h-10 w-48 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                       value={row.workstreamTitle} onChange={(e) => updateRow(row.id, { workstreamTitle: e.target.value })} />
                   </td>
                   <td className="p-3">
-                    <input className="h-10 w-56 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                    <input className="h-10 w-56 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                       value={row.subtaskTitle} onChange={(e) => updateRow(row.id, { subtaskTitle: e.target.value })} />
                   </td>
                   <td className="p-3">
-                    <textarea className="h-20 w-56 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                    <textarea className="h-20 w-56 rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
                       value={row.responsibility} onChange={(e) => updateRow(row.id, { responsibility: e.target.value })} />
                   </td>
                   <td className="p-3">
-                    <textarea className="h-20 w-64 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                    <textarea className="h-20 w-64 rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
                       value={row.expectedOutput} onChange={(e) => updateRow(row.id, { expectedOutput: e.target.value })} />
                   </td>
                   <td className="p-3">
-                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                    <select className="h-10 w-44 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
                       value={row.departmentId} onChange={(e) => updateRow(row.id, { departmentId: e.target.value })}>
                       <option value="">Phòng ban</option>
                       {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                   </td>
                   <td className="p-3">
-                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                    <select className="h-10 w-44 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
                       value={row.headId} onChange={(e) => updateRow(row.id, { headId: e.target.value })}>
                       <option value="">Head</option>
                       {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
                     </select>
                   </td>
                   <td className="p-3">
-                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                    <select className="h-10 w-44 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
                       value={row.assigneeId} onChange={(e) => updateRow(row.id, { assigneeId: e.target.value })}>
                       <option value="">Người phụ trách</option>
                       {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
                     </select>
                   </td>
                   <td className="p-3">
-                    <input type="date" className="h-10 w-40 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                    <input type="date" className="h-10 w-40 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                       value={row.dueDate} onChange={(e) => updateRow(row.id, { dueDate: e.target.value })} />
                   </td>
                   <td className="p-3">
-                    <select className="h-10 w-32 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                    <select className="h-10 w-32 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
                       value={row.priority} onChange={(e) => updateRow(row.id, { priority: e.target.value })}>
                       <option value="low">Thấp</option>
                       <option value="medium">Trung bình</option>
@@ -5982,17 +5993,17 @@ function RecurringFormPanel(props: {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
       <button type="button" className="flex-1" onClick={closePanel} aria-label="Đóng tạo việc định kỳ" />
-      <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[560px] sm:p-6">
+      <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[560px] sm:p-6">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-extrabold">
               {props.form.id ? 'Sửa việc định kỳ' : 'Tạo việc định kỳ'}
             </h3>
-            <p className="mt-1 text-sm text-[#6f6b5e]">
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
               Gắn lịch họp, hạn nộp và người nhận nhắc cho các việc lặp lại.
             </p>
           </div>
-          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]">
+          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
             <Ico d={IC.x} size={16}/>
           </button>
         </div>
@@ -6000,7 +6011,7 @@ function RecurringFormPanel(props: {
         {props.form.id && (
           <button type="button"
             onClick={props.resetForm}
-            className="mb-3 rounded-lg border border-[#d9d3c5] px-3 py-2 text-xs font-bold"
+            className="mb-3 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold"
           >
             Tạo lịch mới
           </button>
@@ -6039,20 +6050,20 @@ function RecurringFormPanel(props: {
                 type="number"
                 min={1}
                 max={31}
-                className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
+                className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm outline-none"
                 value={props.form.month_day}
                 onChange={(event) => patchForm({ month_day: event.target.value })}
                 aria-label="Ngày trong tháng"
               />
             ) : (
-              <div className="flex h-12 items-center rounded-2xl border border-[#d9d3c5] px-4 text-sm font-bold text-[#6f6b5e]">
+              <div className="flex h-12 items-center rounded-2xl border border-[var(--border)] px-4 text-sm font-bold text-[var(--text-secondary)]">
                 Lặp mỗi ngày
               </div>
             )}
 
             <input
               type="time"
-              className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm font-bold outline-none"
+              className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm font-bold outline-none"
               value={props.form.time_of_day}
               onChange={(event) => patchForm({ time_of_day: event.target.value })}
               aria-label="Giờ họp hoặc hạn nộp"
@@ -6060,9 +6071,9 @@ function RecurringFormPanel(props: {
           </div>
 
           <label className="block">
-            <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Ghi chú chung</span>
+            <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Ghi chú chung</span>
             <textarea
-              className="min-h-16 w-full rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+              className="min-h-16 w-full rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
               placeholder="Ví dụ: Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00."
               value={props.form.description}
               onChange={(event) => patchForm({ description: event.target.value })}
@@ -6070,11 +6081,11 @@ function RecurringFormPanel(props: {
           </label>
 
           {props.form.kind === 'meeting' && (
-            <div className="space-y-2 rounded-2xl border border-[#ede8df] bg-[#faf7f0] p-3">
+            <div className="space-y-2 rounded-2xl border border-[#ede8df] bg-[var(--bg-surface)] p-3">
               <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">RECAP cuộc họp trước đó</span>
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">RECAP cuộc họp trước đó</span>
                 <textarea
-                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
                   placeholder="- Quyết định đã chốt&#10;- Action items còn mở&#10;- Vấn đề cần follow-up"
                   value={props.form.recap}
                   onChange={(event) => patchForm({ recap: event.target.value })}
@@ -6082,9 +6093,9 @@ function RecurringFormPanel(props: {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">File cần chuẩn bị</span>
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">File cần chuẩn bị</span>
                 <textarea
-                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
                   placeholder="- File recap/biên bản họp trước&#10;- Báo cáo KPI/Performance&#10;- Dashboard hoặc link số liệu"
                   value={props.form.prepFiles}
                   onChange={(event) => patchForm({ prepFiles: event.target.value })}
@@ -6092,9 +6103,9 @@ function RecurringFormPanel(props: {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Lịch sử họp</span>
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Lịch sử họp</span>
                 <textarea
-                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
                   placeholder="- 15/06: Chốt vấn đề..., giao cho..., deadline...&#10;- 22/06: ..."
                   value={props.form.meetingHistory}
                   onChange={(event) => patchForm({ meetingHistory: event.target.value })}
@@ -6104,10 +6115,10 @@ function RecurringFormPanel(props: {
           )}
 
           <div>
-            <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">Người nhận nhắc</p>
-            <div className="max-h-40 overflow-y-auto rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-1">
+            <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">Người nhận nhắc</p>
+            <div className="max-h-40 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1">
               {props.employees.length === 0 ? (
-                <p className="px-2 py-3 text-sm text-[#6f6b5e]">Chưa có nhân sự để chọn.</p>
+                <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Chưa có nhân sự để chọn.</p>
               ) : (
                 <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                   {props.employees.map((employee) => {
@@ -6117,7 +6128,7 @@ function RecurringFormPanel(props: {
                       <label
                         key={employee.id}
                         className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold ${
-                          checked ? 'bg-[#f6f9d4] text-[#191919]' : 'hover:bg-[#faf7f0]'
+                          checked ? 'bg-[#f6f9d4] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-surface)]'
                         }`}
                       >
                         <input
@@ -6143,28 +6154,28 @@ function RecurringFormPanel(props: {
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="block">
-              <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Nhắc trước ngày</span>
+              <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Nhắc trước ngày</span>
               <input
                 type="number"
                 min={0}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                 value={props.form.remind_days_before}
                 onChange={(event) => patchForm({ remind_days_before: event.target.value })}
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Nhắc trước phút</span>
+              <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Nhắc trước phút</span>
               <input
                 type="number"
                 min={1}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                 value={props.form.remind_minutes_before}
                 onChange={(event) => patchForm({ remind_minutes_before: event.target.value })}
               />
             </label>
           </div>
 
-          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white">
+          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--bg-card)] px-5 py-3 text-sm font-extrabold text-[var(--text-primary)]">
             <Ico d={props.form.id ? IC.edit : IC.plus} size={15}/>
             {props.form.id ? 'Lưu thay đổi' : 'Tạo việc định kỳ'}
           </button>
@@ -6230,7 +6241,7 @@ where not exists (select 1 from public.recurring_tasks where title = 'Họp Perf
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 transition-colors"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-[var(--text-primary)] hover:bg-amber-700 transition-colors"
         >
           Mở Supabase SQL Editor →
         </a>
@@ -6339,7 +6350,7 @@ function RecurringView(props: {
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-extrabold">Lịch sắp tới</h3>
-              <p className="mt-1 text-xs text-[#6f6b5e]">
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">
                 Bây giờ: {formatOccurrence(props.now)}
               </p>
             </div>
@@ -6347,12 +6358,12 @@ function RecurringView(props: {
               {meetingTasks.length > 0 && (
                 <button type="button"
                   onClick={() => setMeetingArchiveOpen(true)}
-                  className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 py-2 text-xs font-extrabold"
+                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs font-extrabold"
                 >
                   Tìm hồ sơ họp
                 </button>
               )}
-              <span className="rounded-full bg-[#faf7f0] px-3 py-1 text-xs font-extrabold text-[#6f6b5e]">
+              <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[var(--text-secondary)]">
                 {props.tasks.length} việc định kỳ
               </span>
             </div>
@@ -6369,7 +6380,7 @@ function RecurringView(props: {
                 const tone =
                   alert.tone === 'red' ? 'bg-red-50 text-red-700 border-red-100' :
                   alert.tone === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                  'bg-[#f6f9d4] text-[#6f7400] border-[#eef3b8]'
+                  'bg-[#f6f9d4] text-[var(--accent-hover)] border-[#eef3b8]'
                 const taskMeetingFiles = task.kind === 'meeting'
                   ? props.meetingFiles.filter((file) => file.recurring_task_id === task.id)
                   : []
@@ -6380,28 +6391,28 @@ function RecurringView(props: {
                 return (
                   <div
                     key={task.id}
-                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[#d9d3c5] bg-[#ffffff]' : 'border-[#ede8df] bg-[#faf7f0] opacity-70'}`}
+                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[#ede8df] bg-[var(--bg-surface)] opacity-70'}`}
                   >
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${tone}`}>{alert.label}</span>
-                          <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[#191919]">{task.title}</h4>
+                          <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[var(--text-primary)]">{task.title}</h4>
                           <span className="shrink-0 rounded-full bg-[#eeeae1] px-2.5 py-0.5 text-[11px] font-bold text-[#594e3d]">
                             {recurringKindLabel(task.kind)}
                           </span>
-                          <span className="shrink-0 rounded-full bg-[#faf7f0] px-2.5 py-0.5 text-[11px] font-bold text-[#6f6b5e]">
+                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
                             {recurringFrequencyLabel(task)}
                           </span>
                           {!task.is_active && <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Đang tắt</span>}
                         </div>
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[#6f6b5e]">
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[var(--text-secondary)]">
                           <span>Tiếp: {formatOccurrence(occ)}</span>
                           <span>Còn: {formatTimeLeft(occ, props.now)}</span>
                           <span className="min-w-0 truncate">Nhận: {recipientNames}</span>
                         </div>
                         {task.description && task.kind !== 'meeting' && (
-                          <p className="mt-1 max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#6f6b5e]">{task.description}</p>
+                          <p className="mt-1 max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">{task.description}</p>
                         )}
                       </div>
 
@@ -6413,14 +6424,14 @@ function RecurringView(props: {
                               setMeetingArchiveQuery('')
                               setMeetingArchiveOpen(true)
                             }}
-                            className="h-8 rounded-lg border border-[#d9d3c5] bg-[#f6f9d4] px-2.5 text-xs font-bold text-[#6f7400]"
+                            className="h-8 rounded-lg border border-[var(--border)] bg-[#f6f9d4] px-2.5 text-xs font-bold text-[var(--accent-hover)]"
                           >
                             Hồ sơ
                           </button>
                         )}
                         <button type="button"
                           onClick={() => props.editTask(task)}
-                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[#d9d3c5] bg-[#ffffff] px-2.5 text-xs font-bold"
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-xs font-bold"
                           title="Sửa việc định kỳ"
                         >
                           <Ico d={IC.edit} size={13}/>
@@ -6428,7 +6439,7 @@ function RecurringView(props: {
                         </button>
                         <button type="button"
                           onClick={() => props.toggleTask(task)}
-                          className="h-8 rounded-lg border border-[#d9d3c5] bg-[#ffffff] px-2.5 text-xs font-bold"
+                          className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-xs font-bold"
                         >
                           {task.is_active ? 'Tắt' : 'Bật'}
                         </button>
@@ -6443,17 +6454,17 @@ function RecurringView(props: {
                       </div>
                     </div>
                     {task.description && task.kind === 'meeting' && (
-                      <details className="mt-2 rounded-lg border border-[#ede8df] bg-[#faf7f0] px-3 py-2">
-                        <summary className="cursor-pointer text-xs font-extrabold uppercase text-[#6f6b5e] outline-none">
+                      <details className="mt-2 rounded-lg border border-[#ede8df] bg-[var(--bg-surface)] px-3 py-2">
+                        <summary className="cursor-pointer text-xs font-extrabold uppercase text-[var(--text-secondary)] outline-none">
                           Chi tiết họp
                         </summary>
                         <div className="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_330px]">
                           <RecurringMeetingSummary description={task.description} compact />
-                          <div className="rounded-lg border border-[#d9d3c5] bg-[#ffffff] p-2">
+                          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2">
                             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                               <div>
-                                <p className="text-xs font-extrabold uppercase text-[#b4ab99]">Kho file họp</p>
-                                <p className="mt-0.5 text-xs text-[#6f6b5e]">{taskMeetingFiles.length} file/link đã lưu</p>
+                                <p className="text-xs font-extrabold uppercase text-[var(--text-muted)]">Kho file họp</p>
+                                <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{taskMeetingFiles.length} file/link đã lưu</p>
                               </div>
                               <button type="button"
                                 onClick={() => {
@@ -6461,7 +6472,7 @@ function RecurringView(props: {
                                   setMeetingArchiveQuery('')
                                   setMeetingArchiveOpen(true)
                                 }}
-                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1.5 text-xs font-bold"
+                                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-bold"
                               >
                                 Mở hồ sơ
                               </button>
@@ -6470,19 +6481,19 @@ function RecurringView(props: {
                             <div className="grid grid-cols-1 gap-2">
                               <input
                                 type="date"
-                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
                                 value={taskMeetingDraft.meetingDate}
                                 onChange={(event) => props.updateMeetingFileDraft(task.id, { meetingDate: event.target.value })}
                                 aria-label="Ngày họp"
                               />
                               <input
-                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
                                 placeholder="Tên file/link"
                                 value={taskMeetingDraft.title}
                                 onChange={(event) => props.updateMeetingFileDraft(task.id, { title: event.target.value })}
                               />
                               <input
-                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
                                 placeholder="Dán link Google Drive, Notex, Dashboard..."
                                 value={taskMeetingDraft.fileUrl}
                                 onChange={(event) => props.updateMeetingFileDraft(task.id, { fileUrl: event.target.value })}
@@ -6492,11 +6503,11 @@ function RecurringView(props: {
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <button type="button"
                                 onClick={() => props.saveMeetingLink(task)}
-                                className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-extrabold text-white"
+                                className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-extrabold text-[var(--text-primary)]"
                               >
                                 Lưu link
                               </button>
-                              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-[#d9d3c5] bg-[#faf7f0] px-3 py-2 text-xs font-bold">
+                              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-bold">
                                 Tải file lên
                                 <input
                                   type="file"
@@ -6506,7 +6517,7 @@ function RecurringView(props: {
                               </label>
                             </div>
                             {props.uploadingMeetingFileFor === task.id && (
-                              <p className="mt-2 text-xs font-bold text-[#6f7400]">Đang upload file họp...</p>
+                              <p className="mt-2 text-xs font-bold text-[var(--accent-hover)]">Đang upload file họp...</p>
                             )}
 
                             {taskMeetingFiles.length > 0 && (
@@ -6517,10 +6528,10 @@ function RecurringView(props: {
                                     href={file.file_url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block min-w-0 rounded-lg bg-[#faf7f0] px-2.5 py-2 text-xs font-bold hover:bg-[#ede8df]"
+                                    className="block min-w-0 rounded-lg bg-[var(--bg-surface)] px-2.5 py-2 text-xs font-bold hover:bg-[#ede8df]"
                                   >
                                     <span className="block truncate">{file.title || file.file_name}</span>
-                                    <span className="mt-0.5 block truncate font-normal text-[#6f6b5e]">
+                                    <span className="mt-0.5 block truncate font-normal text-[var(--text-secondary)]">
                                       {file.meeting_date || file.note || 'Mở file/link'}
                                     </span>
                                   </a>
@@ -6542,15 +6553,15 @@ function RecurringView(props: {
       {meetingArchiveOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
           <button type="button" className="flex-1" onClick={() => setMeetingArchiveOpen(false)} aria-label="Đóng hồ sơ họp" />
-          <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[920px] sm:p-6">
+          <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[920px] sm:p-6">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-extrabold">Tìm hồ sơ họp</h3>
-                <p className="mt-1 text-sm text-[#6f6b5e]">
+                <p className="mt-1 text-sm text-[var(--text-secondary)]">
                   Tìm lại recap, lịch sử họp và file đã lưu theo từng lịch họp định kỳ.
                 </p>
               </div>
-              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]">
+              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
                 <Ico d={IC.x} size={16}/>
               </button>
             </div>
@@ -6558,7 +6569,7 @@ function RecurringView(props: {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
               <div>
                 <input
-                  className="h-11 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-3 text-sm outline-none focus:border-[#aeb300] focus:bg-[#ffffff]"
+                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 text-sm outline-none focus:border-[var(--accent-hover)] focus:bg-[var(--bg-input)]"
                   placeholder="Tìm theo tên họp, recap, file..."
                   value={meetingArchiveQuery}
                   onChange={(event) => setMeetingArchiveQuery(event.target.value)}
@@ -6566,7 +6577,7 @@ function RecurringView(props: {
 
                 <div className="mt-3 max-h-[calc(100vh-190px)] space-y-2 overflow-y-auto">
                   {filteredMeetingTasks.length === 0 ? (
-                    <p className="rounded-xl bg-[#faf7f0] px-3 py-3 text-sm text-[#6f6b5e]">Không tìm thấy hồ sơ họp phù hợp.</p>
+                    <p className="rounded-xl bg-[var(--bg-surface)] px-3 py-3 text-sm text-[var(--text-secondary)]">Không tìm thấy hồ sơ họp phù hợp.</p>
                   ) : (
                     filteredMeetingTasks.map((task) => {
                       const active = selectedMeeting?.id === task.id
@@ -6577,11 +6588,11 @@ function RecurringView(props: {
                           key={task.id}
                           onClick={() => props.setSelectedMeetingTaskId(task.id)}
                           className={`w-full rounded-xl border px-3 py-2 text-left ${
-                            active ? 'border-[#dadf21] bg-[#f6f9d4]' : 'border-[#ede8df] bg-[#ffffff] hover:bg-[#faf7f0]'
+                            active ? 'border-[var(--accent)] bg-[#f6f9d4]' : 'border-[#ede8df] bg-[var(--bg-card)] hover:bg-[var(--bg-surface)]'
                           }`}
                         >
                           <p className="truncate text-sm font-extrabold">{task.title}</p>
-                          <p className="mt-1 text-xs font-bold text-[#6f6b5e]">
+                          <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">
                             {formatOccurrence(nextOccurrence(task, props.now))} · {filesCount} file/link
                           </p>
                         </button>
@@ -6598,27 +6609,27 @@ function RecurringView(props: {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="truncate text-base font-extrabold">{selectedMeeting.title}</h3>
-                      <p className="mt-1 text-xs font-bold text-[#6f6b5e]">
+                      <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">
                         {recurringFrequencyLabel(selectedMeeting)} · {selectedMeeting.time_of_day}
                       </p>
                     </div>
                     <button type="button"
                       onClick={() => props.editTask(selectedMeeting)}
-                      className="rounded-lg border border-[#d9d3c5] px-3 py-2 text-xs font-bold"
+                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold"
                     >
                       Cập nhật recap
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                    <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
-                      <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">Lịch sử họp</p>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+                      <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">Lịch sử họp</p>
                       {selectedMeetingHistory.length === 0 ? (
-                        <p className="text-sm text-[#6f6b5e]">Chưa có lịch sử họp.</p>
+                        <p className="text-sm text-[var(--text-secondary)]">Chưa có lịch sử họp.</p>
                       ) : (
                         <div className="max-h-44 space-y-2 overflow-y-auto">
                           {selectedMeetingHistory.map((line, index) => (
-                            <p key={`${selectedMeeting.id}-archive-history-${index}`} className="rounded-lg bg-[#ffffff] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                            <p key={`${selectedMeeting.id}-archive-history-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[#594e3d]">
                               {line}
                             </p>
                           ))}
@@ -6626,14 +6637,14 @@ function RecurringView(props: {
                       )}
                     </div>
 
-                    <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
-                      <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">File cần chuẩn bị</p>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+                      <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">File cần chuẩn bị</p>
                       {selectedMeetingPrepFiles.length === 0 ? (
-                        <p className="text-sm text-[#6f6b5e]">Chưa có danh sách file cần chuẩn bị.</p>
+                        <p className="text-sm text-[var(--text-secondary)]">Chưa có danh sách file cần chuẩn bị.</p>
                       ) : (
                         <div className="max-h-44 space-y-2 overflow-y-auto">
                           {selectedMeetingPrepFiles.map((line, index) => (
-                            <p key={`${selectedMeeting.id}-archive-prep-${index}`} className="rounded-lg bg-[#ffffff] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                            <p key={`${selectedMeeting.id}-archive-prep-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[#594e3d]">
                               {line}
                             </p>
                           ))}
@@ -6642,11 +6653,11 @@ function RecurringView(props: {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[#ede8df] bg-[#ffffff] p-3">
+                  <div className="rounded-2xl border border-[#ede8df] bg-[var(--bg-card)] p-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="font-extrabold">Kho file họp</p>
-                        <p className="mt-1 text-xs text-[#6f6b5e]">File/link lưu ở đây tự gắn với cuộc họp đang chọn.</p>
+                        <p className="mt-1 text-xs text-[var(--text-secondary)]">File/link lưu ở đây tự gắn với cuộc họp đang chọn.</p>
                       </div>
                       {isLocalRecurringTask(selectedMeeting) && (
                         <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
@@ -6658,7 +6669,7 @@ function RecurringView(props: {
                     <div className="grid grid-cols-1 gap-2 lg:grid-cols-[150px_1fr]">
                       <input
                         type="date"
-                        className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                        className="h-10 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                         value={selectedMeetingDraft.meetingDate}
                         onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { meetingDate: event.target.value })}
                         aria-label="Ngày họp"
@@ -6672,21 +6683,21 @@ function RecurringView(props: {
 
                     <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto]">
                       <input
-                        className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                        className="h-10 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
                         placeholder="Dán link Google Drive, Notex, Dashboard..."
                         value={selectedMeetingDraft.fileUrl}
                         onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { fileUrl: event.target.value })}
                       />
                       <button type="button"
                         onClick={() => props.saveMeetingLink(selectedMeeting)}
-                        className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
+                        className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
                       >
                         Lưu link
                       </button>
                     </div>
 
                     <textarea
-                      className="mt-2 min-h-14 w-full rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                      className="mt-2 min-h-14 w-full rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
                       placeholder="Ghi chú file..."
                       value={selectedMeetingDraft.note}
                       onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { note: event.target.value })}
@@ -6695,21 +6706,21 @@ function RecurringView(props: {
                     <input
                       type="file"
                       onChange={(event) => props.uploadMeetingFile(selectedMeeting, event.target.files?.[0])}
-                      className="mt-2 block w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3 text-sm"
+                      className="mt-2 block w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 text-sm"
                     />
                     {props.uploadingMeetingFileFor === selectedMeeting.id && (
-                      <p className="mt-2 text-sm font-bold text-[#6f7400]">Đang upload file họp...</p>
+                      <p className="mt-2 text-sm font-bold text-[var(--accent-hover)]">Đang upload file họp...</p>
                     )}
 
                     <div className="mt-4 space-y-2">
                       {selectedMeetingFiles.length === 0 ? (
-                        <p className="rounded-xl bg-[#faf7f0] px-3 py-3 text-sm text-[#6f6b5e]">Chưa có file/link họp nào.</p>
+                        <p className="rounded-xl bg-[var(--bg-surface)] px-3 py-3 text-sm text-[var(--text-secondary)]">Chưa có file/link họp nào.</p>
                       ) : (
                         selectedMeetingFiles.map((file) => (
-                          <div key={file.id} className="flex flex-col gap-2 rounded-xl bg-[#faf7f0] p-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div key={file.id} className="flex flex-col gap-2 rounded-xl bg-[var(--bg-surface)] p-3 lg:flex-row lg:items-center lg:justify-between">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-extrabold">{file.title || file.file_name}</p>
-                              <p className="mt-1 truncate text-xs text-[#6f6b5e]">
+                              <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">
                                 {file.meeting_date ? `${file.meeting_date} · ` : ''}
                                 {file.note || file.file_name}
                                 {file.uploaded_by && props.employeeMap.get(file.uploaded_by) ? ` · ${props.employeeMap.get(file.uploaded_by)?.full_name}` : ''}
@@ -6720,7 +6731,7 @@ function RecurringView(props: {
                                 href={file.file_url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-[#efe9dd]"
+                                className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                               >
                                 Mở
                               </a>
@@ -6757,11 +6768,11 @@ function RecurringMeetingSummary({ description, compact = false }: { description
   if (compact) {
     return (
       <div className="mt-2 space-y-2">
-        {parts.note && <p className="max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#6f6b5e]">{parts.note}</p>}
+        {parts.note && <p className="max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">{parts.note}</p>}
         <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
           {sections.map((section) => (
-            <div key={section.label} className="rounded-lg border border-[#d9d3c5] bg-[#ffffff] p-2">
-              <p className="mb-1 text-[11px] font-extrabold uppercase text-[#b4ab99]">{section.label}</p>
+            <div key={section.label} className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2">
+              <p className="mb-1 text-[11px] font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
               <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#594e3d]">
                 {section.value || '- Chưa cập nhật.'}
               </p>
@@ -6774,11 +6785,11 @@ function RecurringMeetingSummary({ description, compact = false }: { description
 
   return (
     <div className="mt-3 space-y-3">
-      {parts.note && <p className="whitespace-pre-line text-sm text-[#6f6b5e]">{parts.note}</p>}
+      {parts.note && <p className="whitespace-pre-line text-sm text-[var(--text-secondary)]">{parts.note}</p>}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {sections.map((section) => (
-          <div key={section.label} className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
-            <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">{section.label}</p>
+          <div key={section.label} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
             <p className="whitespace-pre-line text-sm leading-6 text-[#594e3d]">
               {section.value || '- Chưa cập nhật.'}
             </p>
@@ -6853,11 +6864,11 @@ function AutomationView(props: {
           <div className="mb-5 flex items-start justify-between gap-3">
             <div>
               <h3 className="text-lg font-extrabold">Bộ nhắc tự động</h3>
-              <p className="mt-1 text-sm text-[#6f6b5e]">
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
                 {nextTask ? `Sắp tới sẽ theo dõi: ${nextTask.title}` : 'Chưa có lịch định kỳ đang bật.'}
               </p>
             </div>
-            <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[#6f7400]">
+            <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">
               Đang bật
             </span>
           </div>
@@ -6875,7 +6886,7 @@ function AutomationView(props: {
           <button type="button"
             onClick={props.runWorker}
             disabled={props.running}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--bg-card)] px-5 py-3 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-50"
           >
             <Ico d={IC.zap} size={15}/>
             {props.running ? 'Đang kiểm tra...' : 'Kiểm tra nhắc ngay'}
@@ -6883,7 +6894,7 @@ function AutomationView(props: {
 
           {props.result && (
             <div className={`mt-4 rounded-2xl border p-4 text-sm ${
-              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[#6f7400]'
+              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[var(--accent-hover)]'
             }`}>
               <p className="font-extrabold">
                 {props.result.ok === false ? 'Kiểm tra lỗi' : 'Kiểm tra xong'}
@@ -6897,7 +6908,7 @@ function AutomationView(props: {
 
           <div className="mt-6 border-t border-[#e8e4da] pt-5">
             <h4 className="mb-1 text-sm font-extrabold">Tóm tắt buổi sáng</h4>
-            <p className="mb-3 text-xs text-[#6f6b5e]">
+            <p className="mb-3 text-xs text-[var(--text-secondary)]">
               Tự gửi lúc 08:00 mỗi ngày — việc hôm nay &amp; việc đang trễ.
             </p>
             <div className="mb-3 space-y-2">
@@ -6906,14 +6917,14 @@ function AutomationView(props: {
             <button type="button"
               onClick={props.runDigest}
               disabled={props.digestRunning}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#d9d3c5] bg-white px-5 py-3 text-sm font-extrabold text-[#191919] hover:bg-[#faf7f0] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 py-3 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-surface)] disabled:opacity-50"
             >
               <Ico d={IC.clipboard} size={15}/>
               {props.digestRunning ? 'Đang gửi tóm tắt...' : 'Gửi tóm tắt buổi sáng ngay'}
             </button>
             {props.digestResult && (
               <div className={`mt-3 rounded-2xl border p-3 text-sm ${
-                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[#6f7400]'
+                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[var(--accent-hover)]'
               }`}>
                 <p className="font-extrabold">
                   {props.digestResult.ok === false ? 'Lỗi' : 'Đã gửi'}
@@ -6934,7 +6945,7 @@ function AutomationView(props: {
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-lg font-extrabold">Nhật ký nhắc tự động</h3>
-              <p className="mt-1 text-sm text-[#6f6b5e]">{props.runs.length} bản ghi gần nhất</p>
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">{props.runs.length} bản ghi gần nhất</p>
             </div>
           </div>
 
@@ -6945,12 +6956,12 @@ function AutomationView(props: {
               {props.runs.map((run) => {
                 const isError = run.status === 'error'
                 return (
-                  <div key={run.id} className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-4">
+                  <div key={run.id} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${
-                            isError ? 'bg-red-50 text-red-700' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[#f6f9d4] text-[#6f7400]'
+                            isError ? 'bg-red-50 text-red-700' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[#f6f9d4] text-[var(--accent-hover)]'
                           }`}>
                             {runStatusLabel(run.status)}
                           </span>
@@ -6979,9 +6990,9 @@ function AutomationView(props: {
                     {run.detail?.reminders && run.detail.reminders.length > 0 && (
                       <div className="mt-3 space-y-2 border-t border-[#ede8df] pt-3">
                         {run.detail.reminders.slice(0, 4).map((item, index) => (
-                          <div key={`${run.id}-${index}`} className="rounded-xl bg-[#faf7f0] px-3 py-2 text-sm">
+                          <div key={`${run.id}-${index}`} className="rounded-xl bg-[var(--bg-surface)] px-3 py-2 text-sm">
                             <span className="font-bold">{item.title}</span>
-                            <span className="text-[#6f6b5e]"> · {item.kind === 'near' ? 'nhắc gần' : 'nhắc sớm'}</span>
+                            <span className="text-[var(--text-secondary)]"> · {item.kind === 'near' ? 'nhắc gần' : 'nhắc sớm'}</span>
                           </div>
                         ))}
                       </div>
@@ -7008,24 +7019,24 @@ function AssistantView(props: {
   generateProjectReport: () => void
 }) {
   const reportButtons = [
-    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[#191919] text-white' },
-    { label: 'Việc cần hối thúc', action: props.generateFollowUpReport, className: 'bg-red-600 text-white' },
-    { label: 'Việc chờ duyệt', action: props.generatePendingApprovalReport, className: 'bg-amber-500 text-white' },
+    { label: 'Báo cáo COO hôm nay', action: props.generateDailyReport, className: 'bg-[var(--accent)] text-[var(--accent)]' },
+    { label: 'Việc cần hối thúc', action: props.generateFollowUpReport, className: 'bg-red-600 text-[var(--text-primary)]' },
+    { label: 'Việc chờ duyệt', action: props.generatePendingApprovalReport, className: 'bg-amber-500 text-[var(--text-primary)]' },
     { label: 'Việc cần làm lại', action: props.generateRevisionReport, className: 'bg-red-50 text-red-700' },
     {
       label: 'Việc thiếu file/link báo cáo',
       action: props.generateMissingReportFileReport,
-      className: 'bg-slate-900 text-white',
+      className: 'bg-slate-900 text-[var(--text-primary)]',
     },
-    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[#191919] text-white' },
-    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-[#f0f5c4] text-[#6f7400]' },
+    { label: 'Báo cáo theo nhân sự', action: props.generatePeopleReport, className: 'bg-[var(--accent)] text-[var(--accent)]' },
+    { label: 'Báo cáo theo dự án', action: props.generateProjectReport, className: 'bg-[#f0f5c4] text-[var(--accent-hover)]' },
   ]
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
       <Card>
         <h3 className="text-lg font-extrabold">COO Assistant</h3>
-        <p className="mt-1 text-sm text-[#6f6b5e]">
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
           Tạo báo cáo vận hành dạng text để copy gửi sếp.
         </p>
 
@@ -7048,7 +7059,7 @@ function AssistantView(props: {
           {props.assistantOutput && (
             <button type="button"
               onClick={() => navigator.clipboard.writeText(props.assistantOutput)}
-              className="rounded-xl border border-[#d9d3c5] px-4 py-2 text-sm font-bold"
+              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-bold"
             >
               Copy
             </button>
@@ -7056,7 +7067,7 @@ function AssistantView(props: {
         </div>
 
         {props.assistantOutput ? (
-          <pre className="whitespace-pre-wrap rounded-2xl bg-[#faf7f0] p-5 text-sm leading-7 text-[#6f6b5e]">
+          <pre className="whitespace-pre-wrap rounded-2xl bg-[var(--bg-surface)] p-5 text-sm leading-7 text-[var(--text-secondary)]">
             {props.assistantOutput}
           </pre>
         ) : (
@@ -7110,23 +7121,23 @@ function CreatePanel(props: {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
       <button type="button" className="flex-1" onClick={() => props.setOpen(false)} />
-      <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
+      <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">{props.tab === 'project' ? 'Tạo dự án' : 'Tạo đầu việc lớn'}</h3>
-          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
         <div className="mb-4 grid grid-cols-2 rounded-xl bg-[#ede8df] p-1">
           <button type="button"
             onClick={() => props.setTab('project')}
-            className={`rounded-lg py-2 text-sm font-bold ${props.tab === 'project' ? 'bg-[#ffffff] shadow' : ''}`}
+            className={`rounded-lg py-2 text-sm font-bold ${props.tab === 'project' ? 'bg-[var(--bg-card)] shadow' : ''}`}
           >
             + Dự án
           </button>
           <button type="button"
             onClick={() => props.setTab('workstream')}
-            className={`rounded-lg py-2 text-sm font-bold ${props.tab === 'workstream' ? 'bg-[#ffffff] shadow' : ''}`}
+            className={`rounded-lg py-2 text-sm font-bold ${props.tab === 'workstream' ? 'bg-[var(--bg-card)] shadow' : ''}`}
           >
             + Đầu việc lớn
           </button>
@@ -7159,7 +7170,7 @@ function CreatePanel(props: {
             <button type="button"
               onClick={props.createProject}
               disabled={props.saving}
-              className="w-full rounded-xl bg-[#6f7400] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[var(--accent-hover)] px-4 py-3 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-50"
             >
               {props.saving ? 'Đang tạo...' : 'Tạo dự án'}
             </button>
@@ -7173,7 +7184,7 @@ function CreatePanel(props: {
 
             <input
               type="date"
-              className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
+              className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm outline-none"
               value={props.workDueDate}
               onChange={(event) => props.setWorkDueDate(event.target.value)}
             />
@@ -7223,7 +7234,7 @@ function CreatePanel(props: {
             <button type="button"
               onClick={props.createWorkstream}
               disabled={props.saving}
-              className="w-full rounded-xl bg-[#191919] px-4 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-[var(--bg-card)] px-4 py-3 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-50"
             >
               {props.saving ? 'Đang tạo...' : 'Tạo đầu việc lớn'}
             </button>
@@ -7256,15 +7267,15 @@ function TaskDetailDrawer(props: {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20">
       <button type="button" className="flex-1" onClick={props.close} />
-      <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:p-6">
+      <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
         <h2 className="text-2xl font-extrabold">{props.task.title}</h2>
-        <p className="mt-2 text-sm leading-6 text-[#6f6b5e]">
+        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
           {props.task.description || 'Chưa có mô tả.'}
         </p>
 
@@ -7283,37 +7294,37 @@ function TaskDetailDrawer(props: {
           <div>
             <div className="mb-2 flex justify-between text-sm">
               <span className="font-bold">Tiến độ theo bước đã duyệt</span>
-              <span className="font-extrabold text-[#6f7400]">{progress}%</span>
+              <span className="font-extrabold text-[var(--accent-hover)]">{progress}%</span>
             </div>
             <ProgressBar value={progress} />
           </div>
 
-          <div className="rounded-2xl bg-[#faf7f0] p-4">
+          <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
             <p className="mb-3 font-extrabold">File báo cáo cấp đầu việc</p>
 
             <input
               type="file"
               onChange={(event) => props.uploadTaskFile(props.task, event.target.files?.[0])}
-              className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm"
+              className="block w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm"
             />
 
             {props.uploading && (
-              <p className="mt-2 text-sm font-bold text-[#6f7400]">Đang upload...</p>
+              <p className="mt-2 text-sm font-bold text-[var(--accent-hover)]">Đang upload...</p>
             )}
 
             <div className="mt-4 space-y-2">
               {props.reports.length === 0 ? (
-                <p className="text-sm text-[#6f6b5e]">Chưa có file báo cáo.</p>
+                <p className="text-sm text-[var(--text-secondary)]">Chưa có file báo cáo.</p>
               ) : (
                 props.reports.map((report) => (
-                  <div key={report.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#ffffff] p-3">
+                  <div key={report.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--bg-card)] p-3">
                     <p className="truncate text-sm font-bold">{report.file_name}</p>
                     <div className="flex shrink-0 gap-2">
                       <a
                         href={report.file_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-[#efe9dd]"
+                        className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                       >
                         Mở
                       </a>
@@ -7340,7 +7351,7 @@ function TaskDetailDrawer(props: {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
+  return <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
 }
 
 function MetricCard(props: {
@@ -7350,26 +7361,26 @@ function MetricCard(props: {
   tone: 'blue' | 'green' | 'purple' | 'red'
 }) {
   const toneMap = {
-    blue:   'bg-[#eeeae1] text-[#191919]',
-    green:  'bg-[#f0f5c4] text-[#6f7400]',
+    blue:   'bg-[#eeeae1] text-[var(--text-primary)]',
+    green:  'bg-[#f0f5c4] text-[var(--accent-hover)]',
     purple: 'bg-[#eeeae1] text-[#594e3d]',
     red:    'bg-[#fdf0ee] text-red-600',
   }
   const accentMap = {
-    blue:   'before:bg-[#191919]',
-    green:  'before:bg-[#dadf21]',
+    blue:   'before:bg-[var(--bg-card)]',
+    green:  'before:bg-[var(--accent)]',
     purple: 'before:bg-[#594e3d]',
     red:    'before:bg-red-400',
   }
 
   return (
-    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-5 shadow-[0_1px_3px_rgba(38,34,25,0.05),0_8px_24px_-12px_rgba(38,34,25,0.08)]
+    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[0_1px_3px_rgba(38,34,25,0.05),0_8px_24px_-12px_rgba(38,34,25,0.08)]
       before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
       <div className="flex items-center justify-between">
-        <p className="text-[13px] font-bold text-[#6f6b5e]">{props.label}</p>
+        <p className="text-[13px] font-bold text-[var(--text-secondary)]">{props.label}</p>
         <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneMap[props.tone]}`}>{props.icon}</span>
       </div>
-      <p className="font-display mt-3 text-4xl tabular-nums text-[#191919]">{props.value}</p>
+      <p className="font-display mt-3 text-4xl tabular-nums text-[var(--text-primary)]">{props.value}</p>
     </div>
   )
 }
@@ -7378,7 +7389,7 @@ function ProgressBar({ value }: { value: number }) {
   return (
     <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
       <div
-        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[#aeb300] to-[#dadf21] transition-[width] duration-500"
+        className="progress-bar-fill h-full rounded-full bg-gradient-to-r from-[var(--accent-hover)] to-[var(--accent)] transition-[width] duration-500"
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>
@@ -7396,9 +7407,9 @@ function StatusDistributionRow(props: {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <p className="font-bold text-[#6f6b5e]">{props.label}</p>
+        <p className="font-bold text-[var(--text-secondary)]">{props.label}</p>
         <p className="font-extrabold">
-          {props.count} <span className="text-[#6f6b5e]">({percent}%)</span>
+          {props.count} <span className="text-[var(--text-secondary)]">({percent}%)</span>
         </p>
       </div>
       <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
@@ -7410,9 +7421,9 @@ function StatusDistributionRow(props: {
 
 function MiniStat({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
   return (
-    <div className="rounded-xl bg-[#faf7f0] p-2">
+    <div className="rounded-xl bg-[var(--bg-surface)] p-2">
       <p className={`text-lg font-extrabold ${danger && value > 0 ? 'text-red-600' : ''}`}>{value}</p>
-      <p className="text-[11px] font-bold text-[#6f6b5e]">{label}</p>
+      <p className="text-[11px] font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   )
 }
@@ -7426,9 +7437,9 @@ function DashboardStepList(props: {
 }) {
   return (
     <div>
-      <p className="mb-2 text-sm font-extrabold text-[#6f6b5e]">{props.title}</p>
+      <p className="mb-2 text-sm font-extrabold text-[var(--text-secondary)]">{props.title}</p>
       {props.steps.length === 0 ? (
-        <p className="text-sm text-[#6f6b5e]">{props.emptyText}</p>
+        <p className="text-sm text-[var(--text-secondary)]">{props.emptyText}</p>
       ) : (
         <div className="space-y-2">
           {props.steps.map((step) => {
@@ -7439,10 +7450,10 @@ function DashboardStepList(props: {
                 type="button"
                 key={step.id}
                 onClick={() => { if (task && props.onTaskClick) props.onTaskClick(task) }}
-                className={`w-full rounded-xl bg-[#faf7f0] p-3 text-left ${task && props.onTaskClick ? 'hover:bg-[#ede8df] cursor-pointer' : 'cursor-default'}`}
+                className={`w-full rounded-xl bg-[var(--bg-surface)] p-3 text-left ${task && props.onTaskClick ? 'hover:bg-[#ede8df] cursor-pointer' : 'cursor-default'}`}
               >
                 <p className="text-sm font-extrabold">{step.step_title}</p>
-                <p className="mt-1 text-xs text-[#6f6b5e]">{task?.title || 'Không rõ đầu việc cha'}</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">{task?.title || 'Không rõ đầu việc cha'}</p>
               </button>
             )
           })}
@@ -7455,7 +7466,7 @@ function DashboardStepList(props: {
 function StatusBadge({ status, label }: { status: string; label: string }) {
   const cls =
     status === 'completed'
-      ? 'bg-[#DCFCE7] text-[#6f7400]'
+      ? 'bg-[#DCFCE7] text-[var(--accent-hover)]'
       : status === 'in_progress'
         ? 'bg-[#E0F2FE] text-[#0369A1]'
         : status === 'pending'
@@ -7464,7 +7475,7 @@ function StatusBadge({ status, label }: { status: string; label: string }) {
             ? 'bg-amber-50 text-amber-700'
             : status === 'overdue'
               ? 'bg-[#FEE2E2] text-[#DC2626]'
-              : 'bg-[#ede8df] text-[#6f6b5e]'
+              : 'bg-[#ede8df] text-[var(--text-secondary)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{label}</span>
 }
@@ -7484,7 +7495,7 @@ function IssueBadge({ issueStatus }: { issueStatus?: string | null }) {
     return <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Cần theo dõi</span>
   }
 
-  return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[#6f7400]">Ổn</span>
+  return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Ổn</span>
 }
 
 function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
@@ -7493,7 +7504,7 @@ function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
       ? 'bg-red-50 text-red-700'
       : health.level === 'watch'
         ? 'bg-amber-50 text-amber-700'
-        : 'bg-[#f6f9d4] text-[#6f7400]'
+        : 'bg-[#f6f9d4] text-[var(--accent-hover)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{health.label}</span>
 }
@@ -7512,7 +7523,7 @@ function ProjectHealthSummary({ health }: { health: ProjectHealth }) {
   ].filter((item) => item.value > 0)
 
   if (items.length === 0) {
-    return <p className="text-sm text-[#6f6b5e]">Không có cảnh báo vận hành.</p>
+    return <p className="text-sm text-[var(--text-secondary)]">Không có cảnh báo vận hành.</p>
   }
 
   return (
@@ -7532,7 +7543,7 @@ function StepApprovalBadge({ status }: { status: string }) {
   }
 
   if (status === 'approved') {
-    return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[#6f7400]">Đã duyệt</span>
+    return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Đã duyệt</span>
   }
 
   if (status === 'pending') {
@@ -7548,8 +7559,8 @@ function StepApprovalBadge({ status }: { status: string }) {
 
 function ApprovalStatusPill({ label, status }: { label: string; status: string }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-xl bg-[#ffffff] px-3 py-2">
-      <span className="text-xs font-extrabold text-[#6f6b5e]">{label}</span>
+    <div className="flex items-center justify-between gap-2 rounded-xl bg-[var(--bg-card)] px-3 py-2">
+      <span className="text-xs font-extrabold text-[var(--text-secondary)]">{label}</span>
       <StepApprovalBadge status={status} />
     </div>
   )
@@ -7557,8 +7568,8 @@ function ApprovalStatusPill({ label, status }: { label: string; status: string }
 
 function InfoPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-[#faf7f0] px-3 py-2">
-      <p className="text-[11px] font-bold uppercase text-[#b4ab99]">{label}</p>
+    <div className="rounded-xl bg-[var(--bg-surface)] px-3 py-2">
+      <p className="text-[11px] font-bold uppercase text-[var(--text-muted)]">{label}</p>
       <p className="font-bold">{value}</p>
     </div>
   )
@@ -7567,7 +7578,7 @@ function InfoPill({ label, value }: { label: string; value: string }) {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="mb-1 text-xs font-extrabold uppercase text-[#b4ab99]">{label}</p>
+      <p className="mb-1 text-xs font-extrabold uppercase text-[var(--text-muted)]">{label}</p>
       <p className="font-bold">{value}</p>
     </div>
   )
@@ -7575,7 +7586,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function Avatar({ name }: { name: string }) {
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#191919] text-sm font-extrabold text-white ring-2 ring-white/20">
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] text-sm font-extrabold text-[var(--text-primary)] ring-2 ring-white/20">
       {(name || 'U').slice(0, 1).toUpperCase()}
     </div>
   )
@@ -7588,7 +7599,7 @@ function Input(props: {
 }) {
   return (
     <input
-      className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
+      className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm outline-none"
       placeholder={props.placeholder}
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
@@ -7603,7 +7614,7 @@ function Select(props: {
 }) {
   return (
     <select
-      className="h-12 w-full rounded-2xl border border-[#d9d3c5] bg-[#ffffff] px-4 text-sm outline-none"
+      className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
     >
@@ -7614,10 +7625,10 @@ function Select(props: {
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[#d9d3c5] bg-[#faf7f0] p-8 text-center">
+    <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-8 text-center">
       <div className="mb-3 text-3xl">🗂️</div>
       <p className="font-extrabold">{title}</p>
-      <p className="mt-1 text-sm text-[#6f6b5e]">{description}</p>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p>
     </div>
   )
 }
@@ -7627,10 +7638,10 @@ function DashboardSkeleton() {
     <div className="space-y-6">
       <div className="grid grid-cols-5 gap-4">
         {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="h-32 animate-pulse rounded-xl bg-[#ffffff]" />
+          <div key={index} className="h-32 animate-pulse rounded-xl bg-[var(--bg-card)]" />
         ))}
       </div>
-      <div className="h-96 animate-pulse rounded-xl bg-[#ffffff]" />
+      <div className="h-96 animate-pulse rounded-xl bg-[var(--bg-card)]" />
     </div>
   )
 }
@@ -8389,58 +8400,58 @@ function AdminUsersView(props: {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#6f6b5e]">{employees.length} nhân sự</p>
+        <p className="text-sm text-[var(--text-secondary)]">{employees.length} nhân sự</p>
         {props.canCreateUsers ? (
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 rounded-xl bg-[#dadf21] px-4 py-2 text-sm font-extrabold text-[#191919]"
+            className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
           >
             <Ico d={IC.plus} size={15} />
             Tạo tài khoản
           </button>
         ) : (
-          <span className="rounded-xl border border-[#d9d3c5] px-3 py-2 text-xs font-bold text-[#b4ab99]">
+          <span className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">
             Không có quyền tạo tài khoản
           </span>
         )}
       </div>
 
       {showCreate && (
-        <div className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-6">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6">
           <h3 className="mb-4 text-base font-extrabold">Tạo tài khoản nhân viên</h3>
           <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Họ và tên *</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Họ và tên *</label>
               <input required value={createName} onChange={(e) => setCreateName(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nguyễn Văn A" />
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nguyễn Văn A" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Tài khoản đăng nhập *</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tài khoản đăng nhập *</label>
               <input required type="text" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="quang / nhung / admin" />
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="quang / nhung / admin" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Mật khẩu *</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mật khẩu *</label>
               <input required type="password" minLength={6} value={createPassword} onChange={(e) => setCreatePassword(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Tối thiểu 6 ký tự" />
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Tối thiểu 6 ký tự" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Chức vụ</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chức vụ</label>
               <input value={createPosition} onChange={(e) => setCreatePosition(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nhân viên Marketing..." />
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nhân viên Marketing..." />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Role</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Role</label>
               <select value={createRole} onChange={(e) => setCreateRole(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
                 {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Phòng ban</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban</label>
               <select value={createDept} onChange={(e) => setCreateDept(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
                 <option value="">Chọn phòng ban</option>
                 {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -8450,11 +8461,11 @@ function AdminUsersView(props: {
             )}
             <div className="col-span-2 flex gap-3">
               <button type="submit" disabled={creating}
-                className="rounded-xl bg-[#191919] px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">
+                className="rounded-xl bg-[var(--bg-card)] px-5 py-2.5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-60">
                 {creating ? 'Đang tạo...' : 'Tạo tài khoản'}
               </button>
               <button type="button" onClick={() => { setShowCreate(false); setCreateError('') }}
-                className="rounded-xl border border-[#d9d3c5] px-5 py-2.5 text-sm font-bold text-[#6f6b5e]">
+                className="rounded-xl border border-[var(--border)] px-5 py-2.5 text-sm font-bold text-[var(--text-secondary)]">
                 Hủy
               </button>
             </div>
@@ -8463,34 +8474,34 @@ function AdminUsersView(props: {
       )}
 
       {loading ? (
-        <div className="text-sm text-[#6f6b5e]">Đang tải...</div>
+        <div className="text-sm text-[var(--text-secondary)]">Đang tải...</div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[#d9d3c5] bg-[#ffffff]">
+        <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
           <table className="w-full text-sm">
-            <thead className="border-b border-[#d9d3c5] bg-[#faf7f0]">
+            <thead className="border-b border-[var(--border)] bg-[var(--bg-surface)]">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Họ tên</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Tài khoản</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Chức vụ</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Phòng ban</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Trạng thái</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Hành động</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Họ tên</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Tài khoản</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Chức vụ</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Phòng ban</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Trạng thái</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
               {employees.map((emp) => (
-                <tr key={emp.id} className="hover:bg-[#faf7f0]">
+                <tr key={emp.id} className="hover:bg-[var(--bg-surface)]">
                   <td className="px-4 py-3 font-bold">{emp.full_name}</td>
-                  <td className="px-4 py-3 text-[#6f6b5e]">{displayLoginIdentifier(emp.email)}</td>
-                  <td className="px-4 py-3 text-[#6f6b5e]">{emp.position || '—'}</td>
-                  <td className="px-4 py-3 text-[#6f6b5e]">{deptMap.get(emp.department_id || '') || '—'}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{displayLoginIdentifier(emp.email)}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{emp.position || '—'}</td>
+                  <td className="px-4 py-3 text-[var(--text-secondary)]">{deptMap.get(emp.department_id || '') || '—'}</td>
                   <td className="px-4 py-3">
                     <select
                       value={emp.role || 'employee'}
                       disabled={saving === emp.id}
                       onChange={(e) => updateEmployee(emp.id, { role: e.target.value })}
-                      className="rounded-lg border border-[#d9d3c5] px-2 py-1 text-xs font-bold outline-none"
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-bold outline-none"
                     >
                       {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
@@ -8501,7 +8512,7 @@ function AdminUsersView(props: {
                       onClick={() => toggleStatus(emp)}
                       className={`rounded-full px-3 py-1 text-xs font-bold ${
                         emp.status === 'active'
-                          ? 'bg-emerald-100 text-[#6f7400]'
+                          ? 'bg-emerald-100 text-[var(--accent-hover)]'
                           : 'bg-red-100 text-red-600'
                       }`}
                     >
@@ -8511,7 +8522,7 @@ function AdminUsersView(props: {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <button type="button" onClick={() => openEdit(emp)}
-                        className="rounded-lg border border-[#d9d3c5] px-3 py-1.5 text-xs font-bold text-[#191919] hover:bg-[#f1ede4]">
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]">
                         Sửa
                       </button>
                       {emp.email && <ResetPasswordButton authUserId={emp.email} />}
@@ -8531,41 +8542,41 @@ function AdminUsersView(props: {
       {/* Edit modal */}
       {editEmp && (
         <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/40 p-4" onClick={() => setEditEmp(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-5 text-base font-extrabold text-[#191919]">Sửa thông tin — {editEmp.full_name}</h3>
+          <div className="w-full max-w-md rounded-2xl bg-[var(--bg-card)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-5 text-base font-extrabold text-[var(--text-primary)]">Sửa thông tin — {editEmp.full_name}</h3>
             <form onSubmit={handleEditSave} className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Họ và tên *</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Họ và tên *</label>
                 <input required value={editName} onChange={(e) => setEditName(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" />
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Chức vụ</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chức vụ</label>
                 <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nhân viên Marketing..." />
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nhân viên Marketing..." />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Phòng ban</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban</label>
                 <select value={editDept} onChange={(e) => setEditDept(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
                   <option value="">Chọn phòng ban</option>
                   {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Role</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Role</label>
                 <select value={editRole} onChange={(e) => setEditRole(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]">
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
                   {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="submit" disabled={editSaving}
-                  className="rounded-xl bg-[#191919] px-5 py-2.5 text-sm font-extrabold text-white disabled:opacity-60">
+                  className="rounded-xl bg-[var(--bg-card)] px-5 py-2.5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-60">
                   {editSaving ? 'Đang lưu...' : 'Lưu'}
                 </button>
                 <button type="button" onClick={() => setEditEmp(null)}
-                  className="rounded-xl border border-[#d9d3c5] px-5 py-2.5 text-sm font-bold text-[#6f6b5e]">
+                  className="rounded-xl border border-[var(--border)] px-5 py-2.5 text-sm font-bold text-[var(--text-secondary)]">
                   Hủy
                 </button>
               </div>
@@ -8621,11 +8632,11 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
   return (
     <form onSubmit={handleReset} className="flex flex-col gap-1">
       <input required minLength={6} type="password" value={pw} onChange={(e) => setPw(e.target.value)}
-        placeholder="Mật khẩu mới" className="h-7 w-32 rounded border border-[#d9d3c5] px-2 text-xs outline-none" />
-      {msg && <p className={`text-[10px] font-bold ${msg.includes('Đã') ? 'text-[#6f7400]' : 'text-red-600'}`}>{msg}</p>}
+        placeholder="Mật khẩu mới" className="h-7 w-32 rounded border border-[var(--border)] px-2 text-xs outline-none" />
+      {msg && <p className={`text-[10px] font-bold ${msg.includes('Đã') ? 'text-[var(--accent-hover)]' : 'text-red-600'}`}>{msg}</p>}
       <div className="flex gap-1">
         <button type="submit" disabled={loading}
-          className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white disabled:opacity-60">
+          className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-[var(--text-primary)] disabled:opacity-60">
           {loading ? '...' : 'Lưu'}
         </button>
         <button type="button" onClick={() => { setOpen(false); setMsg('') }}
