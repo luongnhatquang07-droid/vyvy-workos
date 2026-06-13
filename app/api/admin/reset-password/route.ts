@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { loginIdentifierToAuthEmail } from '@/lib/internal-auth'
 
 export async function POST(req: NextRequest) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -26,13 +27,14 @@ export async function POST(req: NextRequest) {
   // If only email provided, find the auth user ID first
   let targetUserId = authUserId
   if (!targetUserId && email) {
+    const authEmail = loginIdentifierToAuthEmail(String(email))
     const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers()
     if (listError) {
       return NextResponse.json({ error: 'Không thể tra cứu người dùng: ' + listError.message }, { status: 500 })
     }
-    const found = users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
+    const found = users.find((u) => u.email?.toLowerCase() === authEmail.toLowerCase())
     if (!found) {
-      return NextResponse.json({ error: 'Không tìm thấy tài khoản với email này' }, { status: 404 })
+      return NextResponse.json({ error: 'Không tìm thấy tài khoản này' }, { status: 404 })
     }
     targetUserId = found.id
   }

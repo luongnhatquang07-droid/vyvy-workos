@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { loginIdentifierToAuthEmail } from '@/lib/internal-auth'
 
 export async function POST(req: NextRequest) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -15,14 +16,15 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { email, password, fullName, role, departmentId, position } = body
+  const authEmail = loginIdentifierToAuthEmail(String(email || ''))
 
-  if (!email || !password || !fullName) {
-    return NextResponse.json({ error: 'Thiếu email, password hoặc họ tên' }, { status: 400 })
+  if (!authEmail || !password || !fullName) {
+    return NextResponse.json({ error: 'Thiếu tài khoản, password hoặc họ tên' }, { status: 400 })
   }
 
   // Tạo auth user
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email,
+    email: authEmail,
     password,
     email_confirm: true,
   })
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
   // Build insert record dựa trên schema thực tế
   const record: Record<string, unknown> = {
     full_name: fullName,
-    email: email,
+    email: authEmail,
     role: role || 'employee',
     status: 'active',
     position: position || null,

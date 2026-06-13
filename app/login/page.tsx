@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { loginIdentifierToAuthEmail } from '@/lib/internal-auth'
 
 type Tab = 'login' | 'signup'
 
@@ -10,7 +11,7 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [tab, setTab] = useState<Tab>('login')
-  const [email, setEmail] = useState('')
+  const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
@@ -31,10 +32,11 @@ function LoginForm() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+    const authEmail = loginIdentifierToAuthEmail(loginId)
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: authEmail, password })
     setLoading(false)
     if (authError) {
-      setError('Email hoặc mật khẩu không đúng. Vui lòng thử lại.')
+      setError('Tài khoản hoặc mật khẩu không đúng. Vui lòng thử lại.')
       return
     }
     router.push('/')
@@ -51,7 +53,7 @@ function LoginForm() {
     const res = await fetch('/api/admin/create-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName: fullName.trim(), role: 'admin', position: 'Admin' }),
+      body: JSON.stringify({ email: loginId, password, fullName: fullName.trim(), role: 'admin', position: 'Admin' }),
     })
     const json = await res.json()
 
@@ -62,7 +64,8 @@ function LoginForm() {
     }
 
     // Auto sign in after creation
-    const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+    const authEmail = loginIdentifierToAuthEmail(loginId)
+    const { error: signInErr } = await supabase.auth.signInWithPassword({ email: authEmail, password })
     setLoading(false)
     if (signInErr) {
       setSuccess('Đã tạo tài khoản! Đăng nhập ngay.')
@@ -76,9 +79,10 @@ function LoginForm() {
   async function handleFixAdmin() {
     setLoading(true)
     setError('')
-    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+    const authEmail = loginIdentifierToAuthEmail(loginId)
+    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email: authEmail, password })
     if (signInErr || !signInData.session) {
-      setError('Email hoặc mật khẩu không đúng.')
+      setError('Tài khoản hoặc mật khẩu không đúng.')
       setLoading(false)
       return
     }
@@ -92,7 +96,7 @@ function LoginForm() {
       router.push('/')
       router.refresh()
     } else {
-      setError('Không tìm thấy hồ sơ nhân viên. Hãy nhờ Admin thêm email của bạn vào hệ thống.')
+      setError('Không tìm thấy hồ sơ nhân viên. Hãy nhờ Admin thêm tài khoản của bạn vào hệ thống.')
     }
   }
 
@@ -132,9 +136,9 @@ function LoginForm() {
             {tab === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className={labelCls}>Email</label>
-                  <input type="email" required autoComplete="email" value={email}
-                    onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="email@vyvyhaircare.com" />
+                  <label className={labelCls}>Tài khoản</label>
+                  <input type="text" required autoComplete="username" value={loginId}
+                    onChange={(e) => setLoginId(e.target.value)} className={inputCls} placeholder="quang / nhung / admin" />
                 </div>
                 <div>
                   <label className={labelCls}>Mật khẩu</label>
@@ -148,7 +152,7 @@ function LoginForm() {
                   {loading ? 'Đang đăng nhập...' : 'Đăng nhập →'}
                 </button>
                 {errorParam === 'no_employee' && (
-                  <button type="button" disabled={loading || !email || !password} onClick={handleFixAdmin}
+                  <button type="button" disabled={loading || !loginId || !password} onClick={handleFixAdmin}
                     className="h-10 w-full rounded-xl border border-[#191919] bg-transparent text-xs font-bold text-[#191919] hover:bg-[#191919]/5 disabled:opacity-40">
                     Khôi phục quyền Admin
                   </button>
@@ -165,9 +169,9 @@ function LoginForm() {
                     className={inputCls} placeholder="Nguyễn Văn A" />
                 </div>
                 <div>
-                  <label className={labelCls}>Email</label>
-                  <input type="email" required autoComplete="email" value={email}
-                    onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="email@vyvyhaircare.com" />
+                  <label className={labelCls}>Tài khoản Admin</label>
+                  <input type="text" required autoComplete="username" value={loginId}
+                    onChange={(e) => setLoginId(e.target.value)} className={inputCls} placeholder="admin" />
                 </div>
                 <div>
                   <label className={labelCls}>Mật khẩu</label>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { displayLoginIdentifier } from '@/lib/internal-auth'
 
 // ─── Module-level toast (no prop drilling needed) ───────────────────────────
 type ToastType = 'success' | 'error' | 'info' | 'warning'
@@ -749,40 +750,51 @@ export default function Home() {
         .maybeSingle()
 
       if (empError || !emp) {
-        // auth_user_id không khớp — thử lookup bằng email
+        // auth_user_id không khớp — thử lookup bằng email (case-insensitive)
         const { data: empByEmail } = await supabase
           .from('employees')
           .select('*')
-          .eq('email', session.user.email || '')
+          .ilike('email', session.user.email || '')
           .maybeSingle()
 
         if (empByEmail) {
           if (empByEmail.status === 'inactive') {
             await supabase.auth.signOut()
-            router.push('/login')
+            router.push('/login?error=inactive')
             return
+          }
+          // Link auth_user_id lần đầu để lần sau khớp nhanh hơn
+          if (!empByEmail.auth_user_id) {
+            await supabase.from('employees').update({ auth_user_id: session.user.id }).eq('id', empByEmail.id)
           }
           setCurrentEmployee(empByEmail as Employee)
           setAuthChecked(true)
           return
         }
 
-        // Không tìm thấy employee nào — chặn vào app
+        // Kiểm tra nếu chưa có nhân viên nào — cho phép first-run admin setup
+        const { count } = await supabase.from('employees').select('id', { count: 'exact', head: true })
+        if (count === 0 || count === null) {
+          setCurrentEmployee({ id: '', full_name: session.user.email || 'Admin', position: null, role: 'admin', status: 'active' } as Employee)
+          setAuthChecked(true)
+          return
+        }
+
+        // Tài khoản không có trong danh sách nhân viên
         await supabase.auth.signOut()
-        router.push('/login')
+        router.push('/login?error=no_employee')
         return
       }
 
-      if (emp && emp.status === 'inactive') {
+      if (emp.status === 'inactive') {
         await supabase.auth.signOut()
-        router.push('/login')
+        router.push('/login?error=inactive')
         return
       }
 
-      if (!emp) {
-        await supabase.auth.signOut()
-        router.push('/login')
-        return
+      // Link auth_user_id nếu chưa có
+      if (!emp.auth_user_id) {
+        await supabase.from('employees').update({ auth_user_id: session.user.id }).eq('id', emp.id)
       }
 
       setCurrentEmployee(emp as Employee)
@@ -8352,9 +8364,9 @@ function AdminUsersView(props: {
                 className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="Nguyễn Văn A" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Email *</label>
-              <input required type="email" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="email@vyvyhaircare.com" />
+              <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Tài khoản đăng nhập *</label>
+              <input required type="text" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)}
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none focus:border-[#aeb300]" placeholder="quang / nhung / admin" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-bold text-[#6f6b5e]">Mật khẩu *</label>
@@ -8406,7 +8418,7 @@ function AdminUsersView(props: {
             <thead className="border-b border-[#d9d3c5] bg-[#faf7f0]">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Họ tên</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Email</th>
+                <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Tài khoản</th>
                 <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Chức vụ</th>
                 <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Phòng ban</th>
                 <th className="px-4 py-3 text-left text-xs font-extrabold text-[#6f6b5e]">Role</th>
@@ -8418,7 +8430,7 @@ function AdminUsersView(props: {
               {employees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-[#faf7f0]">
                   <td className="px-4 py-3 font-bold">{emp.full_name}</td>
-                  <td className="px-4 py-3 text-[#6f6b5e]">{emp.email || '—'}</td>
+                  <td className="px-4 py-3 text-[#6f6b5e]">{displayLoginIdentifier(emp.email)}</td>
                   <td className="px-4 py-3 text-[#6f6b5e]">{emp.position || '—'}</td>
                   <td className="px-4 py-3 text-[#6f6b5e]">{deptMap.get(emp.department_id || '') || '—'}</td>
                   <td className="px-4 py-3">
