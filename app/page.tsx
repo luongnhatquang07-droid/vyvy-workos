@@ -481,6 +481,51 @@ type StepForm = {
   dueDate: string
 }
 
+// ─── Structured meeting recap ────────────────────────────────────────────────
+type MeetingMetric = { label: string; value: string; badge: string }
+type MeetingIssue = {
+  id: string
+  source: string
+  status: 'urgent' | 'ok' | 'hard' | 'pending'
+  detail: string
+}
+type MeetingAssignment = {
+  id: string
+  personId: string
+  personName: string
+  tasks: string
+  deadline: string
+}
+type MeetingRecap = {
+  date: string
+  platforms: string
+  metrics: [MeetingMetric, MeetingMetric, MeetingMetric]
+  issues: MeetingIssue[]
+  focuses: [string, string]
+  directions: string[]
+  directionNote: string
+  assignments: MeetingAssignment[]
+  quote: string
+  notes: string
+}
+
+const DEFAULT_MEETING_RECAP: MeetingRecap = {
+  date: '',
+  platforms: '',
+  metrics: [
+    { label: 'Chỉ số chính', value: '', badge: '' },
+    { label: 'Tình trạng doanh số', value: '', badge: '' },
+    { label: 'Nguyên nhân chính', value: '', badge: '' },
+  ],
+  issues: [],
+  focuses: ['', ''],
+  directions: [],
+  directionNote: '',
+  assignments: [],
+  quote: '',
+  notes: '',
+}
+
 type NotexRow = {
   id: string
   workstreamTitle: string
@@ -683,6 +728,7 @@ export default function Home() {
 
   const [meetingTitle, setMeetingTitle] = useState('Biên bản họp vận hành')
   const [meetingRaw, setMeetingRaw] = useState('')
+  const [meetingRecap, setMeetingRecap] = useState<MeetingRecap>(DEFAULT_MEETING_RECAP)
   const [notexProjectName, setNotexProjectName] = useState('')
   const [notexRows, setNotexRows] = useState<NotexRow[]>([])
   const [importing, setImporting] = useState(false)
@@ -2174,15 +2220,43 @@ export default function Home() {
   }
 
   function splitNotexRows() {
-    const rows = parseNotexText(meetingRaw, departments, employees)
+    // Generate rows from structured assignments
+    const assignmentRows: NotexRow[] = []
+    for (const asgn of meetingRecap.assignments) {
+      const taskLines = asgn.tasks.split(/\n|·/).map((s) => s.trim()).filter(Boolean)
+      if (taskLines.length === 0) continue
+      const emp = employees.find((e) => e.id === asgn.personId)
+      const ws = meetingTitle || 'Đầu việc từ biên bản'
+      for (const line of taskLines) {
+        assignmentRows.push({
+          id: Math.random().toString(36).slice(2),
+          workstreamTitle: ws,
+          subtaskTitle: line,
+          responsibility: asgn.personName || emp?.full_name || '',
+          expectedOutput: '',
+          departmentId: emp?.department_id || '',
+          headId: asgn.personId,
+          assigneeId: asgn.personId,
+          dueDate: asgn.deadline || '',
+          priority: 'medium',
+        })
+      }
+    }
 
-    if (rows.length === 0) {
-      toast('Chưa tách được đầu việc từ nội dung Notex.', 'warning')
+    if (assignmentRows.length > 0) {
+      setNotexRows(assignmentRows)
+      setNotexProjectName((current) => current || meetingTitle || 'Dự án từ biên bản')
       return
     }
 
+    // Fallback: parse from raw text if structured assignments empty
+    const rows = parseNotexText(meetingRaw, departments, employees)
+    if (rows.length === 0) {
+      toast('Chưa có phân công nào để tách. Điền bảng Phân công trước.', 'warning')
+      return
+    }
     setNotexRows(rows)
-    setNotexProjectName((current) => current || meetingTitle || 'Dự án từ biên bản Notex')
+    setNotexProjectName((current) => current || meetingTitle || 'Dự án từ biên bản')
   }
 
   async function importNotexRows() {
@@ -2364,15 +2438,16 @@ export default function Home() {
   }
 
   async function saveMeeting() {
-    if (!meetingRaw.trim()) {
-      toast('Dán biên bản họp trước.', 'warning')
+    if (!meetingTitle.trim()) {
+      toast('Nhập tên biên bản họp trước.', 'warning')
       return
     }
 
+    const structured = JSON.stringify(meetingRecap)
     const { error } = await supabase.from('meeting_minutes').insert({
       title: meetingTitle,
-      raw_content: meetingRaw,
-      summary: 'Biên bản đã được lưu. Bước AI tách đầu việc sẽ nâng cấp sau.',
+      raw_content: meetingRaw || structured,
+      summary: structured,
     })
 
     if (error) {
@@ -3227,6 +3302,8 @@ export default function Home() {
                   setMeetingTitle={setMeetingTitle}
                   meetingRaw={meetingRaw}
                   setMeetingRaw={setMeetingRaw}
+                  meetingRecap={meetingRecap}
+                  setMeetingRecap={setMeetingRecap}
                   notexProjectName={notexProjectName}
                   setNotexProjectName={setNotexProjectName}
                   notexRows={notexRows}
@@ -5448,6 +5525,8 @@ function MeetingView(props: {
   setMeetingTitle: (value: string) => void
   meetingRaw: string
   setMeetingRaw: (value: string) => void
+  meetingRecap: MeetingRecap
+  setMeetingRecap: React.Dispatch<React.SetStateAction<MeetingRecap>>
   notexProjectName: string
   setNotexProjectName: (value: string) => void
   notexRows: NotexRow[]
@@ -5460,197 +5539,267 @@ function MeetingView(props: {
   importNotexRows: () => void
   saveMeeting: () => void
 }) {
+  const r = props.meetingRecap
+  const set = (patch: Partial<MeetingRecap>) => props.setMeetingRecap((prev) => ({ ...prev, ...patch }))
+
+  function patchMetric(index: number, patch: Partial<MeetingMetric>) {
+    const next = r.metrics.map((m, i) => i === index ? { ...m, ...patch } : m) as MeetingRecap['metrics']
+    set({ metrics: next })
+  }
+
+  function addIssue() {
+    set({ issues: [...r.issues, { id: Math.random().toString(36).slice(2), source: '', status: 'urgent', detail: '' }] })
+  }
+  function patchIssue(id: string, patch: Partial<MeetingIssue>) {
+    set({ issues: r.issues.map((iss) => iss.id === id ? { ...iss, ...patch } : iss) })
+  }
+  function removeIssue(id: string) { set({ issues: r.issues.filter((iss) => iss.id !== id) }) }
+
+  function addDirection(tag: string) {
+    if (!tag.trim()) return
+    set({ directions: [...r.directions, tag.trim()] })
+  }
+  function removeDirection(tag: string) { set({ directions: r.directions.filter((d) => d !== tag) }) }
+
+  function addAssignment() {
+    set({ assignments: [...r.assignments, { id: Math.random().toString(36).slice(2), personId: '', personName: '', tasks: '', deadline: '' }] })
+  }
+  function patchAssignment(id: string, patch: Partial<MeetingAssignment>) {
+    set({ assignments: r.assignments.map((a) => a.id === id ? { ...a, ...patch } : a) })
+  }
+  function removeAssignment(id: string) { set({ assignments: r.assignments.filter((a) => a.id !== id) }) }
+
+  const [directionInput, setDirectionInput] = useState('')
+
+  const issueStatusMap: Record<MeetingIssue['status'], { label: string; cls: string }> = {
+    urgent: { label: 'Cần xử lý', cls: 'bg-red-50 text-red-700 border-red-200' },
+    ok:     { label: 'Tạm ổn',    cls: 'bg-green-50 text-green-700 border-green-200' },
+    hard:   { label: 'Còn khó',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    pending:{ label: 'Chưa chốt', cls: 'bg-[#f5f2ec] text-[#6f6b5e] border-[#d9d3c5]' },
+  }
+
   function updateRow(rowId: string, patch: Partial<NotexRow>) {
     props.setNotexRows(props.notexRows.map((row) => (row.id === rowId ? { ...row, ...patch } : row)))
   }
-
   function deleteRow(rowId: string) {
     props.setNotexRows(props.notexRows.filter((row) => row.id !== rowId))
   }
 
+  // Section header component
+  function SH({ n, title }: { n: string; title: string }) {
+    return (
+      <div className="mb-3 flex items-center gap-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-[#191919] text-[10px] font-bold text-[#dadf21]">{n}</span>
+        <p className="text-xs font-bold uppercase tracking-widest text-[#9d9684]">{title}</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+
+      {/* ── Header info ── */}
       <Card>
-        <h3 className="text-lg font-extrabold">Nhập biên bản Notex AI</h3>
-        <p className="mt-1 text-sm text-[#6f6b5e]">
-          Dán nội dung Notex, tách đầu việc, kiểm tra preview rồi import vào COO Board.
-        </p>
-
-        <div className="mt-5 space-y-4">
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            <Input placeholder="Tên biên bản họp" value={props.meetingTitle} onChange={props.setMeetingTitle} />
-            <Input placeholder="Tên dự án import vào" value={props.notexProjectName} onChange={props.setNotexProjectName} />
+        <SH n="①" title="Thông tin cuộc họp" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="xl:col-span-2">
+            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Tên biên bản</label>
+            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+              value={props.meetingTitle}
+              onChange={(e) => props.setMeetingTitle(e.target.value)}
+              placeholder="VD: Recap họp Dữ liệu & Tăng trưởng đa kênh"
+            />
           </div>
-
-          <input
-            type="file"
-            accept=".txt"
-            onChange={(event) => props.handleMeetingFile(event.target.files?.[0])}
-            className="block w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm"
-          />
-
-          <textarea
-            className="min-h-[320px] w-full rounded-2xl border border-[#d9d3c5] p-4 text-sm leading-6 outline-none"
-            placeholder={`Dán nội dung Notex vào đây...
-
-14.1. Nhóm đầu việc lớn
-[ ] Tên đầu việc con
-Trách nhiệm: Người/phòng ban phụ trách
-Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
-            value={props.meetingRaw}
-            onChange={(event) => props.setMeetingRaw(event.target.value)}
-          />
-
-          <div className="flex flex-wrap gap-2">
-            <button type="button"
-              onClick={props.splitNotexRows}
-              className="rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white"
-            >
-              Tách đầu việc
-            </button>
-            <button type="button"
-              onClick={props.saveMeeting}
-              className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-5 py-3 text-sm font-bold"
-            >
-              Lưu biên bản
-            </button>
-            <button type="button"
-              onClick={props.importNotexRows}
-              disabled={props.importing || props.notexRows.length === 0}
-              className="rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-40"
-            >
-              {props.importing ? 'Đang import...' : 'Import vào COO Board'}
-            </button>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Ngày họp</label>
+            <input type="date" className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+              value={r.date} onChange={(e) => set({ date: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Nền tảng / Context</label>
+            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+              value={r.platforms} onChange={(e) => set({ platforms: e.target.value })}
+              placeholder="TikTok Shop, Facebook, Shopee"
+            />
           </div>
         </div>
       </Card>
 
+      {/* ── Business metrics ── */}
       <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-extrabold">Preview đầu việc</h3>
-            <p className="mt-1 text-sm text-[#6f6b5e]">{props.notexRows.length} dòng đã tách từ Notex.</p>
-          </div>
+        <SH n="②" title="Tình hình kinh doanh" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {r.metrics.map((m, i) => (
+            <div key={i} className="rounded-xl border border-[#e8e4da] bg-[#faf7f0] p-3 space-y-2">
+              <input className="h-8 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs font-semibold outline-none"
+                placeholder="Nhãn (VD: CDA Affiliate tháng 6)"
+                value={m.label} onChange={(e) => patchMetric(i, { label: e.target.value })}
+              />
+              <input className="h-9 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-lg font-extrabold outline-none"
+                placeholder="Giá trị"
+                value={m.value} onChange={(e) => patchMetric(i, { value: e.target.value })}
+              />
+              <input className="h-8 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs outline-none"
+                placeholder="Badge (VD: ⚠ Đang rớt)"
+                value={m.badge} onChange={(e) => patchMetric(i, { badge: e.target.value })}
+              />
+            </div>
+          ))}
         </div>
+      </Card>
 
-        {props.notexRows.length === 0 ? (
-          <EmptyState title="Chưa có preview" description="Dán nội dung Notex rồi bấm Tách đầu việc." />
+      {/* ── Issues ── */}
+      <Card>
+        <div className="mb-3 flex items-center justify-between">
+          <SH n="③" title="Vấn đề nổi bật" />
+          <button type="button" onClick={addIssue}
+            className="rounded-lg bg-[#191919] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#2d331a]">
+            + Thêm vấn đề
+          </button>
+        </div>
+        {r.issues.length === 0 ? (
+          <p className="py-4 text-center text-sm text-[#b4ab99]">Bấm "+ Thêm vấn đề" để thêm vào.</p>
+        ) : (
+          <div className="space-y-3">
+            {r.issues.map((iss) => (
+              <div key={iss.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-white">
+                <div className="flex items-center gap-2 border-b border-[#f1ede4] bg-[#faf7f0] px-3 py-2">
+                  <input className="h-8 min-w-0 flex-1 rounded-lg border border-[#d9d3c5] bg-white px-2 text-sm font-semibold outline-none"
+                    placeholder="Nguồn / chủ đề (VD: TikTok Shop — GM Max)"
+                    value={iss.source} onChange={(e) => patchIssue(iss.id, { source: e.target.value })}
+                  />
+                  <select
+                    className={`h-8 shrink-0 rounded-lg border px-2 text-xs font-bold outline-none ${issueStatusMap[iss.status].cls}`}
+                    value={iss.status}
+                    onChange={(e) => patchIssue(iss.id, { status: e.target.value as MeetingIssue['status'] })}
+                  >
+                    {(Object.entries(issueStatusMap) as [MeetingIssue['status'], { label: string; cls: string }][]).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => removeIssue(iss.id)}
+                    className="h-8 w-8 shrink-0 rounded-lg text-[#9d9684] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
+                </div>
+                <textarea className="block w-full resize-none p-3 text-sm text-[#191919] outline-none"
+                  rows={2}
+                  placeholder="Mô tả chi tiết vấn đề, nguyên nhân, hướng xử lý..."
+                  value={iss.detail} onChange={(e) => patchIssue(iss.id, { detail: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Focuses + Directions ── */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <Card>
+          <SH n="④" title="Trọng tâm được chốt" />
+          <div className="space-y-2">
+            {r.focuses.map((f, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-5 shrink-0 text-center text-xs font-bold text-[#9d9684]">{i + 1}</span>
+                <input className="h-10 flex-1 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+                  placeholder={i === 0 ? 'VD: Dữ liệu — gom, làm sạch, dựng dashboard' : 'VD: Gap mục tiêu — đang hụt bao nhiêu, hụt ở đâu'}
+                  value={f}
+                  onChange={(e) => {
+                    const next = [...r.focuses] as MeetingRecap['focuses']
+                    next[i] = e.target.value
+                    set({ focuses: next })
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <SH n="⑤" title="Hướng tăng trưởng được chốt" />
+          <div className="mb-3 flex flex-wrap gap-1.5">
+            {r.directions.map((d) => (
+              <span key={d} className="flex items-center gap-1 rounded-full bg-[#191919] px-3 py-1 text-xs font-bold text-[#dadf21]">
+                {d}
+                <button type="button" onClick={() => removeDirection(d)} className="ml-0.5 text-[#dadf21]/60 hover:text-[#dadf21]">×</button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input className="h-9 flex-1 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+              placeholder="VD: Affiliate + KOL"
+              value={directionInput}
+              onChange={(e) => setDirectionInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { addDirection(directionInput); setDirectionInput('') } }}
+            />
+            <button type="button" onClick={() => { addDirection(directionInput); setDirectionInput('') }}
+              className="rounded-xl bg-[#191919] px-4 text-xs font-bold text-white">+ Thêm</button>
+          </div>
+          <textarea className="mt-3 w-full resize-none rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none focus:border-[#191919]"
+            rows={2}
+            placeholder="Mô tả thêm về hướng tăng trưởng..."
+            value={r.directionNote} onChange={(e) => set({ directionNote: e.target.value })}
+          />
+        </Card>
+      </div>
+
+      {/* ── Assignments ── */}
+      <Card>
+        <div className="mb-3 flex items-center justify-between">
+          <SH n="⑥" title="Phân công — Deadline tuần này" />
+          <button type="button" onClick={addAssignment}
+            className="rounded-lg bg-[#191919] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#2d331a]">
+            + Thêm người
+          </button>
+        </div>
+        {r.assignments.length === 0 ? (
+          <p className="py-4 text-center text-sm text-[#b4ab99]">Bấm "+ Thêm người" để thêm phân công.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1500px] text-left text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
-                  <th className="p-3">Đầu việc lớn</th>
-                  <th className="p-3">Đầu việc con</th>
-                  <th className="p-3">Trách nhiệm Notex</th>
-                  <th className="p-3">Kết quả mong muốn</th>
-                  <th className="p-3">Phòng ban</th>
-                  <th className="p-3">Head</th>
-                  <th className="p-3">Người phụ trách</th>
-                  <th className="p-3">Deadline</th>
-                  <th className="p-3">Mức độ ưu tiên</th>
-                  <th className="p-3">Xóa dòng</th>
+                <tr className="border-b border-[#e8e4da] text-[10px] font-bold uppercase tracking-wide text-[#9d9684]">
+                  <th className="pb-2 pl-1 text-left w-40">Người phụ trách</th>
+                  <th className="pb-2 pl-3 text-left">Đầu việc (mỗi dòng / dấu · = 1 task)</th>
+                  <th className="pb-2 pl-3 text-left w-36">Deadline</th>
+                  <th className="pb-2 w-8" />
                 </tr>
               </thead>
-              <tbody>
-                {props.notexRows.map((row) => (
-                  <tr key={row.id} className="border-b align-top">
-                    <td className="p-3">
-                      <input
-                        className="h-10 w-48 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
-                        value={row.workstreamTitle}
-                        onChange={(event) => updateRow(row.id, { workstreamTitle: event.target.value })}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <input
-                        className="h-10 w-56 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
-                        value={row.subtaskTitle}
-                        onChange={(event) => updateRow(row.id, { subtaskTitle: event.target.value })}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <textarea
-                        className="h-20 w-56 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
-                        value={row.responsibility}
-                        onChange={(event) => updateRow(row.id, { responsibility: event.target.value })}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <textarea
-                        className="h-20 w-64 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
-                        value={row.expectedOutput}
-                        onChange={(event) => updateRow(row.id, { expectedOutput: event.target.value })}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <select
-                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
-                        value={row.departmentId}
-                        onChange={(event) => updateRow(row.id, { departmentId: event.target.value })}
+              <tbody className="divide-y divide-[#f1ede4]">
+                {r.assignments.map((a) => (
+                  <tr key={a.id} className="align-top">
+                    <td className="py-2 pl-1 pr-2">
+                      <select className="h-9 w-full rounded-xl border border-[#d9d3c5] bg-white px-2 text-sm outline-none"
+                        value={a.personId}
+                        onChange={(e) => {
+                          const emp = props.employees.find((em) => em.id === e.target.value)
+                          patchAssignment(a.id, { personId: e.target.value, personName: emp?.full_name || '' })
+                        }}
                       >
-                        <option value="">Chọn phòng ban</option>
-                        {props.departments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name}
-                          </option>
-                        ))}
+                        <option value="">Chọn người</option>
+                        {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
                       </select>
-                    </td>
-                    <td className="p-3">
-                      <select
-                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
-                        value={row.headId}
-                        onChange={(event) => updateRow(row.id, { headId: event.target.value })}
-                      >
-                        <option value="">Chọn Head</option>
-                        {props.employees.map((employee) => (
-                          <option key={employee.id} value={employee.id}>
-                            {employee.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-3">
-                      <select
-                        className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
-                        value={row.assigneeId}
-                        onChange={(event) => updateRow(row.id, { assigneeId: event.target.value })}
-                      >
-                        <option value="">Chọn người phụ trách</option>
-                        {props.employees.map((employee) => (
-                          <option key={employee.id} value={employee.id}>
-                            {employee.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-3">
-                      <input
-                        type="date"
-                        className="h-10 w-40 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
-                        value={row.dueDate}
-                        onChange={(event) => updateRow(row.id, { dueDate: event.target.value })}
+                      <input className="mt-1 h-7 w-full rounded-lg border border-[#d9d3c5] bg-white px-2 text-xs outline-none"
+                        placeholder="Hoặc nhập tên thủ công"
+                        value={a.personName}
+                        onChange={(e) => patchAssignment(a.id, { personName: e.target.value })}
                       />
                     </td>
-                    <td className="p-3">
-                      <select
-                        className="h-10 w-40 rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 text-sm outline-none"
-                        value={row.priority}
-                        onChange={(event) => updateRow(row.id, { priority: event.target.value })}
-                      >
-                        <option value="low">Thấp</option>
-                        <option value="medium">Trung bình</option>
-                        <option value="high">Cao</option>
-                      </select>
+                    <td className="py-2 pl-3 pr-2">
+                      <textarea className="w-full resize-none rounded-xl border border-[#d9d3c5] p-2 text-sm outline-none focus:border-[#191919]"
+                        rows={3}
+                        placeholder={"Gom số liệu (ưu tiên của Yến)\nNghiên cứu so sánh tool\nKiểm tra MCP tất cả FB"}
+                        value={a.tasks}
+                        onChange={(e) => patchAssignment(a.id, { tasks: e.target.value })}
+                      />
                     </td>
-                    <td className="p-3">
-                      <button type="button"
-                        onClick={() => deleteRow(row.id)}
-                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600"
-                      >
-                        Xóa
-                      </button>
+                    <td className="py-2 pl-3 pr-2">
+                      <input type="date" className="h-9 w-full rounded-xl border border-[#d9d3c5] bg-white px-2 text-sm outline-none"
+                        value={a.deadline} onChange={(e) => patchAssignment(a.id, { deadline: e.target.value })}
+                      />
+                    </td>
+                    <td className="py-2">
+                      <button type="button" onClick={() => removeAssignment(a.id)}
+                        className="h-8 w-8 rounded-lg text-[#9d9684] hover:bg-red-50 hover:text-red-600 transition-colors text-lg leading-none">×</button>
                     </td>
                   </tr>
                 ))}
@@ -5659,6 +5808,143 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
           </div>
         )}
       </Card>
+
+      {/* ── Quote + Notes ── */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <Card>
+          <SH n="⑦" title="Quote / câu chốt cuộc họp" />
+          <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm italic outline-none focus:border-[#191919]"
+            placeholder='"Họp phải có số liệu, dashboard, đường dây chỉ số rõ ràng."'
+            value={r.quote} onChange={(e) => set({ quote: e.target.value })}
+          />
+        </Card>
+
+        <Card>
+          <SH n="⑧" title="Tóm lại — điểm cần nhớ trước họp" />
+          <textarea className="w-full resize-none rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none focus:border-[#191919]"
+            rows={3}
+            placeholder={"Vào họp mở thẳng bằng gap mục tiêu\nYến cần confirm đã xin quyền TikTok Seller\nVũ cần có kết quả scan MCP Facebook"}
+            value={r.notes} onChange={(e) => set({ notes: e.target.value })}
+          />
+        </Card>
+      </div>
+
+      {/* ── Import config + actions ── */}
+      <Card>
+        <SH n="⑨" title="Import vào COO Board" />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1">
+            <label className="mb-1 block text-xs font-semibold text-[#9d9684]">Tên dự án import vào</label>
+            <input className="h-10 w-full rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none focus:border-[#191919]"
+              placeholder="Tên dự án mới hoặc hiện có"
+              value={props.notexProjectName}
+              onChange={(e) => props.setNotexProjectName(e.target.value)}
+            />
+          </div>
+          <button type="button" onClick={props.saveMeeting}
+            className="h-10 rounded-xl border border-[#d9d3c5] bg-white px-5 text-sm font-bold text-[#191919] hover:bg-[#faf7f0] transition-colors">
+            Lưu biên bản
+          </button>
+          <button type="button" onClick={props.splitNotexRows}
+            className="h-10 rounded-xl bg-[#191919] px-5 text-sm font-extrabold text-white hover:bg-[#2d331a] transition-colors">
+            Tách đầu việc từ phân công
+          </button>
+          <button type="button" onClick={props.importNotexRows}
+            disabled={props.importing || props.notexRows.length === 0}
+            className="h-10 rounded-xl bg-[#dadf21] px-5 text-sm font-extrabold text-[#191919] disabled:opacity-40 hover:bg-[#c8cc18] transition-colors">
+            {props.importing ? 'Đang import...' : `Import ${props.notexRows.length > 0 ? `(${props.notexRows.length} việc)` : ''}`}
+          </button>
+        </div>
+      </Card>
+
+      {/* ── Preview table ── */}
+      {props.notexRows.length > 0 && (
+      <Card>
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-extrabold">Preview đầu việc</h3>
+            <p className="mt-0.5 text-sm text-[#6f6b5e]">{props.notexRows.length} dòng — kiểm tra rồi bấm Import.</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1500px] text-left text-sm">
+            <thead>
+              <tr className="border-b bg-[#faf7f0] text-xs uppercase text-[#6f6b5e]">
+                <th className="p-3">Đầu việc lớn</th>
+                <th className="p-3">Đầu việc con</th>
+                <th className="p-3">Trách nhiệm</th>
+                <th className="p-3">Kết quả mong muốn</th>
+                <th className="p-3">Phòng ban</th>
+                <th className="p-3">Head</th>
+                <th className="p-3">Người phụ trách</th>
+                <th className="p-3">Deadline</th>
+                <th className="p-3">Ưu tiên</th>
+                <th className="p-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.notexRows.map((row) => (
+                <tr key={row.id} className="border-b align-top">
+                  <td className="p-3">
+                    <input className="h-10 w-48 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                      value={row.workstreamTitle} onChange={(e) => updateRow(row.id, { workstreamTitle: e.target.value })} />
+                  </td>
+                  <td className="p-3">
+                    <input className="h-10 w-56 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                      value={row.subtaskTitle} onChange={(e) => updateRow(row.id, { subtaskTitle: e.target.value })} />
+                  </td>
+                  <td className="p-3">
+                    <textarea className="h-20 w-56 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                      value={row.responsibility} onChange={(e) => updateRow(row.id, { responsibility: e.target.value })} />
+                  </td>
+                  <td className="p-3">
+                    <textarea className="h-20 w-64 rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                      value={row.expectedOutput} onChange={(e) => updateRow(row.id, { expectedOutput: e.target.value })} />
+                  </td>
+                  <td className="p-3">
+                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                      value={row.departmentId} onChange={(e) => updateRow(row.id, { departmentId: e.target.value })}>
+                      <option value="">Phòng ban</option>
+                      {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                      value={row.headId} onChange={(e) => updateRow(row.id, { headId: e.target.value })}>
+                      <option value="">Head</option>
+                      {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <select className="h-10 w-44 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                      value={row.assigneeId} onChange={(e) => updateRow(row.id, { assigneeId: e.target.value })}>
+                      <option value="">Người phụ trách</option>
+                      {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <input type="date" className="h-10 w-40 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                      value={row.dueDate} onChange={(e) => updateRow(row.id, { dueDate: e.target.value })} />
+                  </td>
+                  <td className="p-3">
+                    <select className="h-10 w-32 rounded-xl border border-[#d9d3c5] bg-white px-3 text-sm outline-none"
+                      value={row.priority} onChange={(e) => updateRow(row.id, { priority: e.target.value })}>
+                      <option value="low">Thấp</option>
+                      <option value="medium">Trung bình</option>
+                      <option value="high">Cao</option>
+                    </select>
+                  </td>
+                  <td className="p-3">
+                    <button type="button" onClick={() => deleteRow(row.id)}
+                      className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600">Xóa</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      )}
     </div>
   )
 }
