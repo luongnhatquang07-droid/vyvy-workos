@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -175,7 +175,294 @@ type StepComment = {
   } | null
 }
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'tasks' | 'meeting' | 'assistant' | 'admin'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin'
+
+type RecurringTask = {
+  id: string
+  title: string
+  description: string | null
+  kind: string            // 'meeting' | 'report' | 'task'
+  frequency: string       // 'daily' | 'weekly' | 'monthly'
+  weekday: number | null  // 0=CN .. 6=T7
+  month_day: number | null
+  time_of_day: string     // 'HH:mm' — giờ diễn ra / hạn nộp kết quả
+  assignee_id: string | null
+  recipient_ids?: string[] | null
+  remind_days_before: number
+  remind_minutes_before: number
+  is_active: boolean
+  notified_early_for: string | null
+  notified_near_for: string | null
+  created_by: string | null
+  created_at: string
+}
+
+type RecurringTaskForm = {
+  id: string | null
+  title: string
+  description: string
+  recap: string
+  prepFiles: string
+  meetingHistory: string
+  kind: string
+  frequency: string
+  weekday: string
+  month_day: string
+  time_of_day: string
+  assignee_ids: string[]
+  remind_days_before: string
+  remind_minutes_before: string
+}
+
+type RecurringRun = {
+  id: string
+  source: string
+  status: string
+  scanned: number | null
+  notifications_sent: number | null
+  detail: {
+    scanned?: number
+    notificationsSent?: number
+    error?: string
+    reminders?: Array<{ title: string; kind: string; occurrence: string }>
+  } | null
+  started_at: string
+  finished_at: string | null
+  triggered_by: string | null
+}
+
+type RecurringRunResult = {
+  ok?: boolean
+  source?: string
+  timeZone?: string
+  now?: string
+  scanned?: number
+  notificationsSent?: number
+  error?: string
+  reminders?: Array<{ title: string; kind: string; occurrence: string }>
+}
+
+type RecurringMeetingFile = {
+  id: string
+  recurring_task_id: string
+  meeting_date: string | null
+  title: string | null
+  file_name: string
+  file_url: string
+  file_type: string | null
+  note: string | null
+  uploaded_by: string | null
+  created_at: string
+}
+
+type MeetingFileDraft = {
+  title: string
+  fileUrl: string
+  note: string
+  meetingDate: string
+}
+
+const WEEKDAY_LABELS = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
+const DEFAULT_RECURRING_FORM: RecurringTaskForm = {
+  id: null,
+  title: '',
+  description: '',
+  recap: '',
+  prepFiles: '',
+  meetingHistory: '',
+  kind: 'task',
+  frequency: 'weekly',
+  weekday: '1',
+  month_day: '1',
+  time_of_day: '09:00',
+  assignee_ids: [],
+  remind_days_before: '2',
+  remind_minutes_before: '60',
+}
+const DEFAULT_MEETING_FILE_DRAFT: MeetingFileDraft = {
+  title: '',
+  fileUrl: '',
+  note: '',
+  meetingDate: '',
+}
+
+const RECAP_SECTION_LABEL = 'RECAP cuộc họp trước đó:'
+const FILES_SECTION_LABEL = 'File cần chuẩn bị:'
+const HISTORY_SECTION_LABEL = 'Lịch sử họp:'
+
+const DEFAULT_PERFORMANCE_RECAP = `- Tổng hợp các quyết định đã chốt trong buổi họp Performance gần nhất.
+- Rà lại action items, người phụ trách, deadline và trạng thái hoàn thành.
+- Ghi rõ vấn đề còn tồn đọng, nguyên nhân và việc cần follow-up tiếp.`
+
+const DEFAULT_PERFORMANCE_FILES = `- File recap/biên bản cuộc họp Performance trước đó.
+- Báo cáo KPI/Performance tuần gần nhất.
+- Bảng tiến độ mục tiêu/OKR hoặc các chỉ số vận hành liên quan.
+- Danh sách action items tuần trước và trạng thái từng đầu việc.
+- Các file số liệu, dashboard, bằng chứng hoặc link báo cáo cần trình trong cuộc họp.`
+
+const DEFAULT_PERFORMANCE_HISTORY = `- Chưa có lịch sử họp.
+- Sau mỗi buổi họp, ghi ngày họp, nội dung đã chốt, người phụ trách và việc cần follow-up.`
+
+const PERFORMANCE_MEETING_DESCRIPTION = composeMeetingDescription(
+  'Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00.',
+  DEFAULT_PERFORMANCE_RECAP,
+  DEFAULT_PERFORMANCE_FILES,
+  DEFAULT_PERFORMANCE_HISTORY
+)
+
+function parseMeetingDescription(description: string | null | undefined) {
+  const text = (description || '').trim()
+  const labels = [RECAP_SECTION_LABEL, FILES_SECTION_LABEL, HISTORY_SECTION_LABEL]
+  const positions = labels
+    .map((label) => ({ label, index: text.indexOf(label) }))
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index)
+
+  function section(label: string) {
+    const currentIndex = positions.findIndex((item) => item.label === label)
+    if (currentIndex < 0) return ''
+    const current = positions[currentIndex]
+    const next = positions[currentIndex + 1]
+    const start = current.index + current.label.length
+    const end = next ? next.index : text.length
+    return text.slice(start, end).trim()
+  }
+
+  const note = positions[0] ? text.slice(0, positions[0].index).trim() : text
+
+  return {
+    note,
+    recap: section(RECAP_SECTION_LABEL),
+    prepFiles: section(FILES_SECTION_LABEL),
+    meetingHistory: section(HISTORY_SECTION_LABEL),
+  }
+}
+
+function composeMeetingDescription(note: string, recap: string, prepFiles: string, meetingHistory: string) {
+  const cleanNote = note.trim()
+  return [
+    cleanNote,
+    `${RECAP_SECTION_LABEL}\n${recap.trim() || '- Chưa cập nhật recap cuộc họp trước.'}`,
+    `${FILES_SECTION_LABEL}\n${prepFiles.trim() || '- Chưa cập nhật file cần chuẩn bị.'}`,
+    `${HISTORY_SECTION_LABEL}\n${meetingHistory.trim() || '- Chưa có lịch sử họp.'}`,
+  ].filter(Boolean).join('\n\n')
+}
+
+function defaultPerformanceMeeting(assigneeId?: string | null): RecurringTask {
+  return {
+    id: 'default-performance-meeting',
+    title: 'Họp Performance',
+    description: PERFORMANCE_MEETING_DESCRIPTION,
+    kind: 'meeting',
+    frequency: 'weekly',
+    weekday: 6,
+    month_day: null,
+    time_of_day: '10:00',
+    assignee_id: assigneeId || null,
+    recipient_ids: assigneeId ? [assigneeId] : [],
+    remind_days_before: 2,
+    remind_minutes_before: 60,
+    is_active: true,
+    notified_early_for: null,
+    notified_near_for: null,
+    created_by: null,
+    created_at: '2026-06-12T00:00:00.000Z',
+  }
+}
+
+function recurringRecipientIds(task: RecurringTask): string[] {
+  const ids = new Set<string>()
+  ;(task.recipient_ids || []).forEach((id) => { if (id) ids.add(id) })
+  if (task.assignee_id) ids.add(task.assignee_id)
+  return Array.from(ids)
+}
+
+function recurringRecipientNames(task: RecurringTask, employeeMap: Map<string, Employee>): string {
+  const names = recurringRecipientIds(task)
+    .map((id) => employeeMap.get(id)?.full_name)
+    .filter(Boolean)
+  return names.length > 0 ? names.join(', ') : 'Chưa gắn'
+}
+
+// Lần diễn ra kế tiếp của một việc định kỳ (theo giờ máy thật)
+function nextOccurrence(rt: RecurringTask, from = new Date()): Date {
+  const [h, m] = (rt.time_of_day || '09:00').split(':').map(Number)
+  const candidate = new Date(from)
+  candidate.setHours(h, m, 0, 0)
+
+  if (rt.frequency === 'daily') {
+    if (candidate <= from) candidate.setDate(candidate.getDate() + 1)
+    return candidate
+  }
+  if (rt.frequency === 'weekly') {
+    const target = rt.weekday ?? 1
+    let diff = (target - candidate.getDay() + 7) % 7
+    if (diff === 0 && candidate <= from) diff = 7
+    candidate.setDate(candidate.getDate() + diff)
+    return candidate
+  }
+  // monthly
+  const day = Math.min(rt.month_day ?? 1, 28)
+  candidate.setDate(day)
+  if (candidate <= from) candidate.setMonth(candidate.getMonth() + 1, day)
+  return candidate
+}
+
+function formatOccurrence(d: Date): string {
+  return `${WEEKDAY_LABELS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function occurrenceKey(rt: RecurringTask, occ: Date): string {
+  return `${occ.getFullYear()}-${String(occ.getMonth() + 1).padStart(2, '0')}-${String(occ.getDate()).padStart(2, '0')}T${rt.time_of_day}`
+}
+
+function minutesUntil(occ: Date, from: Date): number {
+  return Math.max(0, Math.ceil((occ.getTime() - from.getTime()) / 60_000))
+}
+
+function formatTimeLeft(occ: Date, from: Date): string {
+  const totalMinutes = minutesUntil(occ, from)
+  if (totalMinutes < 60) return `Còn ${totalMinutes} phút`
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours < 24) return minutes > 0 ? `Còn ${hours} giờ ${minutes} phút` : `Còn ${hours} giờ`
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours > 0 ? `Còn ${days} ngày ${restHours} giờ` : `Còn ${days} ngày`
+}
+
+function recurringKindLabel(kind: string): string {
+  if (kind === 'meeting') return 'Cuộc họp'
+  if (kind === 'report') return 'Báo cáo'
+  return 'Đầu việc'
+}
+
+function recurringFrequencyLabel(task: RecurringTask): string {
+  if (task.frequency === 'daily') return 'Hằng ngày'
+  if (task.frequency === 'monthly') return `Hằng tháng, ngày ${task.month_day || 1}`
+  return `Hằng tuần, ${WEEKDAY_LABELS[task.weekday ?? 1]}`
+}
+
+function recurringAlertState(task: RecurringTask, now: Date): { label: string; tone: 'red' | 'amber' | 'green' } {
+  const occ = nextOccurrence(task, now)
+  const mins = minutesUntil(occ, now)
+  if (mins <= task.remind_minutes_before) return { label: 'Sắp tới giờ', tone: 'red' }
+  if ((task.frequency === 'weekly' || task.frequency === 'monthly') && mins <= task.remind_days_before * 24 * 60) {
+    return { label: 'Cần chuẩn bị', tone: 'amber' }
+  }
+  return { label: 'Đang theo dõi', tone: 'green' }
+}
+
+function isLocalRecurringTask(task: RecurringTask): boolean {
+  return task.id.startsWith('default-') || task.id.startsWith('local-')
+}
+
+function meetingTextLines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
 
 type SubtaskForm = {
   title: string
@@ -597,6 +884,96 @@ export default function Home() {
     return () => window.clearTimeout(loadTimer)
   }, [fetchAll])
 
+  // ─── Thông báo trong app ───────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
+
+  const fetchNotifications = useCallback(async () => {
+    if (!currentEmployee?.id) return
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('recipient_id', currentEmployee.id)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (error) return // bảng chưa tạo — bỏ qua êm
+    setNotifications((data || []) as AppNotification[])
+  }, [currentEmployee])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { fetchNotifications() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchNotifications])
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length
+
+  async function markNotificationsRead() {
+    const unread = notifications.filter((n) => !n.is_read).map((n) => n.id)
+    if (unread.length === 0) return
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
+    await supabase.from('notifications').update({ is_read: true }).in('id', unread)
+  }
+
+  // ─── Việc định kỳ + đồng hồ thật ────────────────────────────────────────────
+  const [recurringTasks, setRecurringTasks] = useState<RecurringTask[]>([])
+  const [recurringRuns, setRecurringRuns] = useState<RecurringRun[]>([])
+  const [recurringRunResult, setRecurringRunResult] = useState<RecurringRunResult | null>(null)
+  const [recurringWorkerRunning, setRecurringWorkerRunning] = useState(false)
+  const [recurringForm, setRecurringForm] = useState<RecurringTaskForm>(DEFAULT_RECURRING_FORM)
+  const [recurringPanelOpen, setRecurringPanelOpen] = useState(false)
+  const [recurringMeetingFiles, setRecurringMeetingFiles] = useState<RecurringMeetingFile[]>([])
+  const [meetingFileDrafts, setMeetingFileDrafts] = useState<Record<string, MeetingFileDraft>>({})
+  const [selectedMeetingTaskId, setSelectedMeetingTaskId] = useState('')
+  const [uploadingMeetingFileFor, setUploadingMeetingFileFor] = useState('')
+  const [now, setNow] = useState(() => new Date())
+
+  const fetchRecurring = useCallback(async () => {
+    const { data, error } = await supabase.from('recurring_tasks').select('*').order('created_at')
+    if (error) {
+      setRecurringTasks([defaultPerformanceMeeting(currentEmployee?.id)])
+      return
+    }
+    const rows = (data || []) as RecurringTask[]
+    const hasPerformanceMeeting = rows.some((task) => task.title === 'Họp Performance')
+    setRecurringTasks(hasPerformanceMeeting ? rows : [defaultPerformanceMeeting(currentEmployee?.id), ...rows])
+  }, [currentEmployee?.id])
+
+  const fetchRecurringRuns = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('recurring_task_runs')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(12)
+    if (error) return
+    setRecurringRuns((data || []) as RecurringRun[])
+  }, [])
+
+  const fetchRecurringMeetingFiles = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('recurring_meeting_files')
+      .select('*')
+      .order('created_at', { ascending: false })
+    if (error) {
+      setRecurringMeetingFiles([])
+      return
+    }
+    setRecurringMeetingFiles((data || []) as RecurringMeetingFile[])
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { fetchRecurring() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchRecurring])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { fetchRecurringRuns() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchRecurringRuns])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { fetchRecurringMeetingFiles() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchRecurringMeetingFiles])
+
   // Supabase Realtime
   useEffect(() => {
     if (!authChecked) return
@@ -615,40 +992,355 @@ export default function Home() {
         fetchAllRef.current?.({ silent: true })
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        fetchNotificationsRef.current?.()
+        fetchNotifications()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recurring_tasks' }, () => {
+        fetchRecurring()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recurring_task_runs' }, () => {
+        fetchRecurringRuns()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recurring_meeting_files' }, () => {
+        fetchRecurringMeetingFiles()
       })
       .subscribe((status) => {
         setRealtimeStatus(status === 'SUBSCRIBED' ? 'live' : status === 'CLOSED' ? 'off' : 'connecting')
       })
     return () => { supabase.removeChannel(channel) }
-  }, [authChecked])
+  }, [authChecked, fetchNotifications, fetchRecurring, fetchRecurringRuns, fetchRecurringMeetingFiles])
 
-  // ─── Thông báo trong app ───────────────────────────────────────────────────
-  const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const fetchNotificationsRef = useRef<(() => void) | null>(null)
+  // Đồng hồ — tick mỗi 30 giây
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 30_000)
+    return () => window.clearInterval(t)
+  }, [])
 
-  const fetchNotifications = useCallback(async () => {
-    if (!currentEmployee?.id) return
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('recipient_id', currentEmployee.id)
-      .order('created_at', { ascending: false })
-      .limit(30)
-    if (error) return // bảng chưa tạo — bỏ qua êm
-    setNotifications((data || []) as AppNotification[])
-  }, [currentEmployee?.id])
+  // Bộ nhắc: check mỗi lần đồng hồ tick — nhắc trước N ngày + nhắc trước N phút
+  useEffect(() => {
+    if (recurringTasks.length === 0) return
 
-  useEffect(() => { fetchNotificationsRef.current = fetchNotifications }, [fetchNotifications])
-  useEffect(() => { fetchNotifications() }, [fetchNotifications])
+    async function claimAndNotify(rt: RecurringTask, field: 'notified_early_for' | 'notified_near_for', occKey: string, title: string, body: string) {
+      const recipients = recurringRecipientIds(rt)
+      if (recipients.length === 0) return
+      // Claim chống nhắc trùng giữa nhiều máy đang mở app
+      const { data: claimed } = await supabase
+        .from('recurring_tasks')
+        .update({ [field]: occKey })
+        .eq('id', rt.id)
+        .or(`${field}.is.null,${field}.neq.${occKey}`)
+        .select('id')
+      if (!claimed || claimed.length === 0) return
+      await pushNotify(recipients.map((recipient_id) => ({ recipient_id, type: 'recurring_reminder', title, body })))
+      fetchRecurring()
+    }
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length
+    for (const rt of recurringTasks) {
+      if (!rt.is_active || recurringRecipientIds(rt).length === 0) continue
+      const occ = nextOccurrence(rt, now)
+      const occKey = occurrenceKey(rt, occ)
+      const msTo = occ.getTime() - now.getTime()
 
-  async function markNotificationsRead() {
-    const unread = notifications.filter((n) => !n.is_read).map((n) => n.id)
-    if (unread.length === 0) return
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
-    await supabase.from('notifications').update({ is_read: true }).in('id', unread)
+      // Nhắc sớm (mặc định trước 2 ngày) — cho việc tuần/tháng
+      if ((rt.frequency === 'weekly' || rt.frequency === 'monthly') &&
+          msTo <= rt.remind_days_before * 86_400_000 &&
+          msTo > rt.remind_minutes_before * 60_000 &&
+          rt.notified_early_for !== occKey) {
+        claimAndNotify(rt, 'notified_early_for', occKey,
+          `Sắp tới: ${rt.title}`,
+          `${formatOccurrence(occ)} — còn ${Math.ceil(msTo / 86_400_000)} ngày. Chuẩn bị trước.`)
+      }
+
+      // Nhắc gần (mặc định trước 1 tiếng) — mọi loại
+      if (msTo <= rt.remind_minutes_before * 60_000 && msTo > 0 && rt.notified_near_for !== occKey) {
+        claimAndNotify(rt, 'notified_near_for', occKey,
+          rt.kind === 'meeting' ? `Còn ${Math.ceil(msTo / 60_000)} phút nữa họp: ${rt.title}` : `Sắp đến hạn nộp: ${rt.title}`,
+          `${formatOccurrence(occ)} (${rt.time_of_day})`)
+      }
+    }
+  }, [fetchRecurring, now, recurringTasks])
+
+  function editRecurringTask(task: RecurringTask) {
+    const meetingParts = parseMeetingDescription(task.description)
+    setRecurringForm({
+      id: task.id,
+      title: task.title,
+      description: meetingParts.note,
+      recap: meetingParts.recap,
+      prepFiles: meetingParts.prepFiles,
+      meetingHistory: meetingParts.meetingHistory,
+      kind: task.kind || 'task',
+      frequency: task.frequency || 'weekly',
+      weekday: String(task.weekday ?? 1),
+      month_day: String(task.month_day ?? 1),
+      time_of_day: task.time_of_day || '09:00',
+      assignee_ids: recurringRecipientIds(task),
+      remind_days_before: String(task.remind_days_before ?? 2),
+      remind_minutes_before: String(task.remind_minutes_before ?? 60),
+    })
+    setRecurringPanelOpen(true)
+  }
+
+  function resetRecurringForm() {
+    setRecurringForm(DEFAULT_RECURRING_FORM)
+  }
+
+  function recurringTaskFromForm(id: string): RecurringTask {
+    const description = recurringForm.kind === 'meeting'
+      ? composeMeetingDescription(
+        recurringForm.description,
+        recurringForm.recap,
+        recurringForm.prepFiles,
+        recurringForm.meetingHistory
+      )
+      : recurringForm.description.trim() || null
+
+    return {
+      id,
+      title: recurringForm.title.trim(),
+      description,
+      kind: recurringForm.kind,
+      frequency: recurringForm.frequency,
+      weekday: recurringForm.frequency === 'weekly' ? Number(recurringForm.weekday) : null,
+      month_day: recurringForm.frequency === 'monthly' ? Math.max(1, Math.min(31, Number(recurringForm.month_day) || 1)) : null,
+      time_of_day: recurringForm.time_of_day || '09:00',
+      assignee_id: recurringForm.assignee_ids[0] || null,
+      recipient_ids: recurringForm.assignee_ids,
+      remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
+      remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
+      is_active: true,
+      notified_early_for: null,
+      notified_near_for: null,
+      created_by: currentEmployee?.id || null,
+      created_at: new Date().toISOString(),
+    }
+  }
+
+  async function saveRecurringTask(event: React.FormEvent) {
+    event.preventDefault()
+    if (!recurringForm.title.trim()) {
+      toast('Nhập tên việc định kỳ trước.', 'warning')
+      return
+    }
+
+    const payload = {
+      title: recurringForm.title.trim(),
+      description: recurringForm.kind === 'meeting'
+        ? composeMeetingDescription(
+          recurringForm.description,
+          recurringForm.recap,
+          recurringForm.prepFiles,
+          recurringForm.meetingHistory
+        )
+        : recurringForm.description.trim() || null,
+      kind: recurringForm.kind,
+      frequency: recurringForm.frequency,
+      weekday: recurringForm.frequency === 'weekly' ? Number(recurringForm.weekday) : null,
+      month_day: recurringForm.frequency === 'monthly' ? Math.max(1, Math.min(31, Number(recurringForm.month_day) || 1)) : null,
+      time_of_day: recurringForm.time_of_day || '09:00',
+      assignee_id: recurringForm.assignee_ids[0] || null,
+      recipient_ids: recurringForm.assignee_ids.length > 0 ? recurringForm.assignee_ids : null,
+      remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
+      remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
+      is_active: true,
+      created_by: currentEmployee?.id || null,
+    }
+
+    const isDefaultTask = recurringForm.id?.startsWith('default-')
+    const request = recurringForm.id && !isDefaultTask
+      ? supabase.from('recurring_tasks').update(payload).eq('id', recurringForm.id)
+      : supabase.from('recurring_tasks').insert(payload)
+    const { error } = await request
+
+    if (error) {
+      console.error(error)
+      const errorMessage = error.message || ''
+      if (errorMessage.includes('recurring_tasks') || errorMessage.includes('recipient_ids')) {
+        const localId = recurringForm.id || `local-recurring-${Date.now()}`
+        const localTask = recurringTaskFromForm(localId)
+        setRecurringTasks((prev) => {
+          const exists = prev.some((task) => task.id === localId)
+          return exists ? prev.map((task) => (task.id === localId ? localTask : task)) : [localTask, ...prev]
+        })
+        toast('Đã cập nhật trên màn hình. Chạy SQL Supabase để lưu vĩnh viễn.', 'warning')
+        resetRecurringForm()
+        setRecurringPanelOpen(false)
+        return
+      }
+      toast('Lưu việc định kỳ bị lỗi. Kiểm tra bảng recurring_tasks trong Supabase.', 'error')
+      return
+    }
+
+    toast(recurringForm.id ? 'Đã cập nhật việc định kỳ.' : 'Đã tạo việc định kỳ.')
+    resetRecurringForm()
+    setRecurringPanelOpen(false)
+    await fetchRecurring()
+  }
+
+  async function toggleRecurringTask(task: RecurringTask) {
+    const { error } = await supabase.from('recurring_tasks').update({ is_active: !task.is_active }).eq('id', task.id)
+    if (error) {
+      toast('Cập nhật trạng thái bị lỗi.', 'error')
+      return
+    }
+    await fetchRecurring()
+  }
+
+  async function deleteRecurringTask(task: RecurringTask) {
+    const ok = await confirmDialog(`Xóa việc định kỳ "${task.title}"?`)
+    if (!ok) return
+    const { error } = await supabase.from('recurring_tasks').delete().eq('id', task.id)
+    if (error) {
+      toast('Xóa việc định kỳ bị lỗi.', 'error')
+      return
+    }
+    toast('Đã xóa việc định kỳ.')
+    if (recurringForm.id === task.id) resetRecurringForm()
+    await fetchRecurring()
+  }
+
+  function updateMeetingFileDraft(taskId: string, patch: Partial<MeetingFileDraft>) {
+    setMeetingFileDrafts((current) => ({
+      ...current,
+      [taskId]: {
+        ...DEFAULT_MEETING_FILE_DRAFT,
+        ...(current[taskId] || {}),
+        ...patch,
+      },
+    }))
+  }
+
+  async function saveRecurringMeetingLink(task: RecurringTask) {
+    if (isLocalRecurringTask(task)) {
+      toast('Lưu lịch định kỳ vào Supabase trước khi gắn kho file họp.', 'warning')
+      return
+    }
+
+    const draft = { ...DEFAULT_MEETING_FILE_DRAFT, ...(meetingFileDrafts[task.id] || {}) }
+    const fileUrl = draft.fileUrl.trim()
+    if (!fileUrl) {
+      toast('Dán link file họp trước.', 'warning')
+      return
+    }
+
+    const { error } = await supabase.from('recurring_meeting_files').insert({
+      recurring_task_id: task.id,
+      meeting_date: draft.meetingDate || null,
+      title: draft.title.trim() || 'Link họp',
+      file_name: draft.title.trim() || fileUrl,
+      file_url: fileUrl,
+      file_type: 'link',
+      note: draft.note.trim() || null,
+      uploaded_by: currentEmployee?.id || null,
+    })
+
+    if (error) {
+      console.error(error)
+      toast('Kho file họp chưa sẵn sàng. Chạy SQL cập nhật Supabase trước.', 'warning')
+      return
+    }
+
+    setMeetingFileDrafts((current) => ({
+      ...current,
+      [task.id]: { ...DEFAULT_MEETING_FILE_DRAFT, meetingDate: draft.meetingDate },
+    }))
+    toast('Đã lưu link vào kho file họp.')
+    await fetchRecurringMeetingFiles()
+  }
+
+  async function uploadRecurringMeetingFile(task: RecurringTask, file?: File) {
+    if (!file) return
+    if (isLocalRecurringTask(task)) {
+      toast('Lưu lịch định kỳ vào Supabase trước khi upload file họp.', 'warning')
+      return
+    }
+
+    setUploadingMeetingFileFor(task.id)
+    const draft = { ...DEFAULT_MEETING_FILE_DRAFT, ...(meetingFileDrafts[task.id] || {}) }
+    const safeName = file.name.replace(/\s+/g, '-')
+    const filePath = `${task.id}/${Date.now()}-${safeName}`
+
+    const { error: uploadError } = await supabase.storage.from('meeting-files').upload(filePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+    })
+
+    if (uploadError) {
+      console.error(uploadError)
+      toast('Kho upload file họp chưa sẵn sàng. Tạo bucket meeting-files trong Supabase trước.', 'warning')
+      setUploadingMeetingFileFor('')
+      return
+    }
+
+    const { data } = supabase.storage.from('meeting-files').getPublicUrl(filePath)
+    const { error } = await supabase.from('recurring_meeting_files').insert({
+      recurring_task_id: task.id,
+      meeting_date: draft.meetingDate || null,
+      title: draft.title.trim() || file.name,
+      file_name: file.name,
+      file_url: data.publicUrl,
+      file_type: file.type || null,
+      note: draft.note.trim() || 'File họp',
+      uploaded_by: currentEmployee?.id || null,
+    })
+
+    setUploadingMeetingFileFor('')
+
+    if (error) {
+      console.error(error)
+      toast('Upload xong nhưng lưu hồ sơ file họp bị lỗi. Kiểm tra bảng recurring_meeting_files.', 'error')
+      return
+    }
+
+    setMeetingFileDrafts((current) => ({
+      ...current,
+      [task.id]: { ...DEFAULT_MEETING_FILE_DRAFT, meetingDate: draft.meetingDate },
+    }))
+    toast('Đã upload file họp.')
+    await fetchRecurringMeetingFiles()
+  }
+
+  async function deleteRecurringMeetingFile(file: RecurringMeetingFile) {
+    const ok = await confirmDialog(`Xóa file họp "${file.title || file.file_name}"?`)
+    if (!ok) return
+
+    const { error } = await supabase.from('recurring_meeting_files').delete().eq('id', file.id)
+    if (error) {
+      console.error(error)
+      toast('Xóa file họp bị lỗi.', 'error')
+      return
+    }
+
+    toast('Đã xóa khỏi kho file họp.')
+    await fetchRecurringMeetingFiles()
+  }
+
+  async function runRecurringReminderWorker() {
+    setRecurringWorkerRunning(true)
+    setRecurringRunResult(null)
+
+    const { data: sessionData } = await supabase.auth.getSession()
+    const headers = sessionData.session?.access_token
+      ? { Authorization: `Bearer ${sessionData.session.access_token}` }
+      : undefined
+
+    try {
+      const response = await fetch('/api/recurring-reminders', { method: 'POST', headers })
+      const result = (await response.json()) as RecurringRunResult
+      setRecurringRunResult(result)
+
+      if (!response.ok || result.ok === false) {
+        toast(result.error || 'Chạy tác vụ định kỳ bị lỗi.', 'error')
+        return
+      }
+
+      toast(`Đã chạy nhắc định kỳ: ${result.notificationsSent || 0} thông báo mới.`)
+      await Promise.all([fetchRecurring(), fetchRecurringRuns(), fetchNotifications()])
+    } catch (error) {
+      console.error(error)
+      toast('Không gọi được tác vụ định kỳ.', 'error')
+    } finally {
+      setRecurringWorkerRunning(false)
+    }
   }
 
   const refreshDataSilent = useCallback(async () => {
@@ -1921,10 +2613,47 @@ export default function Home() {
     { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
     { key: 'meeting', label: 'Biên bản họp', icon: <Ico d={IC.messageSquare} size={18}/> },
+    { key: 'recurring', label: 'Việc định kỳ', icon: <Ico d={IC.clock} size={18}/> },
+    { key: 'automation', label: 'Nhắc tự động', icon: <Ico d={IC.zap} size={18}/>, hide: !canManageAll },
     { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
     { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !canManageAll },
   ]
   const menu = allMenuItems.filter((item) => !item.hide)
+  const primaryAction =
+    view === 'recurring' ? {
+      label: '+ Tạo định kỳ',
+      title: 'Tạo việc định kỳ',
+      disabled: false,
+      onClick: () => {
+        resetRecurringForm()
+        setRecurringPanelOpen(true)
+      },
+    } :
+    view === 'projects' && canCreateProject ? {
+      label: '+ Tạo dự án',
+      title: 'Tạo dự án',
+      disabled: false,
+      onClick: () => {
+        setCreateTab('project')
+        setCreateOpen(true)
+      },
+    } :
+    (view === 'dashboard' || view === 'coo' || view === 'tasks') && canCreateWorkstream ? {
+      label: '+ Tạo đầu việc',
+      title: 'Tạo đầu việc lớn',
+      disabled: false,
+      onClick: () => {
+        setCreateTab('workstream')
+        setCreateOpen(true)
+      },
+    } :
+    view === 'automation' && canManageAll ? {
+      label: recurringWorkerRunning ? 'Đang kiểm tra...' : 'Kiểm tra nhắc',
+      title: 'Kiểm tra bộ nhắc tự động',
+      disabled: recurringWorkerRunning,
+      onClick: runRecurringReminderWorker,
+    } :
+    null
 
   if (!authChecked) {
     return (
@@ -2039,6 +2768,8 @@ export default function Home() {
               {view === 'projects' && 'Tổng dự án'}
               {view === 'tasks' && 'Quản lý công việc'}
               {view === 'meeting' && 'Nhập biên bản họp'}
+              {view === 'recurring' && 'Việc định kỳ'}
+              {view === 'automation' && 'Nhắc tự động'}
               {view === 'assistant' && 'COO Assistant'}
               {view === 'admin' && 'Quản lý nhân sự'}
             </h2>
@@ -2097,7 +2828,13 @@ export default function Home() {
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-[#ede8df]"
                       >
-                        <span>task.status === 'completed' ? <Ico d={IC.check} size={15} className="text-[#6f7400]"/> : <Ico d={IC.clock} size={15} className="text-[#b4ab99]"/></span>
+                        <span>
+                          {task.status === 'completed' ? (
+                            <Ico d={IC.check} size={15} className="text-[#6f7400]"/>
+                          ) : (
+                            <Ico d={IC.clock} size={15} className="text-[#b4ab99]"/>
+                          )}
+                        </span>
                         <span className="min-w-0 flex-1 truncate font-bold">{task.title}</span>
                         <span className="shrink-0 text-[10px] text-[#b4ab99]">{task.progress_percent || 0}%</span>
                       </button>
@@ -2227,6 +2964,7 @@ export default function Home() {
                           <button key={n.id} type="button"
                             onClick={() => {
                               if (relTask) { setSelectedTask(relTask); setInboxOpen(false) }
+                              else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
                             }}
                             className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[#faf7f0]`}
                           >
@@ -2245,6 +2983,16 @@ export default function Home() {
               )}
             </div>
 
+            {/* Đồng hồ thật — nối thời gian vào phần mềm */}
+            <div className="hidden flex-col items-end leading-tight md:flex">
+              <span className="font-display text-sm tabular-nums text-[#191919]">
+                {String(now.getHours()).padStart(2, '0')}:{String(now.getMinutes()).padStart(2, '0')}
+              </span>
+              <span className="font-spec text-[9px] text-[#6f6b5e]">
+                {WEEKDAY_LABELS[now.getDay()]} · {now.getDate()}/{now.getMonth() + 1}/{now.getFullYear()}
+              </span>
+            </div>
+
             <div
               title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
@@ -2255,12 +3003,14 @@ export default function Home() {
               <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[#aeb300]' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
               {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
             </div>
-            {canCreateProject && (
+            {primaryAction && (
               <button type="button"
-                onClick={() => setCreateOpen(true)}
-                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#191919] shadow-sm hover:bg-[#cfd41d] sm:px-4"
+                onClick={primaryAction.onClick}
+                disabled={primaryAction.disabled}
+                title={primaryAction.title}
+                className="rounded-xl bg-[#dadf21] px-3 py-2 text-sm font-extrabold text-[#191919] shadow-sm hover:bg-[#cfd41d] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
               >
-                + Tạo mới
+                {primaryAction.label}
               </button>
             )}
           </div>
@@ -2401,6 +3151,42 @@ export default function Home() {
                 />
               )}
 
+              {view === 'recurring' && (
+                <RecurringView
+                  tasks={recurringTasks}
+                  now={now}
+                  employees={employees}
+                  employeeMap={employeeMap}
+                  form={recurringForm}
+                  setForm={setRecurringForm}
+                  saveTask={saveRecurringTask}
+                  editTask={editRecurringTask}
+                  resetForm={resetRecurringForm}
+                  toggleTask={toggleRecurringTask}
+                  deleteTask={deleteRecurringTask}
+                  meetingFiles={recurringMeetingFiles}
+                  selectedMeetingTaskId={selectedMeetingTaskId}
+                  setSelectedMeetingTaskId={setSelectedMeetingTaskId}
+                  meetingFileDrafts={meetingFileDrafts}
+                  updateMeetingFileDraft={updateMeetingFileDraft}
+                  saveMeetingLink={saveRecurringMeetingLink}
+                  uploadMeetingFile={uploadRecurringMeetingFile}
+                  deleteMeetingFile={deleteRecurringMeetingFile}
+                  uploadingMeetingFileFor={uploadingMeetingFileFor}
+                />
+              )}
+
+              {view === 'automation' && (
+                <AutomationView
+                  tasks={recurringTasks}
+                  runs={recurringRuns}
+                  now={now}
+                  result={recurringRunResult}
+                  running={recurringWorkerRunning}
+                  runWorker={runRecurringReminderWorker}
+                />
+              )}
+
               {view === 'assistant' && (
                 <AssistantView
                   assistantOutput={assistantOutput}
@@ -2463,6 +3249,16 @@ export default function Home() {
         workPriority={workPriority}
         setWorkPriority={setWorkPriority}
         createWorkstream={createWorkstream}
+      />
+
+      <RecurringFormPanel
+        open={recurringPanelOpen}
+        setOpen={setRecurringPanelOpen}
+        form={recurringForm}
+        setForm={setRecurringForm}
+        saveTask={saveRecurringTask}
+        resetForm={resetRecurringForm}
+        employees={employees}
       />
 
       {selectedTask && (
@@ -4755,6 +5551,936 @@ Kết quả mong muốn: File, link, báo cáo hoặc output cần nộp`}
   )
 }
 
+function RecurringFormPanel(props: {
+  open: boolean
+  setOpen: (value: boolean) => void
+  form: RecurringTaskForm
+  setForm: React.Dispatch<React.SetStateAction<RecurringTaskForm>>
+  saveTask: (event: React.FormEvent) => void
+  resetForm: () => void
+  employees: Employee[]
+}) {
+  const patchForm = (patch: Partial<RecurringTaskForm>) => props.setForm((prev) => ({ ...prev, ...patch }))
+
+  if (!props.open) return null
+
+  function closePanel() {
+    props.setOpen(false)
+    props.resetForm()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
+      <button type="button" className="flex-1" onClick={closePanel} aria-label="Đóng tạo việc định kỳ" />
+      <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[560px] sm:p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-extrabold">
+              {props.form.id ? 'Sửa việc định kỳ' : 'Tạo việc định kỳ'}
+            </h3>
+            <p className="mt-1 text-sm text-[#6f6b5e]">
+              Gắn lịch họp, hạn nộp và người nhận nhắc cho các việc lặp lại.
+            </p>
+          </div>
+          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]">
+            <Ico d={IC.x} size={16}/>
+          </button>
+        </div>
+
+        {props.form.id && (
+          <button type="button"
+            onClick={props.resetForm}
+            className="mb-3 rounded-lg border border-[#d9d3c5] px-3 py-2 text-xs font-bold"
+          >
+            Tạo lịch mới
+          </button>
+        )}
+
+        <form onSubmit={props.saveTask} className="space-y-3">
+          <Input
+            placeholder="Tên việc, ví dụ: Họp Performance"
+            value={props.form.title}
+            onChange={(value) => patchForm({ title: value })}
+          />
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Select value={props.form.kind} onChange={(value) => patchForm({ kind: value })}>
+              <option value="meeting">Cuộc họp</option>
+              <option value="report">Báo cáo</option>
+              <option value="task">Đầu việc</option>
+            </Select>
+
+            <Select value={props.form.frequency} onChange={(value) => patchForm({ frequency: value })}>
+              <option value="daily">Hằng ngày</option>
+              <option value="weekly">Hằng tuần</option>
+              <option value="monthly">Hằng tháng</option>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {props.form.frequency === 'weekly' ? (
+              <Select value={props.form.weekday} onChange={(value) => patchForm({ weekday: value })}>
+                {WEEKDAY_LABELS.map((label, index) => (
+                  <option key={label} value={String(index)}>{label}</option>
+                ))}
+              </Select>
+            ) : props.form.frequency === 'monthly' ? (
+              <input
+                type="number"
+                min={1}
+                max={31}
+                className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm outline-none"
+                value={props.form.month_day}
+                onChange={(event) => patchForm({ month_day: event.target.value })}
+                aria-label="Ngày trong tháng"
+              />
+            ) : (
+              <div className="flex h-12 items-center rounded-2xl border border-[#d9d3c5] px-4 text-sm font-bold text-[#6f6b5e]">
+                Lặp mỗi ngày
+              </div>
+            )}
+
+            <input
+              type="time"
+              className="h-12 w-full rounded-2xl border border-[#d9d3c5] px-4 text-sm font-bold outline-none"
+              value={props.form.time_of_day}
+              onChange={(event) => patchForm({ time_of_day: event.target.value })}
+              aria-label="Giờ họp hoặc hạn nộp"
+            />
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Ghi chú chung</span>
+            <textarea
+              className="min-h-16 w-full rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+              placeholder="Ví dụ: Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00."
+              value={props.form.description}
+              onChange={(event) => patchForm({ description: event.target.value })}
+            />
+          </label>
+
+          {props.form.kind === 'meeting' && (
+            <div className="space-y-2 rounded-2xl border border-[#ede8df] bg-[#faf7f0] p-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">RECAP cuộc họp trước đó</span>
+                <textarea
+                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  placeholder="- Quyết định đã chốt&#10;- Action items còn mở&#10;- Vấn đề cần follow-up"
+                  value={props.form.recap}
+                  onChange={(event) => patchForm({ recap: event.target.value })}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">File cần chuẩn bị</span>
+                <textarea
+                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  placeholder="- File recap/biên bản họp trước&#10;- Báo cáo KPI/Performance&#10;- Dashboard hoặc link số liệu"
+                  value={props.form.prepFiles}
+                  onChange={(event) => patchForm({ prepFiles: event.target.value })}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Lịch sử họp</span>
+                <textarea
+                  className="min-h-20 w-full rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-3 text-sm leading-5 outline-none"
+                  placeholder="- 15/06: Chốt vấn đề..., giao cho..., deadline...&#10;- 22/06: ..."
+                  value={props.form.meetingHistory}
+                  onChange={(event) => patchForm({ meetingHistory: event.target.value })}
+                />
+              </label>
+            </div>
+          )}
+
+          <div>
+            <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">Người nhận nhắc</p>
+            <div className="max-h-40 overflow-y-auto rounded-xl border border-[#d9d3c5] bg-[#ffffff] p-1">
+              {props.employees.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-[#6f6b5e]">Chưa có nhân sự để chọn.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {props.employees.map((employee) => {
+                    const checked = props.form.assignee_ids.includes(employee.id)
+
+                    return (
+                      <label
+                        key={employee.id}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold ${
+                          checked ? 'bg-[#f6f9d4] text-[#191919]' : 'hover:bg-[#faf7f0]'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[#191919]"
+                          checked={checked}
+                          onChange={(event) => {
+                            patchForm({
+                              assignee_ids: event.target.checked
+                                ? [...props.form.assignee_ids, employee.id]
+                                : props.form.assignee_ids.filter((id) => id !== employee.id),
+                            })
+                          }}
+                        />
+                        <span className="min-w-0 truncate">{employee.full_name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Nhắc trước ngày</span>
+              <input
+                type="number"
+                min={0}
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                value={props.form.remind_days_before}
+                onChange={(event) => patchForm({ remind_days_before: event.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-extrabold uppercase text-[#b4ab99]">Nhắc trước phút</span>
+              <input
+                type="number"
+                min={1}
+                className="h-11 w-full rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                value={props.form.remind_minutes_before}
+                onChange={(event) => patchForm({ remind_minutes_before: event.target.value })}
+              />
+            </label>
+          </div>
+
+          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white">
+            <Ico d={props.form.id ? IC.edit : IC.plus} size={15}/>
+            {props.form.id ? 'Lưu thay đổi' : 'Tạo việc định kỳ'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function RecurringView(props: {
+  tasks: RecurringTask[]
+  now: Date
+  employees: Employee[]
+  employeeMap: Map<string, Employee>
+  form: RecurringTaskForm
+  setForm: React.Dispatch<React.SetStateAction<RecurringTaskForm>>
+  saveTask: (event: React.FormEvent) => void
+  editTask: (task: RecurringTask) => void
+  resetForm: () => void
+  toggleTask: (task: RecurringTask) => void
+  deleteTask: (task: RecurringTask) => void
+  meetingFiles: RecurringMeetingFile[]
+  selectedMeetingTaskId: string
+  setSelectedMeetingTaskId: (taskId: string) => void
+  meetingFileDrafts: Record<string, MeetingFileDraft>
+  updateMeetingFileDraft: (taskId: string, patch: Partial<MeetingFileDraft>) => void
+  saveMeetingLink: (task: RecurringTask) => void
+  uploadMeetingFile: (task: RecurringTask, file?: File) => void
+  deleteMeetingFile: (file: RecurringMeetingFile) => void
+  uploadingMeetingFileFor: string
+}) {
+  const [meetingArchiveOpen, setMeetingArchiveOpen] = useState(false)
+  const [meetingArchiveQuery, setMeetingArchiveQuery] = useState('')
+  const activeTasks = props.tasks.filter((task) => task.is_active)
+  const upcoming = [...props.tasks].sort(
+    (a, b) => nextOccurrence(a, props.now).getTime() - nextOccurrence(b, props.now).getTime()
+  )
+  const nearTasks = activeTasks.filter((task) => {
+    const occ = nextOccurrence(task, props.now)
+    return minutesUntil(occ, props.now) <= task.remind_minutes_before
+  })
+  const prepTasks = activeTasks.filter((task) => {
+    const occ = nextOccurrence(task, props.now)
+    const mins = minutesUntil(occ, props.now)
+    return (task.frequency === 'weekly' || task.frequency === 'monthly') &&
+      mins <= task.remind_days_before * 24 * 60 &&
+      mins > task.remind_minutes_before
+  })
+  const meetingTasks = upcoming.filter((task) => task.kind === 'meeting')
+  const normalizedArchiveQuery = meetingArchiveQuery.trim().toLowerCase()
+  const filteredMeetingTasks = normalizedArchiveQuery
+    ? meetingTasks.filter((task) => {
+      const parts = parseMeetingDescription(task.description)
+      const fileText = props.meetingFiles
+        .filter((file) => file.recurring_task_id === task.id)
+        .map((file) => `${file.title || ''} ${file.file_name} ${file.note || ''}`)
+        .join(' ')
+      return `${task.title} ${parts.note} ${parts.recap} ${parts.prepFiles} ${parts.meetingHistory} ${fileText}`
+        .toLowerCase()
+        .includes(normalizedArchiveQuery)
+    })
+    : meetingTasks
+  const selectedMeeting = filteredMeetingTasks.find((task) => task.id === props.selectedMeetingTaskId) ||
+    filteredMeetingTasks[0] ||
+    (!normalizedArchiveQuery ? meetingTasks[0] : null)
+  const selectedMeetingParts = selectedMeeting ? parseMeetingDescription(selectedMeeting.description) : null
+  const selectedMeetingFiles = selectedMeeting
+    ? props.meetingFiles.filter((file) => file.recurring_task_id === selectedMeeting.id)
+    : []
+  const selectedMeetingDraft = selectedMeeting
+    ? { ...DEFAULT_MEETING_FILE_DRAFT, ...(props.meetingFileDrafts[selectedMeeting.id] || {}) }
+    : DEFAULT_MEETING_FILE_DRAFT
+  const selectedMeetingHistory = selectedMeetingParts ? meetingTextLines(selectedMeetingParts.meetingHistory) : []
+  const selectedMeetingPrepFiles = selectedMeetingParts ? meetingTextLines(selectedMeetingParts.prepFiles) : []
+
+  const patchForm = (patch: Partial<RecurringTaskForm>) => props.setForm((prev) => ({ ...prev, ...patch }))
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <MetricCard
+          label="Đang theo dõi"
+          value={activeTasks.length}
+          icon={<Ico d={IC.clock} size={18}/>}
+          tone="green"
+        />
+        <MetricCard
+          label="Cần chuẩn bị trước"
+          value={prepTasks.length}
+          icon={<Ico d={IC.warning} size={18}/>}
+          tone="purple"
+        />
+        <MetricCard
+          label="Sắp tới giờ"
+          value={nearTasks.length}
+          icon={<Ico d={IC.bell} size={18}/>}
+          tone="red"
+        />
+      </div>
+
+
+      <div className="grid grid-cols-1 gap-4">
+
+        <Card>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-extrabold">Lịch sắp tới</h3>
+              <p className="mt-1 text-xs text-[#6f6b5e]">
+                Bây giờ: {formatOccurrence(props.now)}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {meetingTasks.length > 0 && (
+                <button type="button"
+                  onClick={() => setMeetingArchiveOpen(true)}
+                  className="rounded-xl border border-[#d9d3c5] bg-[#ffffff] px-3 py-2 text-xs font-extrabold"
+                >
+                  Tìm hồ sơ họp
+                </button>
+              )}
+              <span className="rounded-full bg-[#faf7f0] px-3 py-1 text-xs font-extrabold text-[#6f6b5e]">
+                {props.tasks.length} việc định kỳ
+              </span>
+            </div>
+          </div>
+
+          {upcoming.length === 0 ? (
+            <EmptyState title="Chưa có việc định kỳ" description="Tạo lịch họp, báo cáo hoặc việc lặp lại để hệ thống nhắc đúng giờ." />
+          ) : (
+            <div className="space-y-2">
+              {upcoming.map((task) => {
+                const occ = nextOccurrence(task, props.now)
+                const alert = recurringAlertState(task, props.now)
+                const recipientNames = recurringRecipientNames(task, props.employeeMap)
+                const tone =
+                  alert.tone === 'red' ? 'bg-red-50 text-red-700 border-red-100' :
+                  alert.tone === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-100' :
+                  'bg-[#f6f9d4] text-[#6f7400] border-[#eef3b8]'
+                const taskMeetingFiles = task.kind === 'meeting'
+                  ? props.meetingFiles.filter((file) => file.recurring_task_id === task.id)
+                  : []
+                const taskMeetingDraft = task.kind === 'meeting'
+                  ? { ...DEFAULT_MEETING_FILE_DRAFT, ...(props.meetingFileDrafts[task.id] || {}) }
+                  : DEFAULT_MEETING_FILE_DRAFT
+
+                return (
+                  <div
+                    key={task.id}
+                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[#d9d3c5] bg-[#ffffff]' : 'border-[#ede8df] bg-[#faf7f0] opacity-70'}`}
+                  >
+                    <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${tone}`}>{alert.label}</span>
+                          <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[#191919]">{task.title}</h4>
+                          <span className="shrink-0 rounded-full bg-[#eeeae1] px-2.5 py-0.5 text-[11px] font-bold text-[#594e3d]">
+                            {recurringKindLabel(task.kind)}
+                          </span>
+                          <span className="shrink-0 rounded-full bg-[#faf7f0] px-2.5 py-0.5 text-[11px] font-bold text-[#6f6b5e]">
+                            {recurringFrequencyLabel(task)}
+                          </span>
+                          {!task.is_active && <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Đang tắt</span>}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[#6f6b5e]">
+                          <span>Tiếp: {formatOccurrence(occ)}</span>
+                          <span>Còn: {formatTimeLeft(occ, props.now)}</span>
+                          <span className="min-w-0 truncate">Nhận: {recipientNames}</span>
+                        </div>
+                        {task.description && task.kind !== 'meeting' && (
+                          <p className="mt-1 max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#6f6b5e]">{task.description}</p>
+                        )}
+                      </div>
+
+                      <div className="flex shrink-0 flex-wrap gap-1.5 xl:justify-end">
+                        {task.kind === 'meeting' && (
+                          <button type="button"
+                            onClick={() => {
+                              props.setSelectedMeetingTaskId(task.id)
+                              setMeetingArchiveQuery('')
+                              setMeetingArchiveOpen(true)
+                            }}
+                            className="h-8 rounded-lg border border-[#d9d3c5] bg-[#f6f9d4] px-2.5 text-xs font-bold text-[#6f7400]"
+                          >
+                            Hồ sơ
+                          </button>
+                        )}
+                        <button type="button"
+                          onClick={() => props.editTask(task)}
+                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[#d9d3c5] bg-[#ffffff] px-2.5 text-xs font-bold"
+                          title="Sửa việc định kỳ"
+                        >
+                          <Ico d={IC.edit} size={13}/>
+                          Sửa
+                        </button>
+                        <button type="button"
+                          onClick={() => props.toggleTask(task)}
+                          className="h-8 rounded-lg border border-[#d9d3c5] bg-[#ffffff] px-2.5 text-xs font-bold"
+                        >
+                          {task.is_active ? 'Tắt' : 'Bật'}
+                        </button>
+                        <button type="button"
+                          onClick={() => props.deleteTask(task)}
+                          className="flex h-8 items-center gap-1.5 rounded-lg bg-red-50 px-2.5 text-xs font-bold text-red-600"
+                          title="Xóa việc định kỳ"
+                        >
+                          <Ico d={IC.trash} size={13}/>
+                          Xóa
+                        </button>
+                      </div>
+                    </div>
+                    {task.description && task.kind === 'meeting' && (
+                      <details className="mt-2 rounded-lg border border-[#ede8df] bg-[#faf7f0] px-3 py-2">
+                        <summary className="cursor-pointer text-xs font-extrabold uppercase text-[#6f6b5e] outline-none">
+                          Chi tiết họp
+                        </summary>
+                        <div className="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_330px]">
+                          <RecurringMeetingSummary description={task.description} compact />
+                          <div className="rounded-lg border border-[#d9d3c5] bg-[#ffffff] p-2">
+                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs font-extrabold uppercase text-[#b4ab99]">Kho file họp</p>
+                                <p className="mt-0.5 text-xs text-[#6f6b5e]">{taskMeetingFiles.length} file/link đã lưu</p>
+                              </div>
+                              <button type="button"
+                                onClick={() => {
+                                  props.setSelectedMeetingTaskId(task.id)
+                                  setMeetingArchiveQuery('')
+                                  setMeetingArchiveOpen(true)
+                                }}
+                                className="rounded-lg border border-[#d9d3c5] px-2.5 py-1.5 text-xs font-bold"
+                              >
+                                Mở hồ sơ
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2">
+                              <input
+                                type="date"
+                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                value={taskMeetingDraft.meetingDate}
+                                onChange={(event) => props.updateMeetingFileDraft(task.id, { meetingDate: event.target.value })}
+                                aria-label="Ngày họp"
+                              />
+                              <input
+                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                placeholder="Tên file/link"
+                                value={taskMeetingDraft.title}
+                                onChange={(event) => props.updateMeetingFileDraft(task.id, { title: event.target.value })}
+                              />
+                              <input
+                                className="h-9 rounded-lg border border-[#d9d3c5] px-2.5 text-xs outline-none"
+                                placeholder="Dán link Google Drive, Notex, Dashboard..."
+                                value={taskMeetingDraft.fileUrl}
+                                onChange={(event) => props.updateMeetingFileDraft(task.id, { fileUrl: event.target.value })}
+                              />
+                            </div>
+
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <button type="button"
+                                onClick={() => props.saveMeetingLink(task)}
+                                className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-extrabold text-white"
+                              >
+                                Lưu link
+                              </button>
+                              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-[#d9d3c5] bg-[#faf7f0] px-3 py-2 text-xs font-bold">
+                                Tải file lên
+                                <input
+                                  type="file"
+                                  onChange={(event) => props.uploadMeetingFile(task, event.target.files?.[0])}
+                                  className="sr-only"
+                                />
+                              </label>
+                            </div>
+                            {props.uploadingMeetingFileFor === task.id && (
+                              <p className="mt-2 text-xs font-bold text-[#6f7400]">Đang upload file họp...</p>
+                            )}
+
+                            {taskMeetingFiles.length > 0 && (
+                              <div className="mt-2 space-y-1.5">
+                                {taskMeetingFiles.slice(0, 3).map((file) => (
+                                  <a
+                                    key={file.id}
+                                    href={file.file_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block min-w-0 rounded-lg bg-[#faf7f0] px-2.5 py-2 text-xs font-bold hover:bg-[#ede8df]"
+                                  >
+                                    <span className="block truncate">{file.title || file.file_name}</span>
+                                    <span className="mt-0.5 block truncate font-normal text-[#6f6b5e]">
+                                      {file.meeting_date || file.note || 'Mở file/link'}
+                                    </span>
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {meetingArchiveOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
+          <button type="button" className="flex-1" onClick={() => setMeetingArchiveOpen(false)} aria-label="Đóng hồ sơ họp" />
+          <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[920px] sm:p-6">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-extrabold">Tìm hồ sơ họp</h3>
+                <p className="mt-1 text-sm text-[#6f6b5e]">
+                  Tìm lại recap, lịch sử họp và file đã lưu theo từng lịch họp định kỳ.
+                </p>
+              </div>
+              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]">
+                <Ico d={IC.x} size={16}/>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <div>
+                <input
+                  className="h-11 w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] px-3 text-sm outline-none focus:border-[#aeb300] focus:bg-[#ffffff]"
+                  placeholder="Tìm theo tên họp, recap, file..."
+                  value={meetingArchiveQuery}
+                  onChange={(event) => setMeetingArchiveQuery(event.target.value)}
+                />
+
+                <div className="mt-3 max-h-[calc(100vh-190px)] space-y-2 overflow-y-auto">
+                  {filteredMeetingTasks.length === 0 ? (
+                    <p className="rounded-xl bg-[#faf7f0] px-3 py-3 text-sm text-[#6f6b5e]">Không tìm thấy hồ sơ họp phù hợp.</p>
+                  ) : (
+                    filteredMeetingTasks.map((task) => {
+                      const active = selectedMeeting?.id === task.id
+                      const filesCount = props.meetingFiles.filter((file) => file.recurring_task_id === task.id).length
+
+                      return (
+                        <button type="button"
+                          key={task.id}
+                          onClick={() => props.setSelectedMeetingTaskId(task.id)}
+                          className={`w-full rounded-xl border px-3 py-2 text-left ${
+                            active ? 'border-[#dadf21] bg-[#f6f9d4]' : 'border-[#ede8df] bg-[#ffffff] hover:bg-[#faf7f0]'
+                          }`}
+                        >
+                          <p className="truncate text-sm font-extrabold">{task.title}</p>
+                          <p className="mt-1 text-xs font-bold text-[#6f6b5e]">
+                            {formatOccurrence(nextOccurrence(task, props.now))} · {filesCount} file/link
+                          </p>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+
+              {!selectedMeeting || !selectedMeetingParts ? (
+                <EmptyState title="Chưa chọn hồ sơ" description="Chọn một cuộc họp ở danh sách bên trái để xem." />
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-extrabold">{selectedMeeting.title}</h3>
+                      <p className="mt-1 text-xs font-bold text-[#6f6b5e]">
+                        {recurringFrequencyLabel(selectedMeeting)} · {selectedMeeting.time_of_day}
+                      </p>
+                    </div>
+                    <button type="button"
+                      onClick={() => props.editTask(selectedMeeting)}
+                      className="rounded-lg border border-[#d9d3c5] px-3 py-2 text-xs font-bold"
+                    >
+                      Cập nhật recap
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                    <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
+                      <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">Lịch sử họp</p>
+                      {selectedMeetingHistory.length === 0 ? (
+                        <p className="text-sm text-[#6f6b5e]">Chưa có lịch sử họp.</p>
+                      ) : (
+                        <div className="max-h-44 space-y-2 overflow-y-auto">
+                          {selectedMeetingHistory.map((line, index) => (
+                            <p key={`${selectedMeeting.id}-archive-history-${index}`} className="rounded-lg bg-[#ffffff] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
+                      <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">File cần chuẩn bị</p>
+                      {selectedMeetingPrepFiles.length === 0 ? (
+                        <p className="text-sm text-[#6f6b5e]">Chưa có danh sách file cần chuẩn bị.</p>
+                      ) : (
+                        <div className="max-h-44 space-y-2 overflow-y-auto">
+                          {selectedMeetingPrepFiles.map((line, index) => (
+                            <p key={`${selectedMeeting.id}-archive-prep-${index}`} className="rounded-lg bg-[#ffffff] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-[#ede8df] bg-[#ffffff] p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-extrabold">Kho file họp</p>
+                        <p className="mt-1 text-xs text-[#6f6b5e]">File/link lưu ở đây tự gắn với cuộc họp đang chọn.</p>
+                      </div>
+                      {isLocalRecurringTask(selectedMeeting) && (
+                        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                          Cần lưu lịch trước
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 lg:grid-cols-[150px_1fr]">
+                      <input
+                        type="date"
+                        className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                        value={selectedMeetingDraft.meetingDate}
+                        onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { meetingDate: event.target.value })}
+                        aria-label="Ngày họp"
+                      />
+                      <Input
+                        placeholder="Tên file/link"
+                        value={selectedMeetingDraft.title}
+                        onChange={(value) => props.updateMeetingFileDraft(selectedMeeting.id, { title: value })}
+                      />
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto]">
+                      <input
+                        className="h-10 rounded-xl border border-[#d9d3c5] px-3 text-sm outline-none"
+                        placeholder="Dán link Google Drive, Notex, Dashboard..."
+                        value={selectedMeetingDraft.fileUrl}
+                        onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { fileUrl: event.target.value })}
+                      />
+                      <button type="button"
+                        onClick={() => props.saveMeetingLink(selectedMeeting)}
+                        className="rounded-xl bg-[#191919] px-4 py-2 text-sm font-extrabold text-white"
+                      >
+                        Lưu link
+                      </button>
+                    </div>
+
+                    <textarea
+                      className="mt-2 min-h-14 w-full rounded-xl border border-[#d9d3c5] p-3 text-sm outline-none"
+                      placeholder="Ghi chú file..."
+                      value={selectedMeetingDraft.note}
+                      onChange={(event) => props.updateMeetingFileDraft(selectedMeeting.id, { note: event.target.value })}
+                    />
+
+                    <input
+                      type="file"
+                      onChange={(event) => props.uploadMeetingFile(selectedMeeting, event.target.files?.[0])}
+                      className="mt-2 block w-full rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3 text-sm"
+                    />
+                    {props.uploadingMeetingFileFor === selectedMeeting.id && (
+                      <p className="mt-2 text-sm font-bold text-[#6f7400]">Đang upload file họp...</p>
+                    )}
+
+                    <div className="mt-4 space-y-2">
+                      {selectedMeetingFiles.length === 0 ? (
+                        <p className="rounded-xl bg-[#faf7f0] px-3 py-3 text-sm text-[#6f6b5e]">Chưa có file/link họp nào.</p>
+                      ) : (
+                        selectedMeetingFiles.map((file) => (
+                          <div key={file.id} className="flex flex-col gap-2 rounded-xl bg-[#faf7f0] p-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-extrabold">{file.title || file.file_name}</p>
+                              <p className="mt-1 truncate text-xs text-[#6f6b5e]">
+                                {file.meeting_date ? `${file.meeting_date} · ` : ''}
+                                {file.note || file.file_name}
+                                {file.uploaded_by && props.employeeMap.get(file.uploaded_by) ? ` · ${props.employeeMap.get(file.uploaded_by)?.full_name}` : ''}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <a
+                                href={file.file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-lg bg-[#191919] px-3 py-2 text-xs font-bold text-[#efe9dd]"
+                              >
+                                Mở
+                              </a>
+                              <button type="button"
+                                onClick={() => props.deleteMeetingFile(file)}
+                                className="rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600"
+                              >
+                                Xóa
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RecurringMeetingSummary({ description, compact = false }: { description: string; compact?: boolean }) {
+  const parts = parseMeetingDescription(description)
+  const sections = [
+    { label: 'RECAP cuộc họp trước đó', value: parts.recap },
+    { label: 'File cần chuẩn bị', value: parts.prepFiles },
+    { label: 'Lịch sử họp', value: parts.meetingHistory },
+  ]
+
+  if (compact) {
+    return (
+      <div className="mt-2 space-y-2">
+        {parts.note && <p className="max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#6f6b5e]">{parts.note}</p>}
+        <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
+          {sections.map((section) => (
+            <div key={section.label} className="rounded-lg border border-[#d9d3c5] bg-[#ffffff] p-2">
+              <p className="mb-1 text-[11px] font-extrabold uppercase text-[#b4ab99]">{section.label}</p>
+              <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#594e3d]">
+                {section.value || '- Chưa cập nhật.'}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      {parts.note && <p className="whitespace-pre-line text-sm text-[#6f6b5e]">{parts.note}</p>}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {sections.map((section) => (
+          <div key={section.label} className="rounded-xl border border-[#d9d3c5] bg-[#faf7f0] p-3">
+            <p className="mb-2 text-xs font-extrabold uppercase text-[#b4ab99]">{section.label}</p>
+            <p className="whitespace-pre-line text-sm leading-6 text-[#594e3d]">
+              {section.value || '- Chưa cập nhật.'}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AutomationView(props: {
+  tasks: RecurringTask[]
+  runs: RecurringRun[]
+  now: Date
+  result: RecurringRunResult | null
+  running: boolean
+  runWorker: () => void
+}) {
+  const activeTasks = props.tasks.filter((task) => task.is_active)
+  const nextTask = [...activeTasks].sort(
+    (a, b) => nextOccurrence(a, props.now).getTime() - nextOccurrence(b, props.now).getTime()
+  )[0]
+  const lastRun = props.runs[0]
+
+  function runSourceLabel(source: string) {
+    if (source === 'cron') return 'Tự động'
+    if (source === 'manual') return 'Bấm kiểm tra'
+    return 'Trong app'
+  }
+
+  function runStatusLabel(status: string) {
+    if (status === 'success') return 'Hoàn tất'
+    if (status === 'running') return 'Đang chạy'
+    return 'Lỗi'
+  }
+
+  function runCount(run: RecurringRun, key: 'scanned' | 'notificationsSent') {
+    if (key === 'scanned') return run.scanned ?? run.detail?.scanned ?? 0
+    return run.notifications_sent ?? run.detail?.notificationsSent ?? 0
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <MetricCard
+          label="Lịch đang bật"
+          value={activeTasks.length}
+          icon={<Ico d={IC.clock} size={18}/>}
+          tone="green"
+        />
+        <MetricCard
+          label="Đã nhắc gần nhất"
+          value={lastRun ? runCount(lastRun, 'notificationsSent') : 0}
+          icon={<Ico d={IC.bell} size={18}/>}
+          tone="blue"
+        />
+        <MetricCard
+          label="Lần kiểm tra"
+          value={props.runs.length}
+          icon={<Ico d={IC.clipboard} size={18}/>}
+          tone="purple"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
+        <Card>
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-extrabold">Bộ nhắc tự động</h3>
+              <p className="mt-1 text-sm text-[#6f6b5e]">
+                {nextTask ? `Sắp tới sẽ theo dõi: ${nextTask.title}` : 'Chưa có lịch định kỳ đang bật.'}
+              </p>
+            </div>
+            <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[#6f7400]">
+              Đang bật
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            <InfoPill label="Tự kiểm tra" value="15 phút/lần" />
+            <InfoPill label="Lịch sắp tới" value={nextTask ? formatOccurrence(nextOccurrence(nextTask, props.now)) : 'Chưa có'} />
+            <InfoPill
+              label="Lần kiểm tra gần nhất"
+              value={lastRun ? new Date(lastRun.started_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Chưa có'}
+            />
+            <InfoPill label="Việc đang theo dõi" value={`${activeTasks.length} lịch`} />
+          </div>
+
+          <button type="button"
+            onClick={props.runWorker}
+            disabled={props.running}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#191919] px-5 py-3 text-sm font-extrabold text-white disabled:opacity-50"
+          >
+            <Ico d={IC.zap} size={15}/>
+            {props.running ? 'Đang kiểm tra...' : 'Kiểm tra nhắc ngay'}
+          </button>
+
+          {props.result && (
+            <div className={`mt-4 rounded-2xl border p-4 text-sm ${
+              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[#6f7400]'
+            }`}>
+              <p className="font-extrabold">
+                {props.result.ok === false ? 'Kiểm tra lỗi' : 'Kiểm tra xong'}
+              </p>
+              <p className="mt-1">
+                Quét {props.result.scanned || 0} việc · gửi {props.result.notificationsSent || 0} thông báo
+              </p>
+              {props.result.error && <p className="mt-1">{props.result.error}</p>}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-extrabold">Nhật ký nhắc tự động</h3>
+              <p className="mt-1 text-sm text-[#6f6b5e]">{props.runs.length} bản ghi gần nhất</p>
+            </div>
+          </div>
+
+          {props.runs.length === 0 ? (
+            <EmptyState title="Chưa có nhật ký" description="Khi hệ thống tự kiểm tra hoặc bạn bấm kiểm tra, kết quả sẽ nằm ở đây." />
+          ) : (
+            <div className="space-y-3">
+              {props.runs.map((run) => {
+                const isError = run.status === 'error'
+                return (
+                  <div key={run.id} className="rounded-2xl border border-[#d9d3c5] bg-[#ffffff] p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${
+                            isError ? 'bg-red-50 text-red-700' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[#f6f9d4] text-[#6f7400]'
+                          }`}>
+                            {runStatusLabel(run.status)}
+                          </span>
+                          <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-bold text-[#594e3d]">
+                            {runSourceLabel(run.source)}
+                          </span>
+                        </div>
+                        <p className="text-sm font-extrabold">
+                          {new Date(run.started_at).toLocaleString('vi-VN', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                        {run.detail?.error && <p className="mt-1 text-sm text-red-600">{run.detail.error}</p>}
+                      </div>
+
+                      <div className="grid min-w-[220px] grid-cols-2 gap-2">
+                        <MiniStat label="Quét" value={runCount(run, 'scanned')} />
+                        <MiniStat label="Đã nhắc" value={runCount(run, 'notificationsSent')} />
+                      </div>
+                    </div>
+
+                    {run.detail?.reminders && run.detail.reminders.length > 0 && (
+                      <div className="mt-3 space-y-2 border-t border-[#ede8df] pt-3">
+                        {run.detail.reminders.slice(0, 4).map((item, index) => (
+                          <div key={`${run.id}-${index}`} className="rounded-xl bg-[#faf7f0] px-3 py-2 text-sm">
+                            <span className="font-bold">{item.title}</span>
+                            <span className="text-[#6f6b5e]"> · {item.kind === 'near' ? 'nhắc gần' : 'nhắc sớm'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function AssistantView(props: {
   assistantOutput: string
   generateDailyReport: () => void
@@ -4870,7 +6596,7 @@ function CreatePanel(props: {
       <button type="button" className="flex-1" onClick={() => props.setOpen(false)} />
       <div className="h-full w-full max-w-full overflow-y-auto bg-[#ffffff] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">Tạo mới</h3>
+          <h3 className="text-lg font-extrabold">{props.tab === 'project' ? 'Tạo dự án' : 'Tạo đầu việc lớn'}</h3>
           <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[#191919] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
