@@ -918,6 +918,8 @@ export default function Home() {
   const [recurringRuns, setRecurringRuns] = useState<RecurringRun[]>([])
   const [recurringRunResult, setRecurringRunResult] = useState<RecurringRunResult | null>(null)
   const [recurringWorkerRunning, setRecurringWorkerRunning] = useState(false)
+  const [dailyDigestRunning, setDailyDigestRunning] = useState(false)
+  const [dailyDigestResult, setDailyDigestResult] = useState<RecurringRunResult | null>(null)
   const [recurringForm, setRecurringForm] = useState<RecurringTaskForm>(DEFAULT_RECURRING_FORM)
   const [recurringPanelOpen, setRecurringPanelOpen] = useState(false)
   const [recurringMeetingFiles, setRecurringMeetingFiles] = useState<RecurringMeetingFile[]>([])
@@ -1014,6 +1016,23 @@ export default function Home() {
     const t = window.setInterval(() => setNow(new Date()), 30_000)
     return () => window.clearInterval(t)
   }, [])
+
+  // Fallback refresh mỗi 5 phút — bù cho trường hợp Realtime drop kết nối
+  useEffect(() => {
+    const t = window.setInterval(() => fetchAllRef.current?.({ silent: true }), 5 * 60_000)
+    return () => window.clearInterval(t)
+  }, [])
+
+  // Khi vào view "Việc định kỳ" → tự đánh dấu đã đọc các thông báo recurring_reminder
+  useEffect(() => {
+    if (view !== 'recurring') return
+    setNotifications((prev) => {
+      const ids = prev.filter((n) => !n.is_read && n.type === 'recurring_reminder').map((n) => n.id)
+      if (ids.length === 0) return prev
+      supabase.from('notifications').update({ is_read: true }).in('id', ids)
+      return prev.map((n) => (ids.includes(n.id) ? { ...n, is_read: true } : n))
+    })
+  }, [view])
 
   // Bộ nhắc: check mỗi lần đồng hồ tick — nhắc trước N ngày + nhắc trước N phút
   useEffect(() => {
@@ -1340,6 +1359,31 @@ export default function Home() {
       toast('Không gọi được tác vụ định kỳ.', 'error')
     } finally {
       setRecurringWorkerRunning(false)
+    }
+  }
+
+  async function runDailyDigest() {
+    setDailyDigestRunning(true)
+    setDailyDigestResult(null)
+    const { data: sessionData } = await supabase.auth.getSession()
+    const headers = sessionData.session?.access_token
+      ? { Authorization: `Bearer ${sessionData.session.access_token}` }
+      : undefined
+    try {
+      const response = await fetch('/api/daily-digest', { method: 'POST', headers })
+      const result = (await response.json()) as RecurringRunResult & { dueTodayCount?: number; overdueCount?: number; overdueMarkedProblem?: number }
+      setDailyDigestResult(result)
+      if (!response.ok || result.ok === false) {
+        toast(result.error || 'Daily digest lỗi.', 'error')
+        return
+      }
+      const extra = result as { overdueMarkedProblem?: number }
+      toast(`Tóm tắt buổi sáng: ${result.notificationsSent || 0} thông báo · ${extra.overdueMarkedProblem || 0} việc đánh dấu trễ.`)
+      await Promise.all([fetchNotifications(), fetchAll({ silent: true })])
+    } catch {
+      toast('Không gọi được daily digest.', 'error')
+    } finally {
+      setDailyDigestRunning(false)
     }
   }
 
@@ -2965,6 +3009,7 @@ export default function Home() {
                             onClick={() => {
                               if (relTask) { setSelectedTask(relTask); setInboxOpen(false) }
                               else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
+                              else if (n.type === 'daily_digest') { setView('tasks'); setInboxOpen(false) }
                             }}
                             className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[#faf7f0]`}
                           >
@@ -3184,6 +3229,9 @@ export default function Home() {
                   result={recurringRunResult}
                   running={recurringWorkerRunning}
                   runWorker={runRecurringReminderWorker}
+                  digestRunning={dailyDigestRunning}
+                  digestResult={dailyDigestResult}
+                  runDigest={runDailyDigest}
                 />
               )}
 
@@ -6323,6 +6371,9 @@ function AutomationView(props: {
   result: RecurringRunResult | null
   running: boolean
   runWorker: () => void
+  digestRunning: boolean
+  digestResult: (RecurringRunResult & { dueTodayCount?: number; overdueCount?: number; overdueMarkedProblem?: number }) | null
+  runDigest: () => void
 }) {
   const activeTasks = props.tasks.filter((task) => task.is_active)
   const nextTask = [...activeTasks].sort(
@@ -6385,7 +6436,7 @@ function AutomationView(props: {
           </div>
 
           <div className="space-y-3">
-            <InfoPill label="Tự kiểm tra" value="15 phút/lần" />
+            <InfoPill label="Tự kiểm tra" value="5 phút/lần" />
             <InfoPill label="Lịch sắp tới" value={nextTask ? formatOccurrence(nextOccurrence(nextTask, props.now)) : 'Chưa có'} />
             <InfoPill
               label="Lần kiểm tra gần nhất"
@@ -6416,6 +6467,40 @@ function AutomationView(props: {
               {props.result.error && <p className="mt-1">{props.result.error}</p>}
             </div>
           )}
+
+          <div className="mt-6 border-t border-[#e8e4da] pt-5">
+            <h4 className="mb-1 text-sm font-extrabold">Tóm tắt buổi sáng</h4>
+            <p className="mb-3 text-xs text-[#6f6b5e]">
+              Tự gửi lúc 08:00 mỗi ngày — việc hôm nay &amp; việc đang trễ.
+            </p>
+            <div className="mb-3 space-y-2">
+              <InfoPill label="Cron tự động" value="08:00 mỗi ngày" />
+            </div>
+            <button type="button"
+              onClick={props.runDigest}
+              disabled={props.digestRunning}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#d9d3c5] bg-white px-5 py-3 text-sm font-extrabold text-[#191919] hover:bg-[#faf7f0] disabled:opacity-50"
+            >
+              <Ico d={IC.clipboard} size={15}/>
+              {props.digestRunning ? 'Đang gửi tóm tắt...' : 'Gửi tóm tắt buổi sáng ngay'}
+            </button>
+            {props.digestResult && (
+              <div className={`mt-3 rounded-2xl border p-3 text-sm ${
+                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[#6f7400]'
+              }`}>
+                <p className="font-extrabold">
+                  {props.digestResult.ok === false ? 'Lỗi' : 'Đã gửi'}
+                </p>
+                <p className="mt-1">
+                  Hôm nay: {props.digestResult.dueTodayCount || 0} việc ·
+                  Trễ: {props.digestResult.overdueCount || 0} việc ·
+                  Đánh dấu trễ: {props.digestResult.overdueMarkedProblem || 0} ·
+                  Thông báo: {props.digestResult.notificationsSent || 0}
+                </p>
+                {props.digestResult.error && <p className="mt-1">{props.digestResult.error}</p>}
+              </div>
+            )}
+          </div>
         </Card>
 
         <Card>

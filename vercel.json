@@ -6,7 +6,11 @@
   "crons": [
     {
       "path": "/api/recurring-reminders",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/daily-digest",
+      "schedule": "0 1 * * *"
     }
   ]
 }
