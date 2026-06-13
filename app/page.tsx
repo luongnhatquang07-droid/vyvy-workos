@@ -2884,26 +2884,27 @@ export default function Home() {
       )}
 
       <aside
-        className={`fixed left-0 top-0 z-50 h-screen bg-[var(--bg-surface)] border-r border-[var(--border)] text-[var(--text-primary)] transition-all duration-200
+        className={`fixed left-0 top-0 z-50 h-screen transition-all duration-200
+          bg-[var(--olive)] border-r border-[var(--hair-d)] text-[rgba(241,237,228,0.85)]
           ${mobileNavOpen ? 'w-[260px]' : 'w-0 overflow-hidden'}
           md:w-[64px] md:overflow-visible ${collapsed ? 'md:w-[64px]' : 'md:w-[240px]'}`}
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-center border-b border-[var(--border)] p-3 md:justify-between md:p-4">
+          <div className="flex items-center justify-center border-b border-[var(--hair-d)] p-3 md:justify-between md:p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] font-display text-base text-[var(--accent)] shadow-[0_2px_12px_-4px_rgba(218,223,33,0.5)]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--ivory)] font-display text-base text-[var(--olive)] shadow-[0_2px_8px_rgba(0,0,0,0.3)]">
                 V
               </div>
               {!collapsed && (
                 <div className="hidden md:block">
-                  <h1 className="font-display text-sm tracking-wide text-[var(--text-primary)]">VyVy WorkOS</h1>
-                  <p className="font-spec text-[9px] text-[var(--text-muted)]">The Haute Couture of Care</p>
+                  <h1 className="font-display text-sm tracking-wide text-[var(--ivory)]">VyVy WorkOS</h1>
+                  <p className="font-spec text-[9px] text-[rgba(241,237,228,0.45)]">The Haute Couture of Care</p>
                 </div>
               )}
             </div>
             <button type="button"
               onClick={() => setCollapsed(!collapsed)}
-              className="hidden rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)] md:block"
+              className="hidden rounded-[var(--radius-sm)] p-1.5 text-[rgba(241,237,228,0.45)] hover:bg-[rgba(241,237,228,0.08)] hover:text-[var(--ivory)] md:block"
             >
               {collapsed ? <ChevronRight size={14}/> : <ChevronRight size={14} className="rotate-180"/>}
             </button>
@@ -2915,25 +2916,25 @@ export default function Home() {
                 key={item.key}
                 onClick={() => { setView(item.key); setMobileNavOpen(false) }}
                 title={item.label}
-                className={`relative flex w-full items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 text-sm font-semibold transition-all ${
+                className={`relative flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 text-sm font-medium transition-all ${
                   view === item.key
-                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                    : 'text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)]'
+                    ? 'bg-[rgba(241,237,228,0.08)] text-[var(--lime)]'
+                    : 'text-[rgba(241,237,228,0.55)] hover:bg-[rgba(241,237,228,0.06)] hover:text-[rgba(241,237,228,0.85)]'
                 }`}
               >
                 <span className="shrink-0">{item.icon}</span>
-                <span className={`${collapsed ? 'md:hidden' : ''} truncate`}>{item.label}</span>
-                {view === item.key && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-[var(--accent)]" />}
+                <span className={`${collapsed ? 'md:hidden' : ''} truncate font-[var(--font-label)] uppercase tracking-[0.06em] text-[11px]`}>{item.label}</span>
+                {view === item.key && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 rounded-r bg-[var(--lime)]" />}
               </button>
             ))}
           </nav>
 
-          <div className="border-t border-[var(--border)] p-2 md:p-3 space-y-1">
-            <div className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-card)] p-2 md:p-3">
+          <div className="border-t border-[var(--hair-d)] p-2 md:p-3 space-y-1">
+            <div className="flex items-center gap-3 rounded-[var(--radius-sm)] bg-[rgba(241,237,228,0.07)] p-2 md:p-3">
               <Avatar name={currentEmployee?.full_name || '?'} />
               <div className={`min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
-                <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{currentEmployee?.full_name || 'Người dùng'}</p>
-                <p className="text-[11px] text-[var(--text-muted)] capitalize">
+                <p className="truncate text-sm font-semibold text-[var(--ivory)]">{currentEmployee?.full_name || 'Người dùng'}</p>
+                <p className="font-spec text-[9px] text-[rgba(241,237,228,0.45)] capitalize">
                   {currentEmployee?.role === 'ceo' ? 'CEO'
                     : currentEmployee?.role === 'coo' ? 'COO'
                     : currentEmployee?.role === 'admin' ? 'Admin'
@@ -2945,7 +2946,7 @@ export default function Home() {
             <button type="button"
               onClick={() => { logout(); setMobileNavOpen(false) }}
               title="Đăng xuất"
-              className="flex w-full items-center gap-2 rounded-[var(--radius)] px-3 py-2 text-xs font-semibold text-[var(--text-muted)] hover:bg-[var(--bg-card)] hover:text-[var(--danger)] transition-colors"
+              className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs font-medium text-[rgba(241,237,228,0.45)] hover:bg-[rgba(241,237,228,0.06)] hover:text-[var(--crit)] transition-colors"
             >
               <LogOut size={14} className="shrink-0"/>
               <span className={collapsed ? 'md:hidden' : ''}>Đăng xuất</span>
@@ -2955,12 +2956,12 @@ export default function Home() {
       </aside>
 
       <section className={`min-h-screen min-w-0 md:ml-[64px] ${collapsed ? 'md:ml-[64px]' : 'md:ml-[240px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--bg-surface)]/90 px-3 py-3 backdrop-blur-md sm:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--ivory)]/95 px-3 py-3 backdrop-blur-md sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="rounded-lg p-2 text-[var(--text-primary)] hover:bg-[#ede8df] md:hidden"
+              className="rounded-[var(--radius-sm)] p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] md:hidden"
               aria-label="Mở menu"
             >
               <Ico d={IC.menu} size={20}/>
@@ -2986,7 +2987,7 @@ export default function Home() {
           <div className="relative hidden min-w-0 flex-1 max-w-md lg:block">
             <input
               ref={searchInputRef}
-              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] pl-9 pr-12 text-sm outline-none focus:border-[var(--accent-hover)] focus:bg-[var(--bg-input)]"
+              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] pl-9 pr-12 text-sm outline-none focus:border-[var(--char)] focus:bg-[var(--bg-card)]"
               placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
               value={searchQuery}
               onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true) }}
@@ -3011,7 +3012,7 @@ export default function Home() {
                           setSearchQuery('')
                           setSearchOpen(false)
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold hover:bg-[#ede8df]"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-bold hover:bg-[var(--bg-surface)]"
                       >
                         <span className="text-[var(--text-muted)]"><Ico d={IC.folder} size={15}/></span>
                         <span className="truncate">{project.name}</span>
@@ -3030,7 +3031,7 @@ export default function Home() {
                           setSearchQuery('')
                           setSearchOpen(false)
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-[#ede8df]"
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-[var(--bg-surface)]"
                       >
                         <span>
                           {task.status === 'completed' ? (
@@ -3080,7 +3081,7 @@ export default function Home() {
                       </p>
                       <div className="max-h-64 space-y-1 overflow-y-auto">
                         {assignmentsForMe.map((task) => (
-                          <div key={task.id} className="rounded-lg border border-[#ede8df] bg-[var(--bg-surface)] p-2">
+                          <div key={task.id} className="rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] p-2">
                             <button type="button"
                               onClick={() => { setSelectedTask(task); setInboxOpen(false) }}
                               className="block w-full text-left"
@@ -3120,7 +3121,7 @@ export default function Home() {
                       {pendingForMe.map((step) => {
                         const task = tasks.find((item) => item.id === step.task_id)
                         return (
-                          <div key={step.id} className="rounded-lg border border-[#ede8df] p-2">
+                          <div key={step.id} className="rounded-lg border border-[var(--border)] p-2">
                             <button type="button"
                               onClick={() => {
                                 if (task) setSelectedTask(task)
@@ -3155,7 +3156,7 @@ export default function Home() {
                   )}
 
                   {/* Thông báo */}
-                  <p className="mt-1 border-t border-[#ede8df] px-2 pb-1 pt-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
+                  <p className="mt-1 border-t border-[var(--border)] px-2 pb-1 pt-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">
                     Thông báo
                   </p>
                   {notifications.length === 0 ? (
@@ -3171,7 +3172,7 @@ export default function Home() {
                               else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
                               else if (n.type === 'daily_digest') { setView('tasks'); setInboxOpen(false) }
                             }}
-                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[#f6f9d4]'} hover:bg-[var(--bg-surface)]`}
+                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[var(--accent-soft)]'} hover:bg-[var(--bg-surface)]`}
                           >
                             <p className="truncate text-sm font-bold">{n.title}</p>
                             {n.body && <p className="truncate text-[11px] text-[var(--text-secondary)]">{n.body}</p>}
@@ -3201,7 +3202,7 @@ export default function Home() {
             <div
               title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
-                ${realtimeStatus === 'live' ? 'bg-[#f6f9d4] text-[var(--accent-hover)]' :
+                ${realtimeStatus === 'live' ? 'bg-[var(--accent-soft)] text-[var(--accent-hover)]' :
                   realtimeStatus === 'connecting' ? 'bg-amber-50 text-amber-700' :
                   'bg-[var(--danger-soft)] text-[var(--danger)]'}`}
             >
@@ -4827,7 +4828,7 @@ function StepWorkflowCard(props: {
       )}
 
       {props.step.approval_note && (
-        <div className="mt-3 rounded-xl bg-[#eeeae1] p-3 text-sm text-[#594e3d]">
+        <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3 text-sm text-[#594e3d]">
           <b>Ghi chú duyệt:</b> {props.step.approval_note}
         </div>
       )}
@@ -5130,7 +5131,7 @@ function ProjectsView(props: {
         <div className={`rounded-2xl border bg-[var(--bg-card)] ${stuck.length > 0 ? 'border-red-200' : 'border-[var(--border)]'}`}>
           <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[var(--border)]'}`}>
             <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Đang kẹt / quá hạn</p>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[#eeeae1] text-[var(--text-muted)]'}`}>{stuck.length}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>{stuck.length}</span>
           </div>
           <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
             {stuck.length === 0 ? (
@@ -5193,7 +5194,7 @@ function ProjectsView(props: {
                     {project.code && <p className="text-[10px] text-[var(--text-muted)]">{project.code}</p>}
                   </div>
                   <div className="flex flex-1 items-center gap-2">
-                    <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
+                    <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-[var(--bg-surface)]">
                       <div className={`h-5 rounded-full transition-all ${healthColor}`} style={{ width: `${Math.max(project.rate, 1)}%` }} />
                       {project.rate > 10 && (
                         <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[var(--text-primary)]">{project.rate}%</span>
@@ -5299,7 +5300,7 @@ function ProjectsView(props: {
             {workload.map((w) => (
               <div key={w.id} className="flex items-center gap-3">
                 <p className="w-36 shrink-0 truncate text-sm font-bold text-[var(--text-primary)]">{w.name}</p>
-                <div className="h-4 flex-1 overflow-hidden rounded-full bg-[#eeeae1]">
+                <div className="h-4 flex-1 overflow-hidden rounded-full bg-[var(--bg-surface)]">
                   <div
                     className={`h-4 rounded-full transition-all ${w.n > 5 ? 'bg-red-500' : 'bg-[var(--accent)]'}`}
                     style={{ width: `${(w.n / maxLoad) * 100}%` }}
@@ -5333,7 +5334,7 @@ function ProjectsView(props: {
                 </div>
                 <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
               </div>
-              <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[#eeeae1]">
+              <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[var(--bg-surface)]">
                 <div className="h-2.5 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(project.rate, 1)}%` }} />
               </div>
               <div className="flex items-center justify-between text-xs">
@@ -5441,7 +5442,7 @@ function ProjectsView(props: {
                                 const st =
                                   t.status === 'completed' ? { dot: 'bg-[var(--accent-hover)]', txt: 'Xong', cls: 'text-[var(--accent-hover)] bg-[#f0f5c4]' } :
                                   isTaskOverdue(t) ? { dot: 'bg-red-500', txt: 'Trễ', cls: 'text-red-700 bg-red-50' } :
-                                  t.status === 'in_progress' ? { dot: 'bg-[var(--accent)]', txt: 'Đang', cls: 'text-[var(--accent-hover)] bg-[#f6f9d4]' } :
+                                  t.status === 'in_progress' ? { dot: 'bg-[var(--accent)]', txt: 'Đang', cls: 'text-[var(--accent-hover)] bg-[var(--accent-soft)]' } :
                                   t.status === 'pending' ? { dot: 'bg-amber-400', txt: 'Kẹt', cls: 'text-amber-700 bg-amber-50' } :
                                   { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[#f5f2ec]' }
                                 return (
@@ -6116,7 +6117,7 @@ function RecurringFormPanel(props: {
               Gắn lịch họp, hạn nộp và người nhận nhắc cho các việc lặp lại.
             </p>
           </div>
-          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
+          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
             <Ico d={IC.x} size={16}/>
           </button>
         </div>
@@ -6194,7 +6195,7 @@ function RecurringFormPanel(props: {
           </label>
 
           {props.form.kind === 'meeting' && (
-            <div className="space-y-2 rounded-2xl border border-[#ede8df] bg-[var(--bg-surface)] p-3">
+            <div className="space-y-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
               <label className="block">
                 <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">RECAP cuộc họp trước đó</span>
                 <textarea
@@ -6241,7 +6242,7 @@ function RecurringFormPanel(props: {
                       <label
                         key={employee.id}
                         className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold ${
-                          checked ? 'bg-[#f6f9d4] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-surface)]'
+                          checked ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-surface)]'
                         }`}
                       >
                         <input
@@ -6493,7 +6494,7 @@ function RecurringView(props: {
                 const tone =
                   alert.tone === 'red' ? 'bg-red-50 text-red-700 border-red-100' :
                   alert.tone === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                  'bg-[#f6f9d4] text-[var(--accent-hover)] border-[#eef3b8]'
+                  'bg-[var(--accent-soft)] text-[var(--accent-hover)] border-[#eef3b8]'
                 const taskMeetingFiles = task.kind === 'meeting'
                   ? props.meetingFiles.filter((file) => file.recurring_task_id === task.id)
                   : []
@@ -6504,14 +6505,14 @@ function RecurringView(props: {
                 return (
                   <div
                     key={task.id}
-                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[#ede8df] bg-[var(--bg-surface)] opacity-70'}`}
+                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[var(--border)] bg-[var(--bg-surface)] opacity-70'}`}
                   >
                     <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${tone}`}>{alert.label}</span>
                           <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[var(--text-primary)]">{task.title}</h4>
-                          <span className="shrink-0 rounded-full bg-[#eeeae1] px-2.5 py-0.5 text-[11px] font-bold text-[#594e3d]">
+                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[#594e3d]">
                             {recurringKindLabel(task.kind)}
                           </span>
                           <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
@@ -6537,7 +6538,7 @@ function RecurringView(props: {
                               setMeetingArchiveQuery('')
                               setMeetingArchiveOpen(true)
                             }}
-                            className="h-8 rounded-lg border border-[var(--border)] bg-[#f6f9d4] px-2.5 text-xs font-bold text-[var(--accent-hover)]"
+                            className="h-8 rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-2.5 text-xs font-bold text-[var(--accent-hover)]"
                           >
                             Hồ sơ
                           </button>
@@ -6567,7 +6568,7 @@ function RecurringView(props: {
                       </div>
                     </div>
                     {task.description && task.kind === 'meeting' && (
-                      <details className="mt-2 rounded-lg border border-[#ede8df] bg-[var(--bg-surface)] px-3 py-2">
+                      <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
                         <summary className="cursor-pointer text-xs font-extrabold uppercase text-[var(--text-secondary)] outline-none">
                           Chi tiết họp
                         </summary>
@@ -6641,7 +6642,7 @@ function RecurringView(props: {
                                     href={file.file_url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block min-w-0 rounded-lg bg-[var(--bg-surface)] px-2.5 py-2 text-xs font-bold hover:bg-[#ede8df]"
+                                    className="block min-w-0 rounded-lg bg-[var(--bg-surface)] px-2.5 py-2 text-xs font-bold hover:bg-[var(--bg-surface)]"
                                   >
                                     <span className="block truncate">{file.title || file.file_name}</span>
                                     <span className="mt-0.5 block truncate font-normal text-[var(--text-secondary)]">
@@ -6674,7 +6675,7 @@ function RecurringView(props: {
                   Tìm lại recap, lịch sử họp và file đã lưu theo từng lịch họp định kỳ.
                 </p>
               </div>
-              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
+              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
                 <Ico d={IC.x} size={16}/>
               </button>
             </div>
@@ -6701,7 +6702,7 @@ function RecurringView(props: {
                           key={task.id}
                           onClick={() => props.setSelectedMeetingTaskId(task.id)}
                           className={`w-full rounded-xl border px-3 py-2 text-left ${
-                            active ? 'border-[var(--accent)] bg-[#f6f9d4]' : 'border-[#ede8df] bg-[var(--bg-card)] hover:bg-[var(--bg-surface)]'
+                            active ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border)] bg-[var(--bg-card)] hover:bg-[var(--bg-surface)]'
                           }`}
                         >
                           <p className="truncate text-sm font-extrabold">{task.title}</p>
@@ -6766,7 +6767,7 @@ function RecurringView(props: {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[#ede8df] bg-[var(--bg-card)] p-3">
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="font-extrabold">Kho file họp</p>
@@ -6981,7 +6982,7 @@ function AutomationView(props: {
                 {nextTask ? `Sắp tới sẽ theo dõi: ${nextTask.title}` : 'Chưa có lịch định kỳ đang bật.'}
               </p>
             </div>
-            <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">
+            <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">
               Đang bật
             </span>
           </div>
@@ -7007,7 +7008,7 @@ function AutomationView(props: {
 
           {props.result && (
             <div className={`mt-4 rounded-2xl border p-4 text-sm ${
-              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[var(--accent-hover)]'
+              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[var(--accent-soft)] text-[var(--accent-hover)]'
             }`}>
               <p className="font-extrabold">
                 {props.result.ok === false ? 'Kiểm tra lỗi' : 'Kiểm tra xong'}
@@ -7037,7 +7038,7 @@ function AutomationView(props: {
             </button>
             {props.digestResult && (
               <div className={`mt-3 rounded-2xl border p-3 text-sm ${
-                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[#f6f9d4] text-[var(--accent-hover)]'
+                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[var(--accent-soft)] text-[var(--accent-hover)]'
               }`}>
                 <p className="font-extrabold">
                   {props.digestResult.ok === false ? 'Lỗi' : 'Đã gửi'}
@@ -7074,11 +7075,11 @@ function AutomationView(props: {
                       <div>
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${
-                            isError ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[#f6f9d4] text-[var(--accent-hover)]'
+                            isError ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[var(--accent-soft)] text-[var(--accent-hover)]'
                           }`}>
                             {runStatusLabel(run.status)}
                           </span>
-                          <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-bold text-[#594e3d]">
+                          <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-bold text-[#594e3d]">
                             {runSourceLabel(run.source)}
                           </span>
                         </div>
@@ -7101,7 +7102,7 @@ function AutomationView(props: {
                     </div>
 
                     {run.detail?.reminders && run.detail.reminders.length > 0 && (
-                      <div className="mt-3 space-y-2 border-t border-[#ede8df] pt-3">
+                      <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
                         {run.detail.reminders.slice(0, 4).map((item, index) => (
                           <div key={`${run.id}-${index}`} className="rounded-xl bg-[var(--bg-surface)] px-3 py-2 text-sm">
                             <span className="font-bold">{item.title}</span>
@@ -7237,11 +7238,11 @@ function CreatePanel(props: {
       <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">{props.tab === 'project' ? 'Tạo dự án' : 'Tạo đầu việc lớn'}</h3>
-          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 rounded-xl bg-[#ede8df] p-1">
+        <div className="mb-4 grid grid-cols-2 rounded-xl bg-[var(--bg-surface)] p-1">
           <button type="button"
             onClick={() => props.setTab('project')}
             className={`rounded-lg py-2 text-sm font-bold ${props.tab === 'project' ? 'bg-[var(--bg-card)] shadow' : ''}`}
@@ -7383,7 +7384,7 @@ function TaskDetailDrawer(props: {
       <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ede8df] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -7474,9 +7475,9 @@ function MetricCard(props: {
   tone: 'blue' | 'green' | 'purple' | 'red'
 }) {
   const toneMap = {
-    blue:   'bg-[#eeeae1] text-[var(--text-primary)]',
+    blue:   'bg-[var(--bg-surface)] text-[var(--text-primary)]',
     green:  'bg-[#f0f5c4] text-[var(--accent-hover)]',
-    purple: 'bg-[#eeeae1] text-[#594e3d]',
+    purple: 'bg-[var(--bg-surface)] text-[#594e3d]',
     red:    'bg-[#fdf0ee] text-red-600',
   }
   const accentMap = {
@@ -7567,7 +7568,7 @@ function DashboardStepList(props: {
                 type="button"
                 key={step.id}
                 onClick={() => { if (task && props.onTaskClick) props.onTaskClick(task) }}
-                className={`w-full rounded-xl bg-[var(--bg-surface)] p-3 text-left ${task && props.onTaskClick ? 'hover:bg-[#ede8df] cursor-pointer' : 'cursor-default'}`}
+                className={`w-full rounded-xl bg-[var(--bg-surface)] p-3 text-left ${task && props.onTaskClick ? 'hover:bg-[var(--bg-surface)] cursor-pointer' : 'cursor-default'}`}
               >
                 <p className="text-sm font-extrabold">{step.step_title}</p>
                 <p className="mt-1 text-xs text-[var(--text-secondary)]">{task?.title || 'Không rõ đầu việc cha'}</p>
@@ -7592,7 +7593,7 @@ function StatusBadge({ status, label }: { status: string; label: string }) {
             ? 'bg-amber-50 text-amber-700'
             : status === 'overdue'
               ? 'bg-[#FEE2E2] text-[#DC2626]'
-              : 'bg-[#ede8df] text-[var(--text-secondary)]'
+              : 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{label}</span>
 }
@@ -7609,10 +7610,10 @@ function IssueBadge({ issueStatus }: { issueStatus?: string | null }) {
   }
 
   if (value === 'watch') {
-    return <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Cần theo dõi</span>
+    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Cần theo dõi</span>
   }
 
-  return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Ổn</span>
+  return <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Ổn</span>
 }
 
 function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
@@ -7621,7 +7622,7 @@ function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
       ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
       : health.level === 'watch'
         ? 'bg-amber-50 text-amber-700'
-        : 'bg-[#f6f9d4] text-[var(--accent-hover)]'
+        : 'bg-[var(--accent-soft)] text-[var(--accent-hover)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{health.label}</span>
 }
@@ -7660,11 +7661,11 @@ function StepApprovalBadge({ status }: { status: string }) {
   }
 
   if (status === 'approved') {
-    return <span className="rounded-full bg-[#f6f9d4] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Đã duyệt</span>
+    return <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Đã duyệt</span>
   }
 
   if (status === 'pending') {
-    return <span className="rounded-full bg-[#eeeae1] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Chờ duyệt</span>
+    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Chờ duyệt</span>
   }
 
   if (status === 'revision') {

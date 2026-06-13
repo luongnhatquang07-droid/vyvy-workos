@@ -95,29 +95,28 @@ function LoginForm() {
     }
   }
 
-  const inputCls = `w-full h-12 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-input)] px-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)] transition-colors`
+  const inputCls = `w-full h-12 rounded-[var(--radius-sm)] border border-[var(--hair)] bg-[var(--paper)] px-4 text-sm text-[var(--char)] placeholder:text-[var(--greige)] outline-none focus:border-[var(--char)] transition-colors`
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--bg-base)] px-4">
-      {/* Glow blobs */}
-      <div className="pointer-events-none absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[var(--accent)]/5 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 -right-20 h-80 w-80 rounded-full bg-[var(--info)]/5 blur-3xl" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--ivory)] px-4">
+      {/* Subtle texture lines */}
+      <div className="pointer-events-none absolute inset-0 opacity-30" style={{backgroundImage:'repeating-linear-gradient(0deg,transparent,transparent 47px,rgba(25,25,25,0.04) 48px)', backgroundSize:'100% 48px'}} />
 
       <div className="relative w-full max-w-sm">
         {/* Logo */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--accent)] font-display text-2xl text-[var(--on-accent)] shadow-[0_4px_20px_-6px_rgba(218,223,33,0.5)]">
+        <div className="mb-10 flex flex-col items-center gap-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--olive)] font-display text-2xl text-[var(--ivory)] shadow-[0_4px_16px_rgba(45,51,26,0.25)]">
             V
           </div>
           <div className="text-center">
-            <h1 className="font-display text-3xl text-[var(--text-primary)]">VyVy WorkOS</h1>
-            <p className="font-spec mt-2 text-[10px] text-[var(--text-muted)]">The Haute Couture of Care</p>
-            <p className="font-serif-brand mt-2 text-sm italic text-[var(--text-muted)]">Không có từ nào đẹp hơn sự thật.</p>
+            <h1 className="font-display text-3xl text-[var(--char)]">VyVy WorkOS</h1>
+            <p className="font-spec mt-2 text-[10px] text-[var(--greige)]">The Haute Couture of Care</p>
+            <p className="font-serif-brand mt-2 text-sm italic text-[var(--dim)]">Không có từ nào đẹp hơn sự thật.</p>
           </div>
         </div>
 
         {/* Card */}
-        <div className="rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] shadow-[0_24px_64px_-16px_rgba(0,0,0,0.8)]">
+        <div className="rounded-[var(--radius-lg)] border border-[var(--hair)] bg-[var(--paper)] shadow-[0_8px_32px_-8px_rgba(25,25,25,0.12)]">
           {/* Tabs */}
           <div className="flex border-b border-[var(--border)]">
             {(['login', 'signup'] as Tab[]).map((t) => (
@@ -125,10 +124,10 @@ function LoginForm() {
                 key={t}
                 type="button"
                 onClick={() => { setTab(t); setError(''); setSuccess('') }}
-                className={`flex-1 py-3.5 text-sm font-bold transition-colors border-b-2 -mb-px ${
+                className={`flex-1 py-3.5 text-xs font-semibold uppercase tracking-[0.08em] transition-colors border-b-2 -mb-px ${
                   tab === t
-                    ? 'border-[var(--accent)] text-[var(--accent)]'
-                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                    ? 'border-[var(--char)] text-[var(--char)]'
+                    : 'border-transparent text-[var(--greige)] hover:text-[var(--dim)]'
                 }`}
               >
                 {t === 'login' ? 'Đăng nhập' : 'Tạo tài khoản'}
@@ -225,7 +224,7 @@ function LoginForm() {
           </div>
         </div>
 
-        <p className="mt-6 text-center text-xs text-[var(--text-muted)]">
+        <p className="mt-8 text-center font-spec text-[10px] text-[var(--greige)]">
           © {new Date().getFullYear()} VyVyHaircare · Internal Operations Platform
         </p>
       </div>

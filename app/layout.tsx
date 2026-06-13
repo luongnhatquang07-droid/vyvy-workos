@@ -1,12 +1,20 @@
 import type { Metadata } from "next";
-import { Inter, Oswald, EB_Garamond } from "next/font/google";
+import { Be_Vietnam_Pro, Oswald, EB_Garamond, Jost } from "next/font/google";
 import "./globals.css";
 
-// Body — thay thế HN Light/Text (brand book ch.05): thân bài, luôn ≥14px
-const inter = Inter({
+// Body — Be Vietnam Pro (brand book ch.05): thân bài, luôn ≥14px
+const beVietnam = Be_Vietnam_Pro({
   subsets: ["latin", "vietnamese"],
   weight: ["300", "400", "500", "600", "700"],
   variable: "--font-body",
+  display: "swap",
+});
+
+// Labels / eyebrow / nav — Jost: sans mảnh UPPERCASE giãn chữ
+const jost = Jost({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-label",
   display: "swap",
 });
 
@@ -38,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`h-full antialiased ${inter.variable} ${oswald.variable} ${garamond.variable}`}>
+    <html lang="vi" className={`h-full antialiased ${beVietnam.variable} ${oswald.variable} ${garamond.variable} ${jost.variable}`}>
       <body className="min-h-full flex flex-col font-sans">{children}</body>
     </html>
   );
