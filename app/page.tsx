@@ -3561,6 +3561,7 @@ function DashboardView(props: {
               steps={pendingSteps.slice(0, 5)}
               tasks={props.tasks}
               emptyText="Không có bước chờ duyệt."
+              onTaskClick={props.setSelectedTask}
             />
 
             <div className="mt-4">
@@ -3569,6 +3570,7 @@ function DashboardView(props: {
                 steps={revisionSteps.slice(0, 5)}
                 tasks={props.tasks}
                 emptyText="Không có bước cần làm lại."
+                onTaskClick={props.setSelectedTask}
               />
             </div>
           </Card>
@@ -3583,6 +3585,7 @@ function DashboardView(props: {
                 steps={missingReportSteps.slice(0, 5)}
                 tasks={props.tasks}
                 emptyText="Không có bước thiếu báo cáo."
+                onTaskClick={props.setSelectedTask}
               />
             </div>
           </Card>
@@ -5240,6 +5243,7 @@ function TasksView(props: {
             <option value="not_started">Chưa bắt đầu</option>
             <option value="in_progress">Đang làm</option>
             <option value="pending">Pending</option>
+            <option value="pending_approval">Chờ duyệt phân công</option>
             <option value="completed">Hoàn thành</option>
             <option value="overdue">Trễ deadline</option>
           </select>
@@ -6906,6 +6910,7 @@ function DashboardStepList(props: {
   steps: TaskStep[]
   tasks: Task[]
   emptyText: string
+  onTaskClick?: (task: Task) => void
 }) {
   return (
     <div>
@@ -6918,10 +6923,15 @@ function DashboardStepList(props: {
             const task = getTaskByStep(step, props.tasks)
 
             return (
-              <div key={step.id} className="rounded-xl bg-[#faf7f0] p-3">
+              <button
+                type="button"
+                key={step.id}
+                onClick={() => { if (task && props.onTaskClick) props.onTaskClick(task) }}
+                className={`w-full rounded-xl bg-[#faf7f0] p-3 text-left ${task && props.onTaskClick ? 'hover:bg-[#ede8df] cursor-pointer' : 'cursor-default'}`}
+              >
                 <p className="text-sm font-extrabold">{step.step_title}</p>
                 <p className="mt-1 text-xs text-[#6f6b5e]">{task?.title || 'Không rõ đầu việc cha'}</p>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -6938,9 +6948,11 @@ function StatusBadge({ status, label }: { status: string; label: string }) {
         ? 'bg-[#E0F2FE] text-[#0369A1]'
         : status === 'pending'
           ? 'bg-[#EDE9FE] text-[#6D28D9]'
-          : status === 'overdue'
-            ? 'bg-[#FEE2E2] text-[#DC2626]'
-            : 'bg-[#ede8df] text-[#6f6b5e]'
+          : status === 'pending_approval'
+            ? 'bg-amber-50 text-amber-700'
+            : status === 'overdue'
+              ? 'bg-[#FEE2E2] text-[#DC2626]'
+              : 'bg-[#ede8df] text-[#6f6b5e]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{label}</span>
 }
