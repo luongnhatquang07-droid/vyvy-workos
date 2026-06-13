@@ -67,5 +67,8 @@ export async function POST(request: Request) {
   })
   if (linkErr || !linkData) return Response.json({ ok: false, error: linkErr?.message || 'link generation failed' }, { status: 500 })
 
-  return Response.json({ ok: true, link: linkData.properties?.action_link })
+  const rawLink = linkData.properties?.action_link || ''
+  // Replace redirect_to with production URL regardless of Supabase site URL setting
+  const fixedLink = rawLink.replace(/redirect_to=[^&]+/, 'redirect_to=https%3A%2F%2Fvyvy-workos.vercel.app')
+  return Response.json({ ok: true, link: fixedLink })
 }
