@@ -914,6 +914,7 @@ export default function Home() {
   }
 
   // ─── Việc định kỳ + đồng hồ thật ────────────────────────────────────────────
+  const [dbSetupNeeded, setDbSetupNeeded] = useState(false)
   const [recurringTasks, setRecurringTasks] = useState<RecurringTask[]>([])
   const [recurringRuns, setRecurringRuns] = useState<RecurringRun[]>([])
   const [recurringRunResult, setRecurringRunResult] = useState<RecurringRunResult | null>(null)
@@ -931,9 +932,14 @@ export default function Home() {
   const fetchRecurring = useCallback(async () => {
     const { data, error } = await supabase.from('recurring_tasks').select('*').order('created_at')
     if (error) {
+      const msg = (error as { message?: string }).message || ''
+      if (msg.includes('does not exist') || msg.includes('relation') || error.code === '42P01') {
+        setDbSetupNeeded(true)
+      }
       setRecurringTasks([defaultPerformanceMeeting(currentEmployee?.id)])
       return
     }
+    setDbSetupNeeded(false)
     const rows = (data || []) as RecurringTask[]
     const hasPerformanceMeeting = rows.some((task) => task.title === 'Họp Performance')
     setRecurringTasks(hasPerformanceMeeting ? rows : [defaultPerformanceMeeting(currentEmployee?.id), ...rows])
@@ -3214,6 +3220,7 @@ export default function Home() {
 
               {view === 'recurring' && (
                 <RecurringView
+                  dbSetupNeeded={dbSetupNeeded}
                   tasks={recurringTasks}
                   now={now}
                   employees={employees}
@@ -3239,6 +3246,7 @@ export default function Home() {
 
               {view === 'automation' && (
                 <AutomationView
+                  dbSetupNeeded={dbSetupNeeded}
                   tasks={recurringTasks}
                   runs={recurringRuns}
                   now={now}
@@ -5845,7 +5853,73 @@ function RecurringFormPanel(props: {
   )
 }
 
+function DbSetupBanner() {
+  const projectRef = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace('https://', '').split('.')[0]
+  const sql = encodeURIComponent(`create table if not exists public.recurring_tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null, description text, kind text not null default 'task',
+  frequency text not null default 'weekly', weekday int, month_day int,
+  time_of_day text not null default '09:00', assignee_id uuid, recipient_ids uuid[],
+  remind_days_before int not null default 2, remind_minutes_before int not null default 60,
+  is_active boolean not null default true, notified_early_for text, notified_near_for text,
+  created_by uuid, created_at timestamptz not null default now()
+);
+create table if not exists public.recurring_meeting_files (
+  id uuid primary key default gen_random_uuid(),
+  recurring_task_id uuid not null references public.recurring_tasks(id) on delete cascade,
+  meeting_date date, title text, file_name text not null, file_url text not null,
+  file_type text, note text, uploaded_by uuid, created_at timestamptz not null default now()
+);
+create table if not exists public.recurring_task_runs (
+  id uuid primary key default gen_random_uuid(), source text not null default 'cron',
+  status text not null default 'running', scanned int, notifications_sent int,
+  detail jsonb not null default '{}'::jsonb, triggered_by uuid,
+  started_at timestamptz not null default now(), finished_at timestamptz
+);
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(), recipient_id uuid not null, actor_id uuid,
+  type text not null default 'info', title text not null, body text, task_id uuid,
+  project_id uuid, is_read boolean not null default false, created_at timestamptz not null default now()
+);
+alter table public.recurring_tasks enable row level security;
+alter table public.recurring_meeting_files enable row level security;
+alter table public.recurring_task_runs enable row level security;
+alter table public.notifications enable row level security;
+drop policy if exists "recurring_all" on public.recurring_tasks;
+create policy "recurring_all" on public.recurring_tasks for all using (true) with check (true);
+drop policy if exists "recurring_meeting_files_all" on public.recurring_meeting_files;
+create policy "recurring_meeting_files_all" on public.recurring_meeting_files for all using (true) with check (true);
+drop policy if exists "recurring_runs_all" on public.recurring_task_runs;
+create policy "recurring_runs_all" on public.recurring_task_runs for all using (true) with check (true);
+drop policy if exists "notifications_all" on public.notifications;
+create policy "notifications_all" on public.notifications for all using (true) with check (true);
+insert into public.recurring_tasks (title, kind, frequency, weekday, time_of_day, remind_days_before, remind_minutes_before)
+select 'Họp Performance','meeting','weekly',6,'10:00',2,60
+where not exists (select 1 from public.recurring_tasks where title = 'Họp Performance');`)
+  const url = projectRef
+    ? `https://supabase.com/dashboard/project/${projectRef}/sql/new?content=${sql}`
+    : `https://supabase.com/dashboard`
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <span className="mt-0.5 text-amber-500">⚠</span>
+      <div className="flex-1">
+        <p className="text-sm font-bold text-amber-900">Cần khởi tạo database lần đầu</p>
+        <p className="mt-0.5 text-xs text-amber-700">Các bảng cần thiết chưa tồn tại trong Supabase. Bấm nút bên dưới — trang SQL Editor sẽ mở với SQL đã điền sẵn, bấm <strong>Run</strong> là xong.</p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 transition-colors"
+        >
+          Mở Supabase SQL Editor →
+        </a>
+      </div>
+    </div>
+  )
+}
+
 function RecurringView(props: {
+  dbSetupNeeded: boolean
   tasks: RecurringTask[]
   now: Date
   employees: Employee[]
@@ -5915,6 +5989,7 @@ function RecurringView(props: {
 
   return (
     <div className="space-y-4">
+      {props.dbSetupNeeded && <DbSetupBanner />}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <MetricCard
           label="Đang theo dõi"
@@ -6394,6 +6469,7 @@ function RecurringMeetingSummary({ description, compact = false }: { description
 }
 
 function AutomationView(props: {
+  dbSetupNeeded: boolean
   tasks: RecurringTask[]
   runs: RecurringRun[]
   now: Date
@@ -6429,6 +6505,7 @@ function AutomationView(props: {
 
   return (
     <div className="space-y-6">
+      {props.dbSetupNeeded && <DbSetupBanner />}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard
           label="Lịch đang bật"
