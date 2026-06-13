@@ -155,6 +155,38 @@ export default function LoginPage() {
                 >
                   {loading ? 'Đang đăng nhập...' : 'Đăng nhập →'}
                 </button>
+                {searchParams.get('error') === 'no_employee' && (
+                  <button
+                    type="button"
+                    disabled={loading || !email || !password}
+                    onClick={async () => {
+                      setLoading(true)
+                      setError('')
+                      // First sign in to get a valid session token
+                      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+                      if (signInErr || !signInData.session) {
+                        setError('Email hoặc mật khẩu không đúng.')
+                        setLoading(false)
+                        return
+                      }
+                      const res = await fetch('/api/fix-admin', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${signInData.session.access_token}` },
+                      })
+                      const json = await res.json()
+                      setLoading(false)
+                      if (json.ok) {
+                        router.push('/')
+                        router.refresh()
+                      } else {
+                        setError('Không tìm thấy hồ sơ nhân viên. Hãy nhờ Admin thêm email của bạn vào hệ thống.')
+                      }
+                    }}
+                    className="h-10 w-full rounded-xl border border-[#191919] bg-transparent text-xs font-bold text-[#191919] hover:bg-[#191919]/5 disabled:opacity-40"
+                  >
+                    Khôi phục quyền Admin
+                  </button>
+                )}
               </form>
             ) : (
               <form onSubmit={handleSignup} className="space-y-4">
