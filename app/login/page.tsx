@@ -1,19 +1,29 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type Tab = 'login' | 'signup'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<Tab>('login')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    const errorCode = searchParams.get('error')
+    if (errorCode === 'no_employee') {
+      setError('Tài khoản này chưa được thêm vào danh sách nhân viên. Liên hệ Admin để được cấp quyền.')
+    } else if (errorCode === 'inactive') {
+      setError('Tài khoản đã bị vô hiệu hoá. Liên hệ Admin.')
+    }
+  }, [searchParams])
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
