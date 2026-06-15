@@ -9165,8 +9165,9 @@ function filterTasksByRole(
 
   return tasks.filter((task) => {
     // Việc chưa được cấp trên duyệt phân công → người làm chưa thấy
-    if (task.status === 'pending_approval' && !isHead && task.head_id !== emp.id) return false
-    if (task.assignee_id === emp.id || task.head_id === emp.id) return true
+    const isMyHead = task.head_id === emp.id || (task.head_ids || []).includes(emp.id)
+    if (task.status === 'pending_approval' && !isHead && !isMyHead) return false
+    if (task.assignee_id === emp.id || isMyHead) return true
     if (supportedTaskIds.has(task.id)) return true
     if (stepTaskIds.has(task.id)) return true
     if (
