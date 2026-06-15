@@ -1801,7 +1801,7 @@ export default function Home() {
     const rows = (data || []) as Pick<TaskStep, 'id' | 'is_done' | 'approval_status'>[]
     if (rows.length === 0) return
 
-    const done = rows.filter((row) => row.is_done).length
+    const done = rows.filter((row) => row.approval_status === 'approved').length
     const percent = Math.round((done / rows.length) * 100)
     const hasActivity = rows.some((row) => row.is_done || (row.approval_status && row.approval_status !== 'not_submitted'))
 
@@ -8063,8 +8063,8 @@ function calculateTaskProgress(task: Task, taskSteps: TaskStep[]) {
     const approved = taskSteps.filter((step) => step.approval_status === 'approved').length
     return Math.round((approved / taskSteps.length) * 100)
   }
-
-  return task.progress_percent || 0
+  // Không có bước → chỉ 100% khi status hoàn thành, còn lại 0
+  return task.status === 'completed' ? 100 : 0
 }
 
 function calculateWorkstreamProgress(
