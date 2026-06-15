@@ -5229,104 +5229,26 @@ function StepWorkflowCard(props: {
       </div>
 
       <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3">
-        <p className="mb-3 text-sm font-extrabold">Tuyến duyệt: {approvalRoute}</p>
-
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-          <div>
-            <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">Trưởng bộ phận duyệt</p>
-            <Select
-              value={props.step.department_approver_id || props.step.approver_id || ''}
-              onChange={(value) =>
-                props.updateStep(props.step, {
-                  department_approver_id: value || null,
-                  approver_id: value || null,
-                } as Partial<TaskStep>)
-              }
-            >
-              <option value="">Chọn trưởng bộ phận</option>
-              {props.employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employeeSelectLabel(employee)}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm font-bold">
-            <input
-              type="checkbox"
-              checked={Boolean(props.step.requires_coo_approval)}
-              onChange={(event) => toggleCooApproval(event.target.checked)}
-            />
-            <span className="min-w-0">
-              <span>Cần COO duyệt</span>
-              {props.step.requires_coo_approval && (
-                <span className="block truncate text-[11px] font-semibold text-[var(--text-muted)]">
-                  Người duyệt: {cooApprover ? employeeSelectLabel(cooApprover) : 'chưa có COO'}
-                </span>
-              )}
-            </span>
-          </label>
-
-          <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm font-bold">
-            <input
-              type="checkbox"
-              checked={Boolean(props.step.requires_ceo_approval)}
-              onChange={(event) => toggleCeoApproval(event.target.checked)}
-            />
-            <span className="min-w-0">
-              <span>Cần CEO duyệt</span>
-              {props.step.requires_ceo_approval && (
-                <span className="block truncate text-[11px] font-semibold text-[var(--text-muted)]">
-                  Người duyệt: {ceoApprover ? employeeSelectLabel(ceoApprover) : 'chưa có CEO'}
-                </span>
-              )}
-            </span>
-          </label>
-        </div>
-
-        {(props.step.requires_coo_approval || props.step.requires_ceo_approval) && (
-          <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {props.step.requires_coo_approval && (
-              <div>
-                <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">COO duyệt vận hành</p>
-                <Select
-                  value={props.step.coo_approver_id || defaultCooApproverId || ''}
-                  onChange={(value) => props.updateStep(props.step, { coo_approver_id: value || null } as Partial<TaskStep>)}
-                >
-                  <option value="">Chọn COO</option>
-                  {props.employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employeeSelectLabel(employee)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-
-            {props.step.requires_ceo_approval && (
-              <div>
-                <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">CEO duyệt cuối</p>
-                <Select
-                  value={props.step.ceo_approver_id || defaultCeoApproverId || ''}
-                  onChange={(value) => props.updateStep(props.step, { ceo_approver_id: value || null } as Partial<TaskStep>)}
-                >
-                  <option value="">Chọn CEO</option>
-                  {props.employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employeeSelectLabel(employee)}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
-          </div>
+        <p className="mb-2 text-xs font-extrabold text-[var(--text-secondary)]">Người duyệt</p>
+        <Select
+          value={props.step.department_approver_id || props.step.approver_id || ''}
+          onChange={(value) =>
+            props.updateStep(props.step, {
+              department_approver_id: value || null,
+              approver_id: value || null,
+            } as Partial<TaskStep>)
+          }
+        >
+          <option value="">Chọn người duyệt</option>
+          {props.employees.map((employee) => (
+            <option key={employee.id} value={employee.id}>
+              {employeeSelectLabel(employee)}
+            </option>
+          ))}
+        </Select>
+        {departmentApprover && (
+          <p className="mt-1.5 text-xs text-[var(--text-muted)]">Người duyệt: <b className="text-[var(--text-primary)]">{departmentApprover.full_name}</b></p>
         )}
-
-        <p className="mt-2 text-xs text-[var(--text-secondary)]">
-          Người duyệt:{' '}
-          <b>{approvalPeople.map((item) => item.employee ? `${item.employee.full_name}${approvalPeople.length > 1 ? ` (${item.role})` : ''}` : `chưa gắn (${item.role})`).join(' → ')}</b>
-        </p>
       </div>
 
       {props.step.support_request && (
