@@ -4284,6 +4284,9 @@ function CooBoard(props: {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
+  const [boardSearch, setBoardSearch] = useState('')
+  const [boardDeptFilter, setBoardDeptFilter] = useState('')
+  const [boardStatusFilter, setBoardStatusFilter] = useState('')
 
   function toggleProject(id: string) {
     setExpandedProjects((prev) => {
@@ -4309,17 +4312,80 @@ function CooBoard(props: {
     })
   }
 
+  const searchLower = boardSearch.toLowerCase()
+
+  function wsMatchesFilter(ws: Task): boolean {
+    if (boardDeptFilter && ws.department_id !== boardDeptFilter) return false
+    if (boardStatusFilter) {
+      if (boardStatusFilter === 'problem' && !isTaskProblem(ws) && !isTaskOverdue(ws)) return false
+      if (boardStatusFilter !== 'problem' && ws.status !== boardStatusFilter) return false
+    }
+    if (searchLower) {
+      const titleMatch = ws.title.toLowerCase().includes(searchLower)
+      const subtasks = props.tasksByParent.get(ws.id) || []
+      const subtaskMatch = subtasks.some((s) => s.title.toLowerCase().includes(searchLower))
+      if (!titleMatch && !subtaskMatch) return false
+    }
+    return true
+  }
+
   return (
     <div className="space-y-3">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+        <div className="relative flex-1 min-w-[180px]">
+          <Ico d={IC.search} size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            type="text"
+            placeholder="Tìm đầu việc..."
+            className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] pl-8 pr-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+            value={boardSearch}
+            onChange={(e) => setBoardSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 text-sm outline-none"
+          value={boardDeptFilter}
+          onChange={(e) => setBoardDeptFilter(e.target.value)}
+        >
+          <option value="">Tất cả phòng ban</option>
+          {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select
+          className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2 text-sm outline-none"
+          value={boardStatusFilter}
+          onChange={(e) => setBoardStatusFilter(e.target.value)}
+        >
+          <option value="">Tất cả trạng thái</option>
+          <option value="not_started">Chưa bắt đầu</option>
+          <option value="in_progress">Đang thực hiện</option>
+          <option value="completed">Hoàn thành</option>
+          <option value="problem">Có vấn đề / Trễ</option>
+        </select>
+        {(boardSearch || boardDeptFilter || boardStatusFilter) && (
+          <button
+            type="button"
+            onClick={() => { setBoardSearch(''); setBoardDeptFilter(''); setBoardStatusFilter('') }}
+            className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            × Xóa lọc
+          </button>
+        )}
+      </div>
+
       {props.projects.length === 0 ? (
         <Card>
           <EmptyState title="Chưa có dự án" description="Bấm + Tạo mới để thêm dự án." />
         </Card>
       ) : (
         props.projects.map((project) => {
-          const projectWorkstreams = props.workstreams.filter((ws) => ws.project_id === project.id)
-          const projectProgress = calculateProjectProgress(projectWorkstreams, props.tasksByParent, props.stepsByTask)
-          const isProjectExpanded = expandedProjects.has(project.id)
+          const allProjectWorkstreams = props.workstreams.filter((ws) => ws.project_id === project.id)
+          const projectWorkstreams = (boardSearch || boardDeptFilter || boardStatusFilter)
+            ? allProjectWorkstreams.filter(wsMatchesFilter)
+            : allProjectWorkstreams
+          if ((boardSearch || boardDeptFilter || boardStatusFilter) && projectWorkstreams.length === 0) return null
+          const projectProgress = calculateProjectProgress(allProjectWorkstreams, props.tasksByParent, props.stepsByTask)
+          const isProjectExpanded = expandedProjects.has(project.id) || !!(boardSearch || boardDeptFilter || boardStatusFilter)
 
           return (
             <div key={project.id} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
@@ -4337,7 +4403,7 @@ function CooBoard(props: {
                     <div className="flex items-center gap-2">
                       <span className="font-extrabold text-[var(--text-primary)] truncate">{project.name}</span>
                       <span className="shrink-0 rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
-                        {projectWorkstreams.length} đầu việc lớn
+                        {projectWorkstreams.length}{projectWorkstreams.length !== allProjectWorkstreams.length ? `/${allProjectWorkstreams.length}` : ''} đầu việc lớn
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
