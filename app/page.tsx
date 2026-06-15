@@ -2690,11 +2690,14 @@ export default function Home() {
     return map
   }, [tasks])
 
-  const workstreams = tasks.filter((task) => {
-    const isWorkstream = task.task_level === 'workstream' || !task.parent_task_id
-    const matchProject = selectedProjectId === 'all' || task.project_id === selectedProjectId
-    return isWorkstream && matchProject
-  })
+  // Tất cả đầu việc lớn (không lọc theo dự án) — dùng cho cây COO Board
+  const allWorkstreams = tasks.filter(
+    (task) => task.task_level === 'workstream' || !task.parent_task_id
+  )
+
+  const workstreams = allWorkstreams.filter(
+    (task) => selectedProjectId === 'all' || task.project_id === selectedProjectId
+  )
 
   const selectedWorkstream = workstreams.find((task) => task.id === selectedWorkstreamId) || workstreams[0]
   const selectedSubtasks = selectedWorkstream ? tasksByParent.get(selectedWorkstream.id) || [] : []
@@ -3309,7 +3312,7 @@ export default function Home() {
                 <CooBoard
                   projects={visibleProjects}
                   deleteProject={canDeleteTask ? deleteProject : async () => {}}
-                  workstreams={workstreams}
+                  workstreams={allWorkstreams}
                   selectedProjectId={selectedProjectId}
                   setSelectedProjectId={setSelectedProjectId}
                   selectedWorkstream={selectedWorkstream}
