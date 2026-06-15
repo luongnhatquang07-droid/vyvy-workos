@@ -3857,14 +3857,18 @@ function DashboardView(props: {
             {props.urgentTasks.length === 0 ? (
               <p className="text-xs text-[var(--text-muted)] text-center py-4">Không có việc khẩn ✓</p>
             ) : props.urgentTasks.slice(0, 6).map((t) => {
-              const person = props.employeeMap.get(t.assignee_id || t.head_id || '')
+              const head = props.employeeMap.get(t.head_id || '')
+              const assignee = props.employeeMap.get(t.assignee_id || '')
               return (
                 <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                   className="w-full text-left flex items-start gap-3 rounded-[var(--radius)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] p-3 mb-2 hover:border-[var(--danger)]/40 transition-colors">
                   <AlertCircle size={14} className="text-[var(--danger)] mt-0.5 shrink-0"/>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{t.title}</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{person?.full_name || '—'} · {getUrgentReason(t)}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                      <span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {head?.full_name || '—'} · <span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee?.full_name || 'Chưa gán'}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{getUrgentReason(t)}</p>
                   </div>
                 </button>
               )
@@ -4118,10 +4122,11 @@ function CooBoard(props: {
                   ) : (
                     projectWorkstreams.map((ws) => {
                       const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
-                      const wsHead = props.employeeMap.get(ws.head_id || ws.assignee_id || '')
+                      const wsHead = props.employeeMap.get(ws.head_id || '')
                       const wsHeadNames = (ws.head_ids && ws.head_ids.length > 0
                         ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
                         : wsHead ? [wsHead.full_name] : [])
+                      const wsAssignee = props.employeeMap.get(ws.assignee_id || '')
                       const subtasks = props.tasksByParent.get(ws.id) || []
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
@@ -4144,8 +4149,9 @@ function CooBoard(props: {
                                     {subtasks.length} việc con
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-                                  <span>{wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gắn head'}</span>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}</span>
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}</span>
                                   {ws.due_date && <span>· {ws.due_date}</span>}
                                   <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                                 </div>
@@ -4206,6 +4212,7 @@ function CooBoard(props: {
                                   const subtaskProgress = calculateTaskProgress(subtask, stepsForSubtask)
                                   const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
+                                  const subtaskHead = props.employeeMap.get(subtask.head_id || '')
 
                                   return (
                                     <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
@@ -4226,8 +4233,9 @@ function CooBoard(props: {
                                                 {stepsForSubtask.length} bước
                                               </span>
                                             </div>
-                                            <div className="mt-1 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-                                              {subtaskAssignee && <span>{subtaskAssignee.full_name}</span>}
+                                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHead ? subtaskHead.full_name : 'Chưa gán'}</span>
+                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}</span>
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
                                               <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
                                             </div>
@@ -5524,8 +5532,9 @@ function ProjectsView(props: {
                                 const blkRaw = (desc.match(/blocker:\s*(CAN QUYET|CAN SO|CAN BUILD)/) || [])[1]
                                 const blkLabel = blkRaw === 'CAN QUYET' ? 'Cần quyết' : blkRaw === 'CAN SO' ? 'Cần số' : blkRaw === 'CAN BUILD' ? 'Cần build' : ''
                                 const isCrit = /critical-path/.test(desc)
-                                const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
-                                  || (desc.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || ownerM || '—'
+                                const giaoName = props.employeeMap.get(t.head_id || '')?.full_name || '—'
+                                const who = props.employeeMap.get(t.assignee_id || '')?.full_name
+                                  || (desc.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || ownerM || 'Chưa gán'
                                 const st =
                                   t.status === 'completed' ? { dot: 'bg-[var(--success)]', txt: 'Xong', cls: 'text-[var(--success)] bg-[var(--success-soft)]' } :
                                   isTaskOverdue(t) ? { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' } :
@@ -5542,13 +5551,13 @@ function ProjectsView(props: {
                                       <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
                                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
                                     </span>
-                                    {(moduleM || blkLabel || isCrit) && (
-                                      <span className="flex flex-wrap items-center gap-1.5 pl-4">
-                                        {isCrit && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--crit)]">đường găng</span>}
-                                        {blkLabel && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--warn)]">{blkLabel}</span>}
-                                        {moduleM && <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{moduleM}</span>}
-                                      </span>
-                                    )}
+                                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-4 text-[10px] text-[var(--text-muted)]">
+                                      <span><span className="font-spec text-[8px]">GIAO</span> {giaoName}</span>
+                                      <span><span className="font-spec text-[8px]">PHỤ TRÁCH</span> {who}</span>
+                                      {isCrit && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 font-semibold text-[var(--crit)]">đường găng</span>}
+                                      {blkLabel && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 font-semibold text-[var(--warn)]">{blkLabel}</span>}
+                                      {moduleM && <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 font-medium text-[var(--text-secondary)]">{moduleM}</span>}
+                                    </span>
                                   </button>
                                 )
                               })}
@@ -5615,14 +5624,16 @@ function TasksView(props: {
   ]
 
   function exportCsv() {
-    const header = ['Công việc', 'Cấp', 'Head', 'Dự án', 'Deadline', 'Trạng thái', 'Trễ hạn']
+    const header = ['Công việc', 'Cấp', 'Giao việc', 'Phụ trách', 'Dự án', 'Deadline', 'Trạng thái', 'Trễ hạn']
     const rows = filteredTasks.map((task) => {
-      const head = props.employeeMap.get(task.head_id || task.assignee_id || '')
+      const head = props.employeeMap.get(task.head_id || '')
+      const assignee = props.employeeMap.get(task.assignee_id || '')
       const project = props.projectMap.get(task.project_id || '')
       return [
         task.title,
         task.task_level === 'workstream' ? 'Đầu việc lớn' : task.parent_task_id ? 'Đầu việc con' : 'Task',
         head?.full_name || '',
+        assignee?.full_name || '',
         project?.name || '',
         task.due_date || '',
         props.getStatusLabel(task.status),
@@ -5684,7 +5695,8 @@ function TasksView(props: {
                 <tr className="border-b border-[var(--border)] bg-[var(--bg-surface)] text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                   <th className="px-4 py-3">Công việc</th>
                   <th className="px-4 py-3">Cấp</th>
-                  <th className="px-4 py-3">Head</th>
+                  <th className="px-4 py-3">Giao việc</th>
+                  <th className="px-4 py-3">Phụ trách</th>
                   <th className="px-4 py-3">Dự án</th>
                   <th className="px-4 py-3">Deadline</th>
                   <th className="px-4 py-3">Trạng thái</th>
@@ -5694,7 +5706,8 @@ function TasksView(props: {
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {filteredTasks.map((task) => {
-                  const head = props.employeeMap.get(task.head_id || task.assignee_id || '')
+                  const head = props.employeeMap.get(task.head_id || '')
+                  const assignee = props.employeeMap.get(task.assignee_id || '')
                   const project = props.projectMap.get(task.project_id || '')
                   const overdue = isTaskOverdue(task)
                   const problem = isTaskProblem(task)
@@ -5710,6 +5723,7 @@ function TasksView(props: {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">{head?.full_name || <span className="text-[var(--text-muted)]">—</span>}</td>
+                      <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">{assignee?.full_name || <span className="text-[var(--text-muted)]">Chưa gán</span>}</td>
                       <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">{project?.name || <span className="text-[var(--text-muted)]">—</span>}</td>
                       <td className="px-4 py-3 text-sm font-medium">
                         {task.due_date
@@ -7497,7 +7511,7 @@ function TaskDetailDrawer(props: {
   currentEmployee: Employee | null
   employees: Employee[]
 }) {
-  const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
+  const head = props.employeeMap.get(props.task.head_id || '')
   const assignee = props.employeeMap.get(props.task.assignee_id || '')
   const department = props.departmentMap.get(props.task.department_id || '')
   const project = props.projectMap.get(props.task.project_id || '')
@@ -7526,8 +7540,8 @@ function TaskDetailDrawer(props: {
         <div className="mt-6 space-y-4">
           <InfoRow label="Dự án" value={project?.name || 'Chưa gắn'} />
           <InfoRow label="Phòng ban" value={department?.name || 'Chưa gắn'} />
-          <InfoRow label="Head phụ trách" value={head?.full_name || 'Chưa gắn'} />
-          <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gắn'} />
+          <InfoRow label="Người giao việc (Head)" value={head?.full_name || 'Chưa gán'} />
+          <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gán'} />
           <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
 
           {props.currentEmployee && (
