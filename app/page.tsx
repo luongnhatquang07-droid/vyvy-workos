@@ -53,6 +53,62 @@ async function pushNotify(rows: Array<{
   if (error) console.warn('pushNotify failed (bảng notifications đã tạo chưa?):', error.message)
 }
 
+type DbMutationError = { message?: string | null; details?: string | null; hint?: string | null; code?: string | null }
+type DbPayload = Record<string, unknown>
+
+function isSchemaCacheColumnError(error: DbMutationError | null | undefined, tableName: string) {
+  if (!error) return false
+  const text = [error.message, error.details, error.hint, error.code].filter(Boolean).join(' ')
+  return text.includes('schema cache') && text.includes(tableName) && text.includes('Could not find')
+}
+
+const TASK_STEP_MATRIX_COLUMNS = [
+  'department_approver_id',
+  'coo_approver_id',
+  'ceo_approver_id',
+  'requires_coo_approval',
+  'requires_ceo_approval',
+  'approval_stage',
+  'department_approval_status',
+  'coo_approval_status',
+  'ceo_approval_status',
+  'department_approval_note',
+  'coo_approval_note',
+  'ceo_approval_note',
+  'department_approved_at',
+  'coo_approved_at',
+  'ceo_approved_at',
+]
+
+function toLegacyTaskStepPayload(payload: DbPayload) {
+  const next = { ...payload }
+  if (!next.approver_id && typeof next.department_approver_id === 'string') {
+    next.approver_id = next.department_approver_id
+  }
+  TASK_STEP_MATRIX_COLUMNS.forEach((key) => {
+    delete next[key]
+  })
+  return next
+}
+
+async function insertTaskStepsCompat(payload: DbPayload | DbPayload[]) {
+  const result = await supabase.from('task_steps').insert(payload)
+  if (!isSchemaCacheColumnError(result.error, 'task_steps')) return result
+
+  const fallback = Array.isArray(payload)
+    ? payload.map((item) => toLegacyTaskStepPayload(item))
+    : toLegacyTaskStepPayload(payload)
+
+  return supabase.from('task_steps').insert(fallback)
+}
+
+async function updateTaskStepCompat(stepId: string, patch: DbPayload) {
+  const result = await supabase.from('task_steps').update(patch).eq('id', stepId)
+  if (!isSchemaCacheColumnError(result.error, 'task_steps')) return result
+
+  return supabase.from('task_steps').update(toLegacyTaskStepPayload(patch)).eq('id', stepId)
+}
+
 type Department = {
   id: string
   code: string
@@ -142,6 +198,8 @@ type TaskStep = {
   note: string | null
   approval_status: string | null
   approval_note: string | null
+  submitted_at: string | null
+  approved_at: string | null
   department_approver_id: string | null
   coo_approver_id: string | null
   ceo_approver_id: string | null
@@ -196,6 +254,8 @@ type StepComment = {
     full_name: string
   } | null
 }
+
+type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
 type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin'
 
@@ -1136,6 +1196,21 @@ export default function Home() {
     return () => window.clearInterval(t)
   }, [])
 
+  useEffect(() => {
+    const refreshWhenActive = () => fetchAllRef.current?.({ silent: true })
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshWhenActive()
+    }
+
+    window.addEventListener('focus', refreshWhenActive)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      window.removeEventListener('focus', refreshWhenActive)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [])
+
   // Khi vào view "Việc định kỳ" → tự đánh dấu đã đọc các thông báo recurring_reminder
   useEffect(() => {
     if (view !== 'recurring') return
@@ -1679,7 +1754,7 @@ export default function Home() {
     const cooApproverId = getCooApprover(employees)
     const ceoApproverId = getCeoApprover(employees)
 
-    const { error } = await supabase.from('task_steps').insert({
+    const { error } = await insertTaskStepsCompat({
       task_id: taskId,
       step_title: stepForm.title.trim(),
       step_order: nextOrder,
@@ -1758,7 +1833,11 @@ export default function Home() {
   }
 
   async function updateTaskHead(taskId: string, headIds: string[]) {
-    const { error } = await supabase.from('tasks').update({ head_ids: headIds, head_id: headIds[0] || null }).eq('id', taskId)
+    const result = await supabase.from('tasks').update({ head_ids: headIds, head_id: headIds[0] || null }).eq('id', taskId)
+    const fallback = isSchemaCacheColumnError(result.error, 'tasks')
+      ? await supabase.from('tasks').update({ head_id: headIds[0] || null }).eq('id', taskId)
+      : result
+    const { error } = fallback
     if (error) {
       console.error(error)
       toast('Cập nhật người giao việc lỗi.', 'error')
@@ -1788,6 +1867,22 @@ export default function Home() {
       }])
     }
     toast('Đã cập nhật người phụ trách.', 'success')
+    await refreshDataSilent()
+  }
+
+  async function updateTaskDescription(taskId: string, description: string) {
+    const { error } = await supabase
+      .from('tasks')
+      .update({ description: description.trim() || null })
+      .eq('id', taskId)
+
+    if (error) {
+      console.error(error)
+      toast('Lưu mô tả đầu việc bị lỗi.', 'error')
+      return
+    }
+
+    toast('Đã lưu mô tả đầu việc.', 'success')
     await refreshDataSilent()
   }
 
@@ -1855,7 +1950,7 @@ export default function Home() {
   }
 
   async function updateStep(step: TaskStep, patch: Partial<TaskStep>) {
-    const { error } = await supabase.from('task_steps').update(patch).eq('id', step.id)
+    const { error } = await updateTaskStepCompat(step.id, patch as DbPayload)
 
     if (error) {
       console.error(error)
@@ -1929,6 +2024,14 @@ export default function Home() {
   async function approveCurrentStage(step: TaskStep) {
     if (!canApproveStep(step)) {
       toast('Bạn không có quyền duyệt bước này — chỉ người duyệt cấp trên mới được.', 'warning')
+      return
+    }
+    if (step.approval_status !== 'pending') {
+      toast('Bước chưa được người thực hiện gửi duyệt.', 'warning')
+      return
+    }
+    if (!step.report_file_url && !step.report_link && !step.note?.trim()) {
+      toast('Bước chưa có báo cáo (file, link hoặc ghi chú kết quả). Yêu cầu người thực hiện cập nhật trước.', 'warning')
       return
     }
     const now = new Date().toISOString()
@@ -2036,15 +2139,12 @@ export default function Home() {
           ? { ceo_approval_status: 'revision', ceo_approval_note: note }
           : { department_approval_status: 'revision', department_approval_note: note }
 
-    const { error } = await supabase
-      .from('task_steps')
-      .update({
-        is_done: false,
-        approval_status: 'revision',
-        approval_note: note,
-        ...stagePatch,
-      })
-      .eq('id', step.id)
+    const { error } = await updateTaskStepCompat(step.id, {
+      is_done: false,
+      approval_status: 'revision',
+      approval_note: note,
+      ...stagePatch,
+    })
 
     if (error) {
       console.error(error)
@@ -2085,7 +2185,7 @@ export default function Home() {
     await refreshDataSilent()
   }
 
-  async function addComment(stepId: string, content?: string, type = 'comment') {
+  async function addComment(stepId: string, content?: string, type = 'comment', mentionedEmployeeIds: string[] = []) {
     const text = (content || commentDrafts[stepId] || '').trim()
     if (!text) return
 
@@ -2103,6 +2203,25 @@ export default function Home() {
     }
 
     setCommentDrafts((current) => ({ ...current, [stepId]: '' }))
+    const mentionedIds = Array.from(new Set([
+      ...mentionedEmployeeIds,
+      ...getMentionedEmployeeIds(text, employees),
+    ])).filter((id) => id && id !== currentEmployee?.id)
+    const step = steps.find((item) => item.id === stepId)
+
+    if (mentionedIds.length > 0) {
+      const mentionTitle = type === 'support_request'
+        ? `${currentEmployee?.full_name || 'Có người'} đã tag bạn trong yêu cầu hỗ trợ`
+        : `${currentEmployee?.full_name || 'Có người'} đã tag bạn trong bình luận`
+      await pushNotify(mentionedIds.map((recipient_id) => ({
+        recipient_id,
+        actor_id: currentEmployee?.id || null,
+        type: 'comment_mention',
+        title: mentionTitle,
+        body: text.slice(0, 160),
+        task_id: step?.task_id || null,
+      })))
+    }
     await fetchComments()
   }
 
@@ -2587,7 +2706,7 @@ export default function Home() {
           approval_status: 'not_submitted',
         }))
 
-        const { error: stepsError } = await supabase.from('task_steps').insert(stepRows)
+        const { error: stepsError } = await insertTaskStepsCompat(stepRows)
 
         if (stepsError) {
           console.error(stepsError)
@@ -3385,6 +3504,7 @@ export default function Home() {
                   setSelectedProjectId={setSelectedProjectId}
                   setSelectedTask={setSelectedTask}
                   currentEmployee={currentEmployee}
+                  onRefresh={() => fetchAll({ silent: true })}
                 />
               )}
 
@@ -3432,8 +3552,9 @@ export default function Home() {
                   createStep={createStep}
                   updateTaskStatus={updateTaskStatus}
                   updateIssueStatus={updateIssueStatus}
-updateTaskHead={updateTaskHead}
+                  updateTaskHead={updateTaskHead}
                   updateTaskAssignee={updateTaskAssignee}
+                  updateTaskDescription={updateTaskDescription}
                   updateStep={updateStep}
                   submitStep={submitStep}
                   approveStep={approveCurrentStage}
@@ -3731,9 +3852,11 @@ function DashboardView(props: {
   setSelectedProjectId: (id: string) => void
   setSelectedTask: (task: Task) => void
   currentEmployee: Employee | null
+  onRefresh: () => Promise<void> | void
 }) {
   const { tasks, currentEmployee } = props
   const isAdmin = currentEmployee?.role === 'admin' || currentEmployee?.role === 'coo' || currentEmployee?.role === 'ceo'
+  const [refreshing, setRefreshing] = useState(false)
 
   const total = tasks.length
   const done = tasks.filter((t) => t.status === 'completed').length
@@ -3767,7 +3890,11 @@ function DashboardView(props: {
   ].filter((d) => d.value > 0)
 
   // Workload bar data (top 8)
-  const workloadData = props.peopleReports.slice(0, 8).map((r) => ({
+  const activePeopleReports = props.peopleReports
+    .filter((row) => row.employee.status !== 'inactive')
+    .sort((a, b) => b.total - a.total || b.overdue - a.overdue || b.doing - a.doing)
+
+  const workloadData = activePeopleReports.slice(0, 8).map((r) => ({
     name: r.employee.full_name.split(' ').slice(-1)[0],
     done: r.done,
     doing: r.doing,
@@ -3776,8 +3903,29 @@ function DashboardView(props: {
 
   const cardCls = 'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5'
 
+  async function refreshDashboard() {
+    setRefreshing(true)
+    try {
+      await props.onRefresh()
+      toast('Đã làm mới số liệu thống kê.')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={refreshDashboard}
+          disabled={refreshing}
+          className="inline-flex h-9 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-60"
+        >
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Đang làm mới' : 'Làm mới số liệu'}
+        </button>
+      </div>
 
       {/* ── Employee: Việc của tôi hôm nay ── */}
       {!isAdmin && currentEmployee && (
@@ -3888,27 +4036,31 @@ function DashboardView(props: {
           </div>
 
           {/* ── Workload table (admin only) ── */}
-          {isAdmin && props.peopleReports.length > 0 && (
+          {isAdmin && (
             <div className={cardCls}>
               <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng theo nhân sự</p>
-              <div className="space-y-2">
-                {props.peopleReports.map((row) => (
-                  <div key={row.employee.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-surface)] px-4 py-3">
-                    <Avatar name={row.employee.full_name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
-                      <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
-                        <span className="text-[var(--success)]">{row.done} xong</span>
-                        <span className="text-[var(--umber)]">{row.doing} đang làm</span>
-                        {row.overdue > 0 && <span className="text-[var(--danger)]">{row.overdue} trễ</span>}
+              {activePeopleReports.length === 0 ? (
+                <p className="text-center text-sm text-[var(--text-muted)] py-6">Chưa có ai được gắn việc.</p>
+              ) : (
+                <div className="space-y-2">
+                  {activePeopleReports.map((row) => (
+                    <div key={row.employee.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-surface)] px-4 py-3">
+                      <Avatar name={row.employee.full_name} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
+                        <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
+                          <span className="text-[var(--success)]">{row.done} xong</span>
+                          <span className="text-[var(--umber)]">{row.doing} đang làm</span>
+                          {row.overdue > 0 && <span className="text-[var(--danger)]">{row.overdue} trễ</span>}
+                        </div>
+                      </div>
+                      <div className="w-24 shrink-0">
+                        <ProgressBar value={row.rate} showLabel />
                       </div>
                     </div>
-                    <div className="w-24 shrink-0">
-                      <ProgressBar value={row.rate} showLabel />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -4084,6 +4236,7 @@ function CooBoard(props: {
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
   updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
+  updateTaskDescription: (taskId: string, description: string) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
@@ -4099,7 +4252,7 @@ function CooBoard(props: {
   saveSupportRequest: (step: TaskStep) => void
   commentDrafts: Record<string, string>
   setCommentDrafts: (value: Record<string, string>) => void
-  addComment: (stepId: string) => void
+  addComment: AddStepComment
   uploadStepFile: (step: TaskStep, file?: File) => void
   deleteTask: (task: Task) => void
   deleteStep: (step: TaskStep) => void
@@ -4248,6 +4401,11 @@ function CooBoard(props: {
                                   {ws.due_date && <span>· {ws.due_date}</span>}
                                   <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                                 </div>
+                                {ws.description && (
+                                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
+                                    <span className="font-spec text-[9px]">MÔ TẢ</span> {ws.description}
+                                  </p>
+                                )}
                               </div>
                             </button>
                             <div className="flex shrink-0 items-center gap-1.5">
@@ -4347,6 +4505,11 @@ function CooBoard(props: {
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
                                               <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
                                             </div>
+                                            {subtask.description && (
+                                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
+                                                <span className="font-spec text-[9px]">MÔ TẢ</span> {subtask.description}
+                                              </p>
+                                            )}
                                           </div>
                                         </button>
                                         <div className="flex shrink-0 items-center gap-1.5">
@@ -4406,6 +4569,7 @@ function CooBoard(props: {
                                             updateIssueStatus={props.updateIssueStatus}
                                             updateTaskHead={props.updateTaskHead}
                                             updateTaskAssignee={props.updateTaskAssignee}
+                                            updateTaskDescription={props.updateTaskDescription}
                                             updateStep={props.updateStep}
                                             submitStep={props.submitStep}
                                             approveStep={props.approveStep}
@@ -4495,7 +4659,7 @@ function InlineSubtaskForm(props: {
           <option value="">Chọn Head</option>
           {props.employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
-              {employee.full_name}
+              {employeeSelectLabel(employee)}
             </option>
           ))}
         </Select>
@@ -4565,6 +4729,7 @@ function SubtaskCard(props: {
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
   updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
+  updateTaskDescription: (taskId: string, description: string) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
@@ -4579,7 +4744,7 @@ function SubtaskCard(props: {
   saveSupportRequest: (step: TaskStep) => void
   commentDrafts: Record<string, string>
   setCommentDrafts: (value: Record<string, string>) => void
-  addComment: (stepId: string) => void
+  addComment: AddStepComment
   uploadStepFile: (step: TaskStep, file?: File) => void
   deleteTask: (task: Task) => void
   deleteStep: (step: TaskStep) => void
@@ -4596,6 +4761,11 @@ function SubtaskCard(props: {
   const slow = isTaskSlow(props.task, props.steps)
   const overdue = isTaskOverdue(props.task)
   const problem = isTaskProblem(props.task)
+  const [descriptionDraft, setDescriptionDraft] = useState(props.task.description || '')
+
+  useEffect(() => {
+    setDescriptionDraft(props.task.description || '')
+  }, [props.task.id, props.task.description])
 
   return (
     <div className={`rounded-2xl border bg-[var(--bg-card)] p-5 shadow-sm ${overdue || problem ? 'border-[var(--danger)]/30' : 'border-[var(--border)]'}`}>
@@ -4685,6 +4855,26 @@ function SubtaskCard(props: {
         <ProgressBar value={progress} />
       </div>
 
+      <div className="mb-4 rounded-2xl bg-[var(--bg-surface)] p-4">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <p className="text-sm font-extrabold">Mô tả đầu việc</p>
+          <button
+            type="button"
+            disabled={descriptionDraft.trim() === (props.task.description || '').trim()}
+            onClick={() => props.updateTaskDescription(props.task.id, descriptionDraft)}
+            className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] disabled:opacity-40"
+          >
+            Lưu mô tả
+          </button>
+        </div>
+        <textarea
+          value={descriptionDraft}
+          onChange={(event) => setDescriptionDraft(event.target.value)}
+          placeholder="Nhập mục tiêu, phạm vi, yêu cầu đầu ra hoặc ghi chú cho đầu việc này..."
+          className="min-h-20 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-6 outline-none focus:border-[var(--accent-hover)]"
+        />
+      </div>
+
       <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
         <div className="mb-3 flex items-center justify-between">
           <p className="font-extrabold">Các bước thực hiện & duyệt</p>
@@ -4718,10 +4908,12 @@ function SubtaskCard(props: {
               return (
                 <StepWorkflowCard
                   key={step.id}
+                  task={props.task}
                   step={step}
                   locked={locked}
                   employees={props.employees}
                   employeeMap={props.employeeMap}
+                  supporters={props.supporters}
                   comments={props.commentsByStep.get(step.id) || []}
                   updateStep={props.updateStep}
                   submitStep={props.submitStep}
@@ -4833,11 +5025,60 @@ function InlineStepForm(props: {
   )
 }
 
+function getActiveMentionQuery(text: string) {
+  const match = text.match(/(?:^|\s)@([^\s@]*)$/)
+  return match ? match[1] : null
+}
+
+function insertMentionText(text: string, employee: Employee) {
+  const label = `@${employee.full_name}`
+  const next = text.replace(/(^|\s)@([^\s@]*)$/, (_match, prefix) => `${prefix}${label} `)
+  return next === text ? `${text}${text.endsWith(' ') || text.length === 0 ? '' : ' '}${label} ` : next
+}
+
+function getMentionedEmployeeIds(text: string, employees: Employee[]) {
+  const normalizedText = normalizeSearchText(text)
+
+  return employees
+    .filter((employee) => {
+      const normalizedName = normalizeSearchText(employee.full_name)
+      const nameParts = normalizedName.split(/\s+/).filter((part) => part.length >= 2)
+      return (
+        normalizedText.includes(`@${normalizedName}`) ||
+        nameParts.some((part) => normalizedText.includes(`@${part}`))
+      )
+    })
+    .map((employee) => employee.id)
+}
+
+function getRelatedCommentPeople(task: Task, step: TaskStep, supporters: TaskSupporter[], employeeMap: Map<string, Employee>) {
+  const ids = new Set<string>()
+  if (task.head_id) ids.add(task.head_id)
+  ;(task.head_ids || []).forEach((id) => ids.add(id))
+  if (task.assignee_id) ids.add(task.assignee_id)
+  supporters.forEach((supporter) => ids.add(supporter.employee_id))
+  ;[
+    step.owner_id,
+    step.approver_id,
+    step.department_approver_id,
+    step.coo_approver_id,
+    step.ceo_approver_id,
+  ].forEach((id) => {
+    if (id) ids.add(id)
+  })
+
+  return Array.from(ids)
+    .map((id) => employeeMap.get(id))
+    .filter((employee): employee is Employee => Boolean(employee))
+}
+
 function StepWorkflowCard(props: {
+  task: Task
   step: TaskStep
   locked: boolean
   employees: Employee[]
   employeeMap: Map<string, Employee>
+  supporters: TaskSupporter[]
   comments: StepComment[]
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
@@ -4854,19 +5095,84 @@ function StepWorkflowCard(props: {
   saveSupportRequest: (step: TaskStep) => void
   commentDrafts: Record<string, string>
   setCommentDrafts: (value: Record<string, string>) => void
-  addComment: (stepId: string) => void
+  addComment: AddStepComment
   uploadStepFile: (step: TaskStep, file?: File) => void
   deleteStep: (step: TaskStep) => void
   clearStepFile: (step: TaskStep) => void
 }) {
   const owner = props.employeeMap.get(props.step.owner_id || '')
   const departmentApprover = props.employeeMap.get(props.step.department_approver_id || props.step.approver_id || '')
-  const cooApprover = props.employeeMap.get(props.step.coo_approver_id || '')
-  const ceoApprover = props.employeeMap.get(props.step.ceo_approver_id || '')
+  const defaultCooApproverId = getCooApprover(props.employees)
+  const defaultCeoApproverId = getCeoApprover(props.employees)
+  const cooApprover = props.employeeMap.get(props.step.coo_approver_id || defaultCooApproverId || '')
+  const ceoApprover = props.employeeMap.get(props.step.ceo_approver_id || defaultCeoApproverId || '')
   const status = props.step.approval_status || 'not_submitted'
   const stage = props.step.approval_stage || 'department'
   const approvalRoute = buildApprovalRoute(props.step)
   const approveButtonLabel = getApproveButtonLabel(stage)
+  const commentDraft = props.commentDrafts[props.step.id] || ''
+  const supportDraft = props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''
+  const relatedPeople = useMemo(
+    () => getRelatedCommentPeople(props.task, props.step, props.supporters, props.employeeMap),
+    [props.task, props.step, props.supporters, props.employeeMap]
+  )
+  const relatedPeopleIds = new Set(relatedPeople.map((employee) => employee.id))
+  const mentionSource = [
+    ...relatedPeople,
+    ...props.employees.filter((employee) => !relatedPeopleIds.has(employee.id)),
+  ]
+  const commentMentionQuery = getActiveMentionQuery(commentDraft)
+  const supportMentionQuery = getActiveMentionQuery(supportDraft)
+  const commentMentionOptions = commentMentionQuery === null
+    ? []
+    : mentionSource
+        .filter((employee) => normalizeSearchText(employee.full_name).includes(normalizeSearchText(commentMentionQuery)))
+        .slice(0, 8)
+  const supportMentionOptions = supportMentionQuery === null
+    ? []
+    : mentionSource
+        .filter((employee) => normalizeSearchText(employee.full_name).includes(normalizeSearchText(supportMentionQuery)))
+        .slice(0, 8)
+
+  function setCommentDraft(value: string) {
+    props.setCommentDrafts({
+      ...props.commentDrafts,
+      [props.step.id]: value,
+    })
+  }
+
+  function setSupportDraft(value: string) {
+    props.setSupportDrafts({
+      ...props.supportDrafts,
+      [props.step.id]: value,
+    })
+  }
+
+  function sendComment() {
+    props.addComment(props.step.id, undefined, 'comment', getMentionedEmployeeIds(commentDraft, props.employees))
+  }
+
+  function toggleCooApproval(checked: boolean) {
+    props.updateStep(props.step, {
+      requires_coo_approval: checked,
+      coo_approver_id: checked ? props.step.coo_approver_id || defaultCooApproverId || null : null,
+      coo_approval_status: checked ? 'not_submitted' : 'not_required',
+    } as Partial<TaskStep>)
+  }
+
+  function toggleCeoApproval(checked: boolean) {
+    props.updateStep(props.step, {
+      requires_ceo_approval: checked,
+      ceo_approver_id: checked ? props.step.ceo_approver_id || defaultCeoApproverId || null : null,
+      ceo_approval_status: checked ? 'not_submitted' : 'not_required',
+    } as Partial<TaskStep>)
+  }
+
+  const approvalPeople = [
+    { role: 'Trưởng bộ phận', employee: departmentApprover },
+    ...(props.step.requires_coo_approval ? [{ role: 'COO', employee: cooApprover }] : []),
+    ...(props.step.requires_ceo_approval ? [{ role: 'CEO', employee: ceoApprover }] : []),
+  ]
 
   return (
     <div className={`rounded-2xl border bg-[var(--bg-card)] p-4 ${props.locked ? 'opacity-60' : ''}`}>
@@ -4940,7 +5246,7 @@ function StepWorkflowCard(props: {
               <option value="">Chọn trưởng bộ phận</option>
               {props.employees.map((employee) => (
                 <option key={employee.id} value={employee.id}>
-                  {employee.full_name}
+                  {employeeSelectLabel(employee)}
                 </option>
               ))}
             </Select>
@@ -4950,28 +5256,32 @@ function StepWorkflowCard(props: {
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_coo_approval)}
-              onChange={(event) =>
-                props.updateStep(props.step, {
-                  requires_coo_approval: event.target.checked,
-                  coo_approval_status: event.target.checked ? 'not_submitted' : 'not_required',
-                } as Partial<TaskStep>)
-              }
+              onChange={(event) => toggleCooApproval(event.target.checked)}
             />
-            Cần COO duyệt
+            <span className="min-w-0">
+              <span>Cần COO duyệt</span>
+              {props.step.requires_coo_approval && (
+                <span className="block truncate text-[11px] font-semibold text-[var(--text-muted)]">
+                  Người duyệt: {cooApprover ? employeeSelectLabel(cooApprover) : 'chưa có COO'}
+                </span>
+              )}
+            </span>
           </label>
 
           <label className="flex min-h-12 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm font-bold">
             <input
               type="checkbox"
               checked={Boolean(props.step.requires_ceo_approval)}
-              onChange={(event) =>
-                props.updateStep(props.step, {
-                  requires_ceo_approval: event.target.checked,
-                  ceo_approval_status: event.target.checked ? 'not_submitted' : 'not_required',
-                } as Partial<TaskStep>)
-              }
+              onChange={(event) => toggleCeoApproval(event.target.checked)}
             />
-            Cần CEO duyệt
+            <span className="min-w-0">
+              <span>Cần CEO duyệt</span>
+              {props.step.requires_ceo_approval && (
+                <span className="block truncate text-[11px] font-semibold text-[var(--text-muted)]">
+                  Người duyệt: {ceoApprover ? employeeSelectLabel(ceoApprover) : 'chưa có CEO'}
+                </span>
+              )}
+            </span>
           </label>
         </div>
 
@@ -4981,13 +5291,13 @@ function StepWorkflowCard(props: {
               <div>
                 <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">COO duyệt vận hành</p>
                 <Select
-                  value={props.step.coo_approver_id || ''}
+                  value={props.step.coo_approver_id || defaultCooApproverId || ''}
                   onChange={(value) => props.updateStep(props.step, { coo_approver_id: value || null } as Partial<TaskStep>)}
                 >
                   <option value="">Chọn COO</option>
                   {props.employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
-                      {employee.full_name}
+                      {employeeSelectLabel(employee)}
                     </option>
                   ))}
                 </Select>
@@ -4998,13 +5308,13 @@ function StepWorkflowCard(props: {
               <div>
                 <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">CEO duyệt cuối</p>
                 <Select
-                  value={props.step.ceo_approver_id || ''}
+                  value={props.step.ceo_approver_id || defaultCeoApproverId || ''}
                   onChange={(value) => props.updateStep(props.step, { ceo_approver_id: value || null } as Partial<TaskStep>)}
                 >
                   <option value="">Chọn CEO</option>
                   {props.employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
-                      {employee.full_name}
+                      {employeeSelectLabel(employee)}
                     </option>
                   ))}
                 </Select>
@@ -5013,16 +5323,9 @@ function StepWorkflowCard(props: {
           </div>
         )}
 
-        <div className="mt-3 grid grid-cols-1 gap-2 text-sm xl:grid-cols-3">
-          <ApprovalStatusPill label="Trưởng bộ phận" status={props.step.department_approval_status || status} />
-          <ApprovalStatusPill label="COO" status={props.step.coo_approval_status || 'not_required'} />
-          <ApprovalStatusPill label="CEO" status={props.step.ceo_approval_status || 'not_required'} />
-        </div>
-
         <p className="mt-2 text-xs text-[var(--text-secondary)]">
-          Người duyệt: Trưởng bộ phận {departmentApprover?.full_name || 'chưa gắn'}
-          {props.step.requires_coo_approval ? ` · COO ${cooApprover?.full_name || 'chưa gắn'}` : ''}
-          {props.step.requires_ceo_approval ? ` · CEO ${ceoApprover?.full_name || 'chưa gắn'}` : ''}
+          Người duyệt:{' '}
+          <b>{approvalPeople.map((item) => item.employee ? `${item.employee.full_name}${approvalPeople.length > 1 ? ` (${item.role})` : ''}` : `chưa gắn (${item.role})`).join(' → ')}</b>
         </p>
       </div>
 
@@ -5110,23 +5413,51 @@ function StepWorkflowCard(props: {
         </div>
 
         <div className="rounded-xl bg-[var(--bg-surface)] p-3">
-          <p className="mb-2 text-sm font-extrabold">Bình luận / cần hỗ trợ</p>
+          <p className="mb-1 text-sm font-extrabold">Bình luận / tag người liên quan</p>
+          {relatedPeople.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1 text-[10px] text-[var(--text-muted)]">
+              <span className="font-bold">Liên quan:</span>
+              {relatedPeople.slice(0, 4).map((employee) => (
+                <span key={employee.id} className="rounded-full bg-[var(--bg-card)] px-2 py-0.5">
+                  {employee.full_name}
+                </span>
+              ))}
+              {relatedPeople.length > 4 && <span>+{relatedPeople.length - 4}</span>}
+            </div>
+          )}
 
-          <div className="mb-3 flex gap-2">
-            <input
-              className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
-              placeholder="VD: Em cần công cụ hỗ trợ... (Enter để lưu)"
-              value={props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''}
-              onChange={(event) =>
-                props.setSupportDrafts({
-                  ...props.supportDrafts,
-                  [props.step.id]: event.target.value,
-                })
-              }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') props.saveSupportRequest(props.step)
-              }}
-            />
+          <div className="relative mb-3 flex gap-2">
+            <div className="relative flex-1">
+              <input
+                className="h-9 w-full rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
+                placeholder="VD: @Quang em cần công cụ hỗ trợ... (Enter để lưu)"
+                value={supportDraft}
+                onChange={(event) => setSupportDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  props.saveSupportRequest(props.step)
+                }}
+              />
+              {supportMentionOptions.length > 0 && (
+                <div className="absolute bottom-10 left-0 z-20 w-full max-w-[320px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)] shadow-lg">
+                  <p className="px-3 py-2 text-[10px] font-extrabold uppercase text-[var(--text-muted)]">
+                    Tag người hỗ trợ
+                  </p>
+                  {supportMentionOptions.map((employee) => (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() => setSupportDraft(insertMentionText(supportDraft, employee))}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+                    >
+                      <Avatar name={employee.full_name} size="sm" />
+                      <span className="min-w-0 truncate">{employee.full_name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="button"
               onClick={() => props.saveSupportRequest(props.step)}
               className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
@@ -5148,23 +5479,40 @@ function StepWorkflowCard(props: {
             )}
           </div>
 
-          <div className="flex gap-2">
-            <input
-              className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
-              placeholder="Nhập bình luận... (Enter để gửi)"
-              value={props.commentDrafts[props.step.id] || ''}
-              onChange={(event) =>
-                props.setCommentDrafts({
-                  ...props.commentDrafts,
-                  [props.step.id]: event.target.value,
-                })
-              }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') props.addComment(props.step.id)
-              }}
-            />
+          <div className="relative flex gap-2">
+            <div className="relative flex-1">
+              <input
+                className="h-9 w-full rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
+                placeholder="Nhập bình luận, dùng @ để tag người... (Enter để gửi)"
+                value={commentDraft}
+                onChange={(event) => setCommentDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  sendComment()
+                }}
+              />
+              {commentMentionOptions.length > 0 && (
+                <div className="absolute bottom-10 left-0 z-20 w-full max-w-[320px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)] shadow-lg">
+                  <p className="px-3 py-2 text-[10px] font-extrabold uppercase text-[var(--text-muted)]">
+                    Tag người
+                  </p>
+                  {commentMentionOptions.map((employee) => (
+                    <button
+                      key={employee.id}
+                      type="button"
+                      onClick={() => setCommentDraft(insertMentionText(commentDraft, employee))}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+                    >
+                      <Avatar name={employee.full_name} size="sm" />
+                      <span className="min-w-0 truncate">{employee.full_name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="button"
-              onClick={() => props.addComment(props.step.id)}
+              onClick={sendComment}
               className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Gửi
@@ -5199,6 +5547,18 @@ function StepWorkflowCard(props: {
       </div>
       )}
 
+      <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3">
+        <p className="mb-1 text-xs font-extrabold text-[var(--text-secondary)]">Ghi kết quả thực hiện <span className="font-normal text-[var(--text-muted)]">(bắt buộc nếu không có file/link)</span></p>
+        <textarea
+          disabled={props.locked || status === 'approved'}
+          rows={2}
+          className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs outline-none focus:border-[var(--border-strong)] disabled:opacity-50"
+          placeholder="Mô tả ngắn kết quả đã làm được..."
+          value={props.step.note || ''}
+          onChange={(e) => props.updateStep(props.step, { note: e.target.value } as Partial<TaskStep>)}
+        />
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button"
           disabled={props.locked || status === 'approved'}
@@ -5210,7 +5570,7 @@ function StepWorkflowCard(props: {
 
         {props.canApprove && (
         <button type="button"
-          disabled={props.locked}
+          disabled={props.locked || status !== 'pending'}
           onClick={() => props.approveStep(props.step)}
           className="rounded-xl bg-[var(--olive)] px-4 py-2 text-xs font-extrabold text-[var(--ivory)] disabled:opacity-40"
         >
@@ -8134,7 +8494,7 @@ function calculateProjectHealth(
   const pendingSteps = getPendingApprovalSteps(projectSteps).length
   const revisionSteps = getRevisionSteps(projectSteps).length
   const supportRequests = projectSteps.filter((step) => Boolean(step.support_request?.trim())).length
-  const missingReports = projectSteps.filter((step) => !step.report_file_url && !step.report_link).length
+  const missingReports = projectSteps.filter(isStepMissingReport).length
   const overdueSteps = projectSteps.filter((step) => isStepOverdue(step)).length
 
   const problemWarnings = overdueTasks + pendingTasks + problemTasks + revisionSteps + overdueSteps
@@ -8237,11 +8597,27 @@ function getRevisionSteps(steps: TaskStep[]) {
   )
 }
 
+function isStepMissingReport(step: TaskStep) {
+  const status = step.approval_status || 'not_submitted'
+  const hasReviewActivity =
+    status === 'pending' ||
+    status === 'revision' ||
+    step.department_approval_status === 'pending' ||
+    step.department_approval_status === 'revision' ||
+    step.coo_approval_status === 'pending' ||
+    step.coo_approval_status === 'revision' ||
+    step.ceo_approval_status === 'pending' ||
+    step.ceo_approval_status === 'revision' ||
+    Boolean(step.submitted_at)
+
+  if (!hasReviewActivity) return false
+  if (status === 'approved') return false
+
+  return !step.report_file_url && !step.report_link
+}
+
 function getMissingReportSteps(steps: TaskStep[]) {
-  return steps.filter((step) => {
-    if (step.approval_status === 'approved') return false
-    return !step.report_file_url && !step.report_link
-  })
+  return steps.filter(isStepMissingReport)
 }
 
 function getDefaultDepartmentApprover(
@@ -8284,14 +8660,22 @@ function getDefaultDepartmentApprover(
 }
 
 function getCooApprover(employees: Employee[]) {
-  return findEmployeeId(employees, ['quang']) || findEmployeeIdByPosition(employees, ['coo', 'ops', 'admin']) || employees[0]?.id || ''
+  return (
+    findEmployeeIdByRole(employees, ['coo']) ||
+    findEmployeeIdByPosition(employees, ['coo', 'chief operating', 'ops', 'vận hành', 'van hanh']) ||
+    findEmployeeId(employees, ['quang']) ||
+    findEmployeeIdByRole(employees, ['admin']) ||
+    employees[0]?.id ||
+    ''
+  )
 }
 
 function getCeoApprover(employees: Employee[]) {
   return (
+    findEmployeeIdByRole(employees, ['ceo']) ||
+    findEmployeeIdByPosition(employees, ['ceo', 'chief executive', 'giám đốc', 'giam doc']) ||
     findEmployeeId(employees, ['vy']) ||
     findEmployeeId(employees, ['phúc', 'phuc']) ||
-    findEmployeeIdByPosition(employees, ['ceo']) ||
     employees[0]?.id ||
     ''
   )
@@ -8303,6 +8687,25 @@ function findEmployeeId(employees: Employee[], names: string[]) {
 
 function findEmployeeIdByPosition(employees: Employee[], positions: string[]) {
   return employees.find((employee) => matchesAny(normalizeSearchText(employee.position || ''), positions))?.id || ''
+}
+
+function findEmployeeIdByRole(employees: Employee[], roles: string[]) {
+  return employees.find((employee) => matchesAny(normalizeSearchText(employee.role || ''), roles))?.id || ''
+}
+
+function employeeRoleLabel(employee: Employee) {
+  const role = normalizeSearchText(employee.role || '')
+  if (role === 'ceo') return 'CEO'
+  if (role === 'coo') return 'COO'
+  if (role === 'admin') return 'Admin'
+  if (role === 'department_head') return 'Trưởng bộ phận'
+  if (role === 'employee') return 'Nhân viên'
+  return ''
+}
+
+function employeeSelectLabel(employee: Employee) {
+  const title = employee.position?.trim() || employeeRoleLabel(employee)
+  return title ? `${employee.full_name} - ${title}` : employee.full_name
 }
 
 function matchesAny(text: string, values: string[]) {
@@ -8722,10 +9125,13 @@ function AdminUsersView(props: {
   // Edit state
   const [editEmp, setEditEmp] = useState<AdminEmployee | null>(null)
   const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPassword, setEditPassword] = useState('')
   const [editPosition, setEditPosition] = useState('')
   const [editDept, setEditDept] = useState('')
   const [editRole, setEditRole] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -8793,22 +9199,38 @@ function AdminUsersView(props: {
   function openEdit(emp: AdminEmployee) {
     setEditEmp(emp)
     setEditName(emp.full_name)
+    setEditEmail(emp.email ? displayLoginIdentifier(emp.email) : '')
+    setEditPassword('')
     setEditPosition(emp.position || '')
     setEditDept(emp.department_id || '')
     setEditRole(emp.role || 'employee')
+    setEditError('')
   }
 
   async function handleEditSave(e: React.FormEvent) {
     e.preventDefault()
     if (!editEmp) return
     setEditSaving(true)
-    await supabase.from('employees').update({
-      full_name: editName.trim(),
-      position: editPosition.trim() || null,
-      department_id: editDept || null,
-      role: editRole,
-    }).eq('id', editEmp.id)
+    setEditError('')
+    const res = await fetch('/api/admin/update-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employeeId: editEmp.id,
+        fullName: editName.trim(),
+        login: editEmail.trim(),
+        newPassword: editPassword.trim() || undefined,
+        position: editPosition.trim() || null,
+        departmentId: editDept || null,
+        role: editRole,
+      }),
+    })
+    const json = await res.json()
     setEditSaving(false)
+    if (!res.ok) {
+      setEditError(json.error || 'Không lưu được thông tin nhân sự')
+      return
+    }
     setEditEmp(null)
     await fetchEmployees()
     props.onRefresh()
@@ -8987,6 +9409,19 @@ function AdminUsersView(props: {
                   className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" />
               </div>
               <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tài khoản đăng nhập</label>
+                <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+                  placeholder="quang / nhung / ten@domain.com" />
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">Đổi tài khoản ở đây sẽ cập nhật luôn tài khoản đăng nhập.</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mật khẩu mới</label>
+                <input type="password" minLength={6} value={editPassword} onChange={(e) => setEditPassword(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+                  placeholder="Chỉ nhập khi cần đổi/tạo tài khoản" />
+              </div>
+              <div>
                 <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chức vụ</label>
                 <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)}
                   className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nhân viên Marketing..." />
@@ -9006,6 +9441,11 @@ function AdminUsersView(props: {
                   {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
+              {editError && (
+                <div className="rounded-xl bg-[var(--danger-soft)] px-4 py-3 text-sm font-bold text-[var(--danger)]">
+                  {editError}
+                </div>
+              )}
               <div className="flex gap-3 pt-2">
                 <button type="submit" disabled={editSaving}
                   className="rounded-xl bg-[var(--bg-card)] px-5 py-2.5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-60">
