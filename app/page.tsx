@@ -183,6 +183,7 @@ type Task = {
   head_id: string | null
   head_ids: string[] | null
   issue_status: string | null
+  sequential_steps?: boolean | null
   created_at?: string | null
 }
 
@@ -1890,6 +1891,12 @@ export default function Home() {
     await refreshDataSilent()
   }
 
+  async function updateTaskSequential(taskId: string, sequential: boolean) {
+    const { error } = await supabase.from('tasks').update({ sequential_steps: sequential }).eq('id', taskId)
+    if (error) { console.error(error); return }
+    await refreshDataSilent()
+  }
+
   // Tự động tính % tiến độ + trạng thái đầu việc từ các bước (automation)
   async function syncTaskProgress(taskId: string) {
     const { data } = await supabase
@@ -3588,6 +3595,7 @@ export default function Home() {
                   canCreateSubtask={canCreateSubtask}
                   canCreateStep={canCreateStep}
                   canDeleteTask={canDeleteTask}
+                  updateTaskSequential={updateTaskSequential}
                 />
               )}
 
@@ -4271,6 +4279,7 @@ function CooBoard(props: {
   canCreateStep: (task: Task) => boolean
   canDeleteTask: boolean
   deleteProject: (project: Project) => void
+  updateTaskSequential: (taskId: string, sequential: boolean) => void
 }) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
@@ -4598,6 +4607,7 @@ function CooBoard(props: {
                                             setSupporterDrafts={props.setSupporterDrafts}
                                             createSupporter={props.createSupporter}
                                             getStatusLabel={props.getStatusLabel}
+                                            updateTaskSequential={props.updateTaskSequential}
                                           />
                                         </div>
                                       )}
@@ -4758,6 +4768,7 @@ function SubtaskCard(props: {
   setSupporterDrafts: (value: Record<string, string>) => void
   createSupporter: (taskId: string) => void
   getStatusLabel: (status: string) => string
+  updateTaskSequential: (taskId: string, sequential: boolean) => void
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
   const department = props.departmentMap.get(props.task.department_id || '')
@@ -4880,14 +4891,25 @@ function SubtaskCard(props: {
       </div>
 
       <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <p className="font-extrabold">Các bước thực hiện & duyệt</p>
-          <button type="button"
-            onClick={() => props.openStepForm(props.task)}
-            className="rounded-lg bg-[var(--bg-card)] px-3 py-1 text-xs font-bold"
-          >
-            + Bước
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)] select-none">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-[var(--olive)]"
+                checked={!!props.task.sequential_steps}
+                onChange={(e) => props.updateTaskSequential(props.task.id, e.target.checked)}
+              />
+              Theo thứ tự
+            </label>
+            <button type="button"
+              onClick={() => props.openStepForm(props.task)}
+              className="rounded-lg bg-[var(--bg-card)] px-3 py-1 text-xs font-bold"
+            >
+              + Bước
+            </button>
+          </div>
         </div>
 
         {props.stepOpenFor === props.task.id && (
@@ -4907,7 +4929,7 @@ function SubtaskCard(props: {
           ) : (
             props.steps.map((step, index) => {
               const previousStep = index > 0 ? props.steps[index - 1] : null
-              const locked = previousStep ? previousStep.approval_status !== 'approved' : false
+              const locked = !!(props.task.sequential_steps && previousStep && previousStep.approval_status !== 'approved')
 
               return (
                 <StepWorkflowCard
