@@ -1709,7 +1709,24 @@ export default function Home() {
     await refreshDataSilent()
   }
 
+  // Chỉ người giao việc (head) / cấp quản lý mới được đánh dấu HOÀN THÀNH.
+  // Cấp dưới (assignee) chỉ được cập nhật tiến độ + bấm "Gửi duyệt", không tự hoàn thành.
+  function canCompleteTask(task: Task): boolean {
+    if (canManageAll) return true
+    if (!currentEmployee?.id) return false
+    if (task.head_id === currentEmployee.id) return true
+    if (Array.isArray(task.head_ids) && task.head_ids.includes(currentEmployee.id)) return true
+    if (isDeptHead && task.department_id && task.department_id === currentEmployee.department_id) return true
+    return false
+  }
+
   async function updateTaskStatus(taskId: string, status: string) {
+    const task = tasks.find((t) => t.id === taskId)
+    if (status === 'completed' && task && !canCompleteTask(task)) {
+      toast('Bạn không có quyền đánh dấu hoàn thành. Hãy bấm "Gửi duyệt" để cấp trên duyệt.', 'warning')
+      return
+    }
+
     const { error } = await supabase
       .from('tasks')
       .update({
@@ -1863,7 +1880,28 @@ export default function Home() {
     })))
   }
 
+  // Ai được duyệt bước ở tầng hiện tại
+  function stageApproverId(step: TaskStep): string | null {
+    const stage = step.approval_stage || 'department'
+    if (stage === 'coo') return step.coo_approver_id || null
+    if (stage === 'ceo') return step.ceo_approver_id || null
+    return step.department_approver_id || step.approver_id || null
+  }
+  function canApproveStep(step: TaskStep): boolean {
+    if (canManageAll) return true
+    if (!currentEmployee?.id) return false
+    const appId = stageApproverId(step)
+    if (appId && appId === currentEmployee.id) return true
+    const stage = step.approval_stage || 'department'
+    if (stage === 'department' && isDeptHead) return true
+    return false
+  }
+
   async function approveCurrentStage(step: TaskStep) {
+    if (!canApproveStep(step)) {
+      toast('Bạn không có quyền duyệt bước này — chỉ người duyệt cấp trên mới được.', 'warning')
+      return
+    }
     const now = new Date().toISOString()
     const stage = step.approval_stage || 'department'
 
@@ -1950,10 +1988,14 @@ export default function Home() {
   }
 
   async function requestRevision(step: TaskStep) {
+    if (!canApproveStep(step)) {
+      toast('Bạn không có quyền yêu cầu làm lại — chỉ người duyệt cấp trên mới được.', 'warning')
+      return
+    }
     const note = revisionDrafts[step.id]?.trim()
 
     if (!note) {
-      toast('Nhập lý do cần làm lại trước.', 'warning')
+      toast('Nhập lý do cần làm lại trước (bắt buộc ghi rõ chỗ nào sai).', 'warning')
       return
     }
 
@@ -3349,6 +3391,7 @@ updateTaskHead={updateTaskHead}
                   submitStep={submitStep}
                   approveStep={approveCurrentStage}
                   requestRevision={requestRevision}
+                  canApproveStep={canApproveStep}
                   revisionDrafts={revisionDrafts}
                   setRevisionDrafts={setRevisionDrafts}
                   linkDrafts={linkDrafts}
@@ -3405,6 +3448,7 @@ updateTaskHead={updateTaskHead}
                   setSelectedTask={setSelectedTask}
                   updateTaskStatus={updateTaskStatus}
                   getStatusLabel={getStatusLabel}
+                  canComplete={canCompleteTask}
                 />
               )}
 
@@ -3996,6 +4040,7 @@ function CooBoard(props: {
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
   requestRevision: (step: TaskStep) => void
+  canApproveStep: (step: TaskStep) => boolean
   revisionDrafts: Record<string, string>
   setRevisionDrafts: (value: Record<string, string>) => void
   linkDrafts: Record<string, string>
@@ -4270,6 +4315,7 @@ function CooBoard(props: {
                                             employees={props.employees}
                                             employeeMap={props.employeeMap}
                                             departmentMap={props.departmentMap}
+                                            canApproveStep={props.canApproveStep}
                                             setSelectedTask={props.setSelectedTask}
                                             openStepForm={props.openStepForm}
                                             stepOpenFor={props.stepOpenFor}
@@ -4427,6 +4473,7 @@ function SubtaskCard(props: {
   employees: Employee[]
   employeeMap: Map<string, Employee>
   departmentMap: Map<string, Department>
+  canApproveStep: (step: TaskStep) => boolean
   setSelectedTask: (task: Task) => void
   openStepForm: (task: Task) => void
   stepOpenFor: string
@@ -4599,6 +4646,7 @@ function SubtaskCard(props: {
                   submitStep={props.submitStep}
                   approveStep={props.approveStep}
                   requestRevision={props.requestRevision}
+                  canApprove={props.canApproveStep(step)}
                   revisionDrafts={props.revisionDrafts}
                   setRevisionDrafts={props.setRevisionDrafts}
                   linkDrafts={props.linkDrafts}
@@ -4714,6 +4762,7 @@ function StepWorkflowCard(props: {
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
   requestRevision: (step: TaskStep) => void
+  canApprove: boolean
   revisionDrafts: Record<string, string>
   setRevisionDrafts: (value: Record<string, string>) => void
   linkDrafts: Record<string, string>
@@ -5043,12 +5092,13 @@ function StepWorkflowCard(props: {
         </div>
       </div>
 
+      {props.canApprove && (
       <div className="mt-4 rounded-[var(--radius)] bg-[var(--danger-soft)] p-3">
-        <p className="mb-2 text-sm font-semibold text-[var(--danger)]">Yêu cầu làm lại nếu chưa đạt</p>
+        <p className="mb-2 text-sm font-semibold text-[var(--danger)]">Yêu cầu làm lại nếu chưa đạt (bắt buộc ghi lý do)</p>
         <div className="flex gap-2">
           <input
             className="h-9 flex-1 rounded-lg border border-[var(--danger)]/20 px-3 text-xs outline-none"
-            placeholder="Nhập lý do cần làm lại..."
+            placeholder="VD: phần này số liệu sai, cần làm lại..."
             value={props.revisionDrafts[props.step.id] || ''}
             onChange={(event) =>
               props.setRevisionDrafts({
@@ -5066,6 +5116,7 @@ function StepWorkflowCard(props: {
           </button>
         </div>
       </div>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button"
@@ -5076,13 +5127,15 @@ function StepWorkflowCard(props: {
           Gửi duyệt
         </button>
 
+        {props.canApprove && (
         <button type="button"
           disabled={props.locked}
           onClick={() => props.approveStep(props.step)}
-          className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-xs font-extrabold text-[var(--text-primary)] disabled:opacity-40"
+          className="rounded-xl bg-[var(--olive)] px-4 py-2 text-xs font-extrabold text-[var(--ivory)] disabled:opacity-40"
         >
           {approveButtonLabel}
         </button>
+        )}
       </div>
     </div>
   )
@@ -5592,6 +5645,7 @@ function TasksView(props: {
   statusFilter: string
   setStatusFilter: (f: string) => void
   getStatusLabel: (status: string) => string
+  canComplete: (task: Task) => boolean
 }) {
   const statusFilter = props.statusFilter
   const setStatusFilter = props.setStatusFilter
@@ -5749,7 +5803,10 @@ function TasksView(props: {
                             <option value="not_started">Chưa bắt đầu</option>
                             <option value="in_progress">Đang làm</option>
                             <option value="pending">Pending</option>
-                            <option value="completed">Hoàn thành</option>
+                            <option value="pending_approval">Chờ duyệt</option>
+                            {(props.canComplete(task) || task.status === 'completed') && (
+                              <option value="completed">Hoàn thành</option>
+                            )}
                           </select>
                           <button type="button" onClick={() => props.setSelectedTask(task)}
                             className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] border border-[var(--border)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:border-[var(--accent)]/40 hover:text-[var(--accent)] transition-colors">
