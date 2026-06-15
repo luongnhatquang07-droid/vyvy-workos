@@ -3042,25 +3042,32 @@ export default function Home() {
   })
 
   const peopleReports = employees.map((employee) => {
-    // Dùng Set để tránh đếm trùng khi một người vừa là head vừa là assignee cùng 1 task
-    const ownedTaskIds = new Set<string>()
-    tasks.forEach((task) => {
-      const isHead = task.head_id === employee.id || (task.head_ids || []).includes(employee.id)
-      const isAssignee = task.assignee_id === employee.id
-      if (isHead || isAssignee) ownedTaskIds.add(task.id)
-    })
-    const ownedTasks = tasks.filter((task) => ownedTaskIds.has(task.id))
-    const done = ownedTasks.filter((task) => task.status === 'completed').length
+    // Workload = chỉ tính task người này đang THỰC HIỆN (assignee_id)
+    // Không tính head_id vì head là người giao, không phải người làm
+    const doingTasks = tasks.filter((task) => task.assignee_id === employee.id)
+    const done = doingTasks.filter((task) => task.status === 'completed').length
+
+    // Assigned = task người này GIAO cho người khác (head_id / head_ids)
+    const assignedTasks = tasks.filter((task) =>
+      task.head_id === employee.id || (task.head_ids || []).includes(employee.id)
+    )
 
     return {
       employee,
-      total: ownedTasks.length,
+      // Thực hiện (workload thật sự)
+      total: doingTasks.length,
       done,
-      doing: ownedTasks.filter((task) => task.status === 'in_progress').length,
-      pending: ownedTasks.filter((task) => task.status === 'pending').length,
-      overdue: ownedTasks.filter((task) => isTaskOverdue(task)).length,
-      problem: ownedTasks.filter((task) => isTaskProblem(task)).length,
-      rate: ownedTasks.length === 0 ? 0 : Math.round((done / ownedTasks.length) * 100),
+      doing: doingTasks.filter((task) => task.status === 'in_progress').length,
+      pending: doingTasks.filter((task) => task.status === 'pending').length,
+      overdue: doingTasks.filter((task) => isTaskOverdue(task)).length,
+      problem: doingTasks.filter((task) => isTaskProblem(task)).length,
+      rate: doingTasks.length === 0 ? 0 : Math.round((done / doingTasks.length) * 100),
+      // Giao việc (management view)
+      assigned: assignedTasks.length,
+      assignedDone: assignedTasks.filter((task) => task.status === 'completed').length,
+      assignedDoing: assignedTasks.filter((task) => task.status === 'in_progress').length,
+      assignedOverdue: assignedTasks.filter((task) => isTaskOverdue(task)).length,
+      assignedTasks,
     }
   })
 
@@ -3985,7 +3992,7 @@ function DashboardView(props: {
   steps: TaskStep[]
   urgentTasks: Task[]
   projectCards: ProjectCard[]
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number }>
+  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
   employeeMap: Map<string, Employee>
   projectMap: Map<string, Project>
   setView: (view: ViewKey) => void
@@ -4184,12 +4191,12 @@ function DashboardView(props: {
           {/* ── Workload table (admin only) ── */}
           {isAdmin && (
             <div className={cardCls}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng theo nhân sự</p>
-              {activePeopleReports.length === 0 ? (
+              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng thực hiện theo người</p>
+              {activePeopleReports.filter(r => r.total > 0).length === 0 ? (
                 <p className="text-center text-sm text-[var(--text-muted)] py-6">Chưa có ai được gắn việc.</p>
               ) : (
                 <div className="space-y-2">
-                  {activePeopleReports.map((row) => (
+                  {activePeopleReports.filter(r => r.total > 0).map((row) => (
                     <div key={row.employee.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-surface)] px-4 py-3">
                       <Avatar name={row.employee.full_name} size="sm" />
                       <div className="flex-1 min-w-0">
@@ -4197,7 +4204,7 @@ function DashboardView(props: {
                         <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
                           <span className="text-[var(--success)]">{row.done} xong</span>
                           <span className="text-[var(--umber)]">{row.doing} đang làm</span>
-                          {row.overdue > 0 && <span className="text-[var(--danger)]">{row.overdue} trễ</span>}
+                          {row.overdue > 0 && <span className="font-bold text-[var(--danger)]">{row.overdue} trễ</span>}
                         </div>
                       </div>
                       <div className="w-24 shrink-0">
@@ -4209,6 +4216,84 @@ function DashboardView(props: {
               )}
             </div>
           )}
+
+          {/* ── Bảng tình hình giao việc (admin only) ── */}
+          {isAdmin && (() => {
+            const assigners = activePeopleReports.filter(r => r.assigned > 0)
+            if (assigners.length === 0) return null
+            return (
+              <div className={cardCls}>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm font-semibold text-[var(--text-secondary)]">Tình hình giao việc</p>
+                  <span className="text-xs text-[var(--text-muted)]">{assigners.length} người đang giao việc</span>
+                </div>
+                <div className="space-y-3">
+                  {assigners.map((row) => {
+                    // Nhóm người nhận: assignee_id → tên + số task
+                    const recipientMap = new Map<string, { name: string; count: number; overdue: number }>()
+                    row.assignedTasks.forEach((task) => {
+                      const aid = task.assignee_id
+                      if (!aid) return
+                      const emp = props.employeeMap.get(aid)
+                      if (!emp) return
+                      const existing = recipientMap.get(aid)
+                      if (existing) {
+                        existing.count++
+                        if (isTaskOverdue(task)) existing.overdue++
+                      } else {
+                        recipientMap.set(aid, { name: emp.full_name, count: 1, overdue: isTaskOverdue(task) ? 1 : 0 })
+                      }
+                    })
+                    const recipients = Array.from(recipientMap.values()).sort((a, b) => b.count - a.count)
+                    const pct = row.assigned === 0 ? 0 : Math.round((row.assignedDone / row.assigned) * 100)
+
+                    return (
+                      <div key={row.employee.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+                        {/* Header: người giao */}
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={row.employee.full_name} size="sm" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-bold text-[var(--text-primary)]">{row.employee.full_name}</span>
+                              <span className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">đã giao {row.assigned} việc</span>
+                            </div>
+                            <div className="flex gap-3 text-xs mt-0.5">
+                              <span className="text-[var(--success)]">{row.assignedDone} xong</span>
+                              <span className="text-[var(--umber)]">{row.assignedDoing} đang làm</span>
+                              {row.assignedOverdue > 0 && <span className="font-bold text-[var(--danger)]">{row.assignedOverdue} trễ</span>}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <span className={`text-lg font-extrabold tabular-nums ${pct === 100 ? 'text-[var(--success)]' : row.assignedOverdue > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>{pct}%</span>
+                            <p className="text-[9px] text-[var(--text-muted)]">hoàn thành</p>
+                          </div>
+                        </div>
+
+                        {/* Người nhận */}
+                        {recipients.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {recipients.map((r) => (
+                              <span key={r.name} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
+                                ${r.overdue > 0 ? 'bg-[var(--danger)]/10 text-[var(--danger)]' : 'bg-[var(--bg-base)] text-[var(--text-secondary)]'}`}>
+                                {r.name.split(' ').slice(-1)[0]}
+                                <span className="font-bold">{r.count}</span>
+                                {r.overdue > 0 && <span className="text-[var(--danger)]">·{r.overdue}trễ</span>}
+                              </span>
+                            ))}
+                            {row.assignedTasks.filter(t => !t.assignee_id).length > 0 && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning)]">
+                                Chưa giao {row.assignedTasks.filter(t => !t.assignee_id).length}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         {/* ── Right column ── */}
@@ -7948,7 +8033,7 @@ function AssistantView(props: {
   generateProjectReport: () => void
   tasks: Task[]
   projectCards: ProjectCard[]
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number }>
+  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
   employees: Employee[]
   currentEmployee: Employee | null
 }) {
@@ -9203,7 +9288,7 @@ ${reportSteps
 }
 
 function buildPeopleReport(
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number }>
+  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
 ) {
   if (peopleReports.length === 0) {
     return 'BÁO CÁO THEO NHÂN SỰ\n\n- Chưa có nhân sự.'
