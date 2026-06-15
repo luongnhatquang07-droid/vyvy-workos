@@ -3353,7 +3353,7 @@ export default function Home() {
               </button>
 
               {inboxOpen && (
-                <div className="absolute right-0 top-12 z-30 w-80 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 shadow-xl">
+                <div className="absolute right-0 top-12 z-30 w-[min(320px,calc(100vw-1rem))] rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 shadow-xl">
 
                   {/* Phân công chờ duyệt */}
                   {assignmentsForMe.length > 0 && (
@@ -6066,7 +6066,7 @@ function ProjectsView(props: {
                 )}
 
                 {/* ── Stats row ── */}
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {[
                     { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[var(--text-primary)]' },
                     { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[var(--success)]' : 'text-[var(--text-muted)]' },
@@ -8120,7 +8120,7 @@ function TaskDetailDrawer(props: {
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20">
       <button type="button" className="flex-1" onClick={props.close} />
-      <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:p-6">
+      <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[560px] sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
           <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]"><Ico d={IC.x} size={16}/>
