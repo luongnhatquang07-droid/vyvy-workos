@@ -1918,7 +1918,11 @@ export default function Home() {
     const appId = stageApproverId(step)
     if (appId && appId === currentEmployee.id) return true
     const stage = step.approval_stage || 'department'
-    if (stage === 'department' && isDeptHead) return true
+    if (stage === 'department' && isDeptHead) {
+      // Trưởng phòng chỉ duyệt bước trong phòng ban của mình
+      const stepTask = tasks.find((t) => t.id === step.task_id)
+      if (stepTask?.department_id === currentEmployee.department_id) return true
+    }
     return false
   }
 
@@ -2255,6 +2259,23 @@ export default function Home() {
   async function deleteTask(task: Task) {
     const label = isWorkstream(task) ? 'đầu việc lớn' : 'đầu việc con'
     if (!(await confirmDialog(`Xóa ${label} "${task.title}"?`))) return
+
+    // Thu thập tất cả task IDs cần xóa (task + subtasks)
+    const subtaskIds = tasks.filter((t) => t.parent_task_id === task.id).map((t) => t.id)
+    const allTaskIds = [task.id, ...subtaskIds]
+
+    // Xóa cascade: comments → steps → supporters → reports → tasks
+    const { data: stepRows } = await supabase.from('task_steps').select('id').in('task_id', allTaskIds)
+    const stepIds = (stepRows || []).map((s) => s.id)
+    if (stepIds.length > 0) {
+      await supabase.from('task_step_comments').delete().in('step_id', stepIds)
+    }
+    await supabase.from('task_steps').delete().in('task_id', allTaskIds)
+    await supabase.from('task_supporters').delete().in('task_id', allTaskIds)
+    await supabase.from('task_reports').delete().in('task_id', allTaskIds)
+    if (subtaskIds.length > 0) {
+      await supabase.from('tasks').delete().in('id', subtaskIds)
+    }
 
     const { error } = await supabase.from('tasks').delete().eq('id', task.id)
 
@@ -8058,13 +8079,10 @@ function DashboardSkeleton() {
   )
 }
 
-function calculateTaskProgress(task: Task, taskSteps: TaskStep[]) {
-  if (taskSteps.length > 0) {
-    const approved = taskSteps.filter((step) => step.approval_status === 'approved').length
-    return Math.round((approved / taskSteps.length) * 100)
-  }
-  // Không có bước → chỉ 100% khi status hoàn thành, còn lại 0
-  return task.status === 'completed' ? 100 : 0
+function calculateTaskProgress(_task: Task, taskSteps: TaskStep[]) {
+  if (taskSteps.length === 0) return 0
+  const approved = taskSteps.filter((step) => step.approval_status === 'approved').length
+  return Math.round((approved / taskSteps.length) * 100)
 }
 
 function calculateWorkstreamProgress(
