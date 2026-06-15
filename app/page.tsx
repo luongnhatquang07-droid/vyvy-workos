@@ -3624,6 +3624,7 @@ export default function Home() {
               {view === 'assigned' && (
                 <MyWorkView
                   tasks={visibleTasks}
+                  allSteps={steps}
                   stepsByTask={stepsByTask}
                   currentEmployee={currentEmployee}
                   employeeMap={employeeMap}
@@ -9583,6 +9584,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
 
 function MyWorkView(props: {
   tasks: Task[]
+  allSteps: TaskStep[]
   stepsByTask: Map<string, TaskStep[]>
   currentEmployee: Employee | null
   employeeMap: Map<string, Employee>
@@ -9591,15 +9593,22 @@ function MyWorkView(props: {
   seeAll: boolean
 }) {
   const myId = props.currentEmployee?.id || ''
+  const taskMap = new Map(props.tasks.map((t) => [t.id, t]))
 
   const myTasks = props.tasks.filter((t) => {
     if (t.status === 'completed' || t.status === 'cancelled') return false
-    return (
-      t.assignee_id === myId ||
-      t.head_id === myId ||
-      (t.head_ids || []).includes(myId)
-    )
+    return t.assignee_id === myId || t.head_id === myId || (t.head_ids || []).includes(myId)
   })
+
+  // Bước tôi cần nộp: tôi là owner, chưa submit (not_submitted hoặc revision)
+  const myPendingSubmit = props.allSteps.filter((s) =>
+    s.owner_id === myId && (s.approval_status === 'not_submitted' || s.approval_status === 'revision' || !s.approval_status)
+  )
+
+  // Bước chờ tôi duyệt: tôi là approver, đã được submit
+  const myPendingApprove = props.allSteps.filter((s) =>
+    s.approver_id === myId && s.approval_status === 'pending'
+  )
 
   const groups: { label: string; status: string; tasks: Task[] }[] = [
     { label: 'Đang thực hiện', status: 'in_progress', tasks: myTasks.filter((t) => t.status === 'in_progress') },
@@ -9609,14 +9618,86 @@ function MyWorkView(props: {
 
   return (
     <div className="space-y-4">
-      <MyDeadlineInbox
-        tasks={props.tasks}
-        currentUserId={myId}
-        employees={props.employees}
-        seeAll={props.seeAll}
-      />
+      <MyDeadlineInbox tasks={props.tasks} currentUserId={myId} employees={props.employees} seeAll={props.seeAll} />
 
-      {myTasks.length === 0 ? (
+      {/* Bước chờ tôi duyệt */}
+      {myPendingApprove.length > 0 && (
+        <div className="rounded-2xl border border-[var(--warn)]/40 bg-[var(--bg-card)] overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-[var(--warn)]/30 bg-[var(--warn-soft,#fffbeb)] px-5 py-3">
+            <p className="font-extrabold text-sm text-[var(--warn)]">⏳ Bước chờ tôi duyệt</p>
+            <span className="rounded-full bg-[var(--warn)]/20 px-2 py-0.5 text-xs font-bold text-[var(--warn)]">{myPendingApprove.length}</span>
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {myPendingApprove.map((step) => {
+              const task = taskMap.get(step.task_id)
+              const owner = props.employeeMap.get(step.owner_id || '')
+              return (
+                <div key={step.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg-surface)] transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">{step.step_title}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-[var(--text-secondary)]">
+                      {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
+                      {owner && <span><span className="font-spec text-[9px]">NGƯỜI NỘP</span> {owner.full_name}</span>}
+                      {step.due_date && <span>· Hạn {step.due_date}</span>}
+                      {(step.report_file_url || step.report_link || step.note) && (
+                        <span className="font-bold text-[var(--ok)]">Có báo cáo ✓</span>
+                      )}
+                    </div>
+                  </div>
+                  {task && (
+                    <button type="button" onClick={() => props.setSelectedTask(task)}
+                      className="shrink-0 rounded-lg border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-1.5 text-xs font-bold text-[var(--warn)] hover:bg-[var(--warn)]/20">
+                      Duyệt ngay
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Bước tôi cần nộp */}
+      {myPendingSubmit.length > 0 && (
+        <div className="rounded-2xl border border-[var(--olive)]/30 bg-[var(--bg-card)] overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-[var(--olive)]/20 bg-[var(--bg-surface)] px-5 py-3">
+            <p className="font-extrabold text-sm">📋 Bước tôi cần nộp</p>
+            <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">{myPendingSubmit.length}</span>
+          </div>
+          <div className="divide-y divide-[var(--border)]">
+            {myPendingSubmit.map((step) => {
+              const task = taskMap.get(step.task_id)
+              const approver = props.employeeMap.get(step.approver_id || '')
+              const isRevision = step.approval_status === 'revision'
+              return (
+                <div key={step.id} className={`flex items-center gap-3 px-5 py-3 transition-colors hover:bg-[var(--bg-surface)] ${isRevision ? 'bg-[var(--danger-soft)]/30' : ''}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-[var(--text-primary)]">{step.step_title}</p>
+                      {isRevision && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--danger)]">Cần làm lại</span>}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-[var(--text-secondary)]">
+                      {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
+                      {approver && <span><span className="font-spec text-[9px]">DUYỆT BỞI</span> {approver.full_name}</span>}
+                      {step.due_date && <span>· Hạn {step.due_date}</span>}
+                      {isRevision && step.approval_note && <span className="text-[var(--danger)]">"{step.approval_note}"</span>}
+                    </div>
+                  </div>
+                  {task && (
+                    <button type="button" onClick={() => props.setSelectedTask(task)}
+                      className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]">
+                      Mở & nộp
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Danh sách task */}
+      {myTasks.length === 0 && myPendingSubmit.length === 0 && myPendingApprove.length === 0 ? (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center">
           <p className="font-extrabold text-[var(--text-primary)]">Không có việc đang mở</p>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">Tất cả việc của bạn đã hoàn thành hoặc chưa được giao.</p>
@@ -9634,7 +9715,8 @@ function MyWorkView(props: {
                 const progress = calculateTaskProgress(task, steps)
                 const pendingSteps = steps.filter((s) => s.approval_status === 'pending')
                 const mySteps = steps.filter((s) => s.owner_id === myId && s.approval_status !== 'approved')
-                const head = props.employeeMap.get(task.head_id || '')
+                const headIds = task.head_ids && task.head_ids.length > 0 ? task.head_ids : (task.head_id ? [task.head_id] : [])
+                const headNames = headIds.map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean).join(', ')
                 const assignee = props.employeeMap.get(task.assignee_id || '')
 
                 return (
@@ -9650,18 +9732,15 @@ function MyWorkView(props: {
                         )}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
-                        {head && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {head.full_name}</span>}
-                        {assignee && assignee.id !== head?.id && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
+                        {headNames && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {headNames}</span>}
+                        {assignee && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
                         <span>{steps.length} bước · <b className="text-[var(--text-primary)]">{progress}%</b></span>
                         {pendingSteps.length > 0 && <span className="font-bold text-[var(--warn)]">{pendingSteps.length} bước chờ duyệt</span>}
-                        {mySteps.length > 0 && <span className="font-bold text-[var(--olive)]">{mySteps.length} bước của tôi chưa xong</span>}
+                        {mySteps.length > 0 && <span className="font-bold text-[var(--olive)]">{mySteps.length} bước của tôi chưa nộp</span>}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => props.setSelectedTask(task)}
-                      className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
-                    >
+                    <button type="button" onClick={() => props.setSelectedTask(task)}
+                      className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]">
                       Chi tiết
                     </button>
                   </div>
