@@ -5267,7 +5267,13 @@ function StepWorkflowCard(props: {
         </div>
       )}
 
-      {props.step.approval_note && (
+      {props.step.approval_status === 'revision' && props.step.approval_note && (
+        <div className="mt-3 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-3">
+          <p className="mb-1 text-xs font-extrabold uppercase tracking-wide text-[var(--danger)]">⚠ Cần làm lại</p>
+          <p className="text-sm text-[var(--danger)]">{props.step.approval_note}</p>
+        </div>
+      )}
+      {props.step.approval_status !== 'revision' && props.step.approval_note && (
         <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3 text-sm text-[var(--text-secondary)]">
           <b>Ghi chú duyệt:</b> {props.step.approval_note}
         </div>
