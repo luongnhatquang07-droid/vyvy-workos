@@ -3042,7 +3042,14 @@ export default function Home() {
   })
 
   const peopleReports = employees.map((employee) => {
-    const ownedTasks = tasks.filter((task) => task.assignee_id === employee.id || task.head_id === employee.id)
+    // Dùng Set để tránh đếm trùng khi một người vừa là head vừa là assignee cùng 1 task
+    const ownedTaskIds = new Set<string>()
+    tasks.forEach((task) => {
+      const isHead = task.head_id === employee.id || (task.head_ids || []).includes(employee.id)
+      const isAssignee = task.assignee_id === employee.id
+      if (isHead || isAssignee) ownedTaskIds.add(task.id)
+    })
+    const ownedTasks = tasks.filter((task) => ownedTaskIds.has(task.id))
     const done = ownedTasks.filter((task) => task.status === 'completed').length
 
     return {
@@ -4028,12 +4035,17 @@ function DashboardView(props: {
     .filter((row) => row.employee.status !== 'inactive')
     .sort((a, b) => b.total - a.total || b.overdue - a.overdue || b.doing - a.doing)
 
-  const workloadData = activePeopleReports.slice(0, 8).map((r) => ({
-    name: r.employee.full_name.split(' ').slice(-1)[0],
-    done: r.done,
-    doing: r.doing,
-    overdue: r.overdue,
-  }))
+  // Chỉ hiện người có task, tránh trùng tên: dùng tên gọi ngắn nhất mà còn phân biệt được
+  const activeWithTask = activePeopleReports.filter((r) => r.total > 0)
+  const lastNames = activeWithTask.map((r) => r.employee.full_name.split(' ').slice(-1)[0])
+  const workloadData = activeWithTask.slice(0, 8).map((r, i) => {
+    const lastName = r.employee.full_name.split(' ').slice(-1)[0]
+    const isDupe = lastNames.filter((n) => n === lastName).length > 1
+    const name = isDupe
+      ? r.employee.full_name.split(' ').slice(-2).join(' ')  // lấy 2 chữ cuối nếu trùng
+      : lastName
+    return { name, done: r.done, doing: r.doing, overdue: r.overdue }
+  })
 
   const cardCls = 'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5'
 
