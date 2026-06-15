@@ -2,12 +2,6 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import webpush from 'web-push'
 
-webpush.setVapidDetails(
-  process.env.VAPID_EMAIL || 'mailto:workos@vyvystore.vn',
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
-
 export type PushPayload = {
   employeeIds: string[]   // danh sách người nhận
   title: string
@@ -24,6 +18,17 @@ export async function POST(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     serviceKey,
     { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const vapidPublic = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const vapidPrivate = process.env.VAPID_PRIVATE_KEY
+  if (!vapidPublic || !vapidPrivate) {
+    return NextResponse.json({ error: 'VAPID keys chưa được cấu hình' }, { status: 500 })
+  }
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL || 'mailto:workos@vyvystore.vn',
+    vapidPublic,
+    vapidPrivate
   )
 
   const payload: PushPayload = await req.json()
