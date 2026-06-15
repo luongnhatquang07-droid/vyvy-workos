@@ -4188,112 +4188,162 @@ function DashboardView(props: {
             </div>
           </div>
 
-          {/* ── Workload table (admin only) ── */}
+          {/* ── Bảng 1: Khối lượng thực hiện toàn công ty ── */}
           {isAdmin && (
             <div className={cardCls}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng thực hiện theo người</p>
-              {activePeopleReports.filter(r => r.total > 0).length === 0 ? (
-                <p className="text-center text-sm text-[var(--text-muted)] py-6">Chưa có ai được gắn việc.</p>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-sm font-extrabold text-[var(--text-primary)]">Khối lượng thực hiện</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Ai đang làm gì — toàn bộ {activePeopleReports.length} nhân sự</p>
+                </div>
+                <div className="flex gap-3 text-xs text-[var(--text-muted)]">
+                  <span className="text-[var(--success)] font-semibold">{activePeopleReports.reduce((s,r)=>s+r.done,0)} xong</span>
+                  <span className="text-[var(--umber)] font-semibold">{activePeopleReports.reduce((s,r)=>s+r.doing,0)} đang làm</span>
+                  {activePeopleReports.reduce((s,r)=>s+r.overdue,0) > 0 &&
+                    <span className="text-[var(--danger)] font-bold">{activePeopleReports.reduce((s,r)=>s+r.overdue,0)} trễ</span>}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border)]">
+                      {['Nhân sự','Chức vụ','Tổng','Đang làm','Xong','Trễ','Tiến độ'].map(h => (
+                        <th key={h} className="pb-2 text-left text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)] pr-4 last:pr-0">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {activePeopleReports
+                      .sort((a,b) => b.overdue - a.overdue || b.doing - a.doing || b.total - a.total || a.employee.full_name.localeCompare(b.employee.full_name))
+                      .map((row) => (
+                      <tr key={row.employee.id} className={`transition-colors hover:bg-[var(--bg-surface)] ${row.overdue > 0 ? 'bg-[var(--danger)]/3' : ''}`}>
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <Avatar name={row.employee.full_name} size="sm" />
+                            <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{row.employee.full_name}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 pr-4 text-xs text-[var(--text-muted)] whitespace-nowrap">{row.employee.position || '—'}</td>
+                        <td className="py-2.5 pr-4 font-bold tabular-nums text-center">{row.total || '—'}</td>
+                        <td className="py-2.5 pr-4 tabular-nums text-center">
+                          {row.doing > 0
+                            ? <span className="font-bold text-[var(--umber)]">{row.doing}</span>
+                            : <span className="text-[var(--text-muted)]">0</span>}
+                        </td>
+                        <td className="py-2.5 pr-4 tabular-nums text-center">
+                          {row.done > 0
+                            ? <span className="font-bold text-[var(--success)]">{row.done}</span>
+                            : <span className="text-[var(--text-muted)]">0</span>}
+                        </td>
+                        <td className="py-2.5 pr-4 tabular-nums text-center">
+                          {row.overdue > 0
+                            ? <span className="font-extrabold text-[var(--danger)]">{row.overdue}</span>
+                            : <span className="text-[var(--text-muted)]">0</span>}
+                        </td>
+                        <td className="py-2.5 min-w-[100px]">
+                          {row.total > 0
+                            ? <ProgressBar value={row.rate} showLabel />
+                            : <span className="text-xs text-[var(--text-muted)]">Chưa có việc</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Bảng 2: Tình hình giao việc ── */}
+          {isAdmin && (
+            <div className={cardCls}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-sm font-extrabold text-[var(--text-primary)]">Tình hình giao việc</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Ai giao bao nhiêu — giao cho ai — tỷ lệ hoàn thành</p>
+                </div>
+                <span className="text-xs text-[var(--text-muted)]">{activePeopleReports.filter(r=>r.assigned>0).length} người đang giao việc</span>
+              </div>
+              {activePeopleReports.filter(r=>r.assigned>0).length === 0 ? (
+                <p className="text-center text-sm text-[var(--text-muted)] py-6">Chưa có việc nào được giao.</p>
               ) : (
-                <div className="space-y-2">
-                  {activePeopleReports.filter(r => r.total > 0).map((row) => (
-                    <div key={row.employee.id} className="flex items-center gap-3 rounded-[var(--radius)] bg-[var(--bg-surface)] px-4 py-3">
-                      <Avatar name={row.employee.full_name} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
-                        <div className="flex gap-3 text-xs text-[var(--text-muted)] mt-0.5">
-                          <span className="text-[var(--success)]">{row.done} xong</span>
-                          <span className="text-[var(--umber)]">{row.doing} đang làm</span>
-                          {row.overdue > 0 && <span className="font-bold text-[var(--danger)]">{row.overdue} trễ</span>}
-                        </div>
-                      </div>
-                      <div className="w-24 shrink-0">
-                        <ProgressBar value={row.rate} showLabel />
-                      </div>
-                    </div>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)]">
+                        {['Người giao','Tổng giao','Đang làm','Xong','Trễ','% HT','Giao cho'].map(h => (
+                          <th key={h} className="pb-2 text-left text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)] pr-4 last:pr-0">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {activePeopleReports
+                        .filter(r => r.assigned > 0)
+                        .sort((a,b) => b.assignedOverdue - a.assignedOverdue || b.assigned - a.assigned)
+                        .map((row) => {
+                          const pct = row.assigned === 0 ? 0 : Math.round((row.assignedDone / row.assigned) * 100)
+                          const recipientMap = new Map<string, { name: string; count: number; overdue: number }>()
+                          row.assignedTasks.forEach((task) => {
+                            const aid = task.assignee_id
+                            if (!aid) return
+                            const emp = props.employeeMap.get(aid)
+                            if (!emp) return
+                            const ex = recipientMap.get(aid)
+                            if (ex) { ex.count++; if (isTaskOverdue(task)) ex.overdue++ }
+                            else recipientMap.set(aid, { name: emp.full_name, count: 1, overdue: isTaskOverdue(task) ? 1 : 0 })
+                          })
+                          const recipients = Array.from(recipientMap.values()).sort((a,b) => b.count - a.count)
+                          const unassigned = row.assignedTasks.filter(t => !t.assignee_id).length
+
+                          return (
+                            <tr key={row.employee.id} className={`transition-colors hover:bg-[var(--bg-surface)] ${row.assignedOverdue > 0 ? 'bg-[var(--danger)]/3' : ''}`}>
+                              <td className="py-3 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <Avatar name={row.employee.full_name} size="sm" />
+                                  <div>
+                                    <p className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{row.employee.full_name}</p>
+                                    <p className="text-[10px] text-[var(--text-muted)]">{row.employee.position || ''}</p>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4 font-bold tabular-nums text-center">{row.assigned}</td>
+                              <td className="py-3 pr-4 tabular-nums text-center">
+                                {row.assignedDoing > 0 ? <span className="font-bold text-[var(--umber)]">{row.assignedDoing}</span> : <span className="text-[var(--text-muted)]">0</span>}
+                              </td>
+                              <td className="py-3 pr-4 tabular-nums text-center">
+                                {row.assignedDone > 0 ? <span className="font-bold text-[var(--success)]">{row.assignedDone}</span> : <span className="text-[var(--text-muted)]">0</span>}
+                              </td>
+                              <td className="py-3 pr-4 tabular-nums text-center">
+                                {row.assignedOverdue > 0 ? <span className="font-extrabold text-[var(--danger)]">{row.assignedOverdue}</span> : <span className="text-[var(--text-muted)]">0</span>}
+                              </td>
+                              <td className="py-3 pr-4 text-center">
+                                <span className={`text-base font-extrabold tabular-nums ${pct===100?'text-[var(--success)]':row.assignedOverdue>0?'text-[var(--danger)]':'text-[var(--text-primary)]'}`}>{pct}%</span>
+                              </td>
+                              <td className="py-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {recipients.map((r) => (
+                                    <span key={r.name} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap
+                                      ${r.overdue > 0 ? 'bg-[var(--danger)]/10 text-[var(--danger)]' : 'bg-[var(--bg-base)] text-[var(--text-secondary)]'}`}>
+                                      {r.name.split(' ').slice(-1)[0]} · {r.count}việc
+                                      {r.overdue > 0 && <span> · {r.overdue}trễ</span>}
+                                    </span>
+                                  ))}
+                                  {unassigned > 0 && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning)] whitespace-nowrap">
+                                      Chưa giao · {unassigned}
+                                    </span>
+                                  )}
+                                  {recipients.length === 0 && unassigned === 0 && <span className="text-xs text-[var(--text-muted)]">—</span>}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
           )}
-
-          {/* ── Bảng tình hình giao việc (admin only) ── */}
-          {isAdmin && (() => {
-            const assigners = activePeopleReports.filter(r => r.assigned > 0)
-            if (assigners.length === 0) return null
-            return (
-              <div className={cardCls}>
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm font-semibold text-[var(--text-secondary)]">Tình hình giao việc</p>
-                  <span className="text-xs text-[var(--text-muted)]">{assigners.length} người đang giao việc</span>
-                </div>
-                <div className="space-y-3">
-                  {assigners.map((row) => {
-                    // Nhóm người nhận: assignee_id → tên + số task
-                    const recipientMap = new Map<string, { name: string; count: number; overdue: number }>()
-                    row.assignedTasks.forEach((task) => {
-                      const aid = task.assignee_id
-                      if (!aid) return
-                      const emp = props.employeeMap.get(aid)
-                      if (!emp) return
-                      const existing = recipientMap.get(aid)
-                      if (existing) {
-                        existing.count++
-                        if (isTaskOverdue(task)) existing.overdue++
-                      } else {
-                        recipientMap.set(aid, { name: emp.full_name, count: 1, overdue: isTaskOverdue(task) ? 1 : 0 })
-                      }
-                    })
-                    const recipients = Array.from(recipientMap.values()).sort((a, b) => b.count - a.count)
-                    const pct = row.assigned === 0 ? 0 : Math.round((row.assignedDone / row.assigned) * 100)
-
-                    return (
-                      <div key={row.employee.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
-                        {/* Header: người giao */}
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={row.employee.full_name} size="sm" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-bold text-[var(--text-primary)]">{row.employee.full_name}</span>
-                              <span className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">đã giao {row.assigned} việc</span>
-                            </div>
-                            <div className="flex gap-3 text-xs mt-0.5">
-                              <span className="text-[var(--success)]">{row.assignedDone} xong</span>
-                              <span className="text-[var(--umber)]">{row.assignedDoing} đang làm</span>
-                              {row.assignedOverdue > 0 && <span className="font-bold text-[var(--danger)]">{row.assignedOverdue} trễ</span>}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <span className={`text-lg font-extrabold tabular-nums ${pct === 100 ? 'text-[var(--success)]' : row.assignedOverdue > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>{pct}%</span>
-                            <p className="text-[9px] text-[var(--text-muted)]">hoàn thành</p>
-                          </div>
-                        </div>
-
-                        {/* Người nhận */}
-                        {recipients.length > 0 && (
-                          <div className="mt-2.5 flex flex-wrap gap-1.5">
-                            {recipients.map((r) => (
-                              <span key={r.name} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold
-                                ${r.overdue > 0 ? 'bg-[var(--danger)]/10 text-[var(--danger)]' : 'bg-[var(--bg-base)] text-[var(--text-secondary)]'}`}>
-                                {r.name.split(' ').slice(-1)[0]}
-                                <span className="font-bold">{r.count}</span>
-                                {r.overdue > 0 && <span className="text-[var(--danger)]">·{r.overdue}trễ</span>}
-                              </span>
-                            ))}
-                            {row.assignedTasks.filter(t => !t.assignee_id).length > 0 && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning)]/10 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning)]">
-                                Chưa giao {row.assignedTasks.filter(t => !t.assignee_id).length}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })()}
         </div>
 
         {/* ── Right column ── */}
