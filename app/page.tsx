@@ -7,6 +7,7 @@ import { displayLoginIdentifier } from '@/lib/internal-auth'
 import DeadlineApproval from '@/components/DeadlineApproval'
 import CooAssistantPanel from '@/components/CooAssistantPanel'
 import HeadPicker from '@/components/HeadPicker'
+import PersonPicker from '@/components/PersonPicker'
 import MeetingHistory from '@/components/MeetingHistory'
 import MeetingStudio from '@/components/MeetingStudio'
 import MyDeadlineInbox from '@/components/MyDeadlineInbox'
@@ -1760,9 +1761,33 @@ export default function Home() {
     const { error } = await supabase.from('tasks').update({ head_ids: headIds, head_id: headIds[0] || null }).eq('id', taskId)
     if (error) {
       console.error(error)
-      toast('Cập nhật Head lỗi.', 'error')
+      toast('Cập nhật người giao việc lỗi.', 'error')
       return
     }
+    toast('Đã cập nhật người giao việc.', 'success')
+    await refreshDataSilent()
+  }
+
+  async function updateTaskAssignee(taskId: string, assigneeId: string | null) {
+    const { error } = await supabase.from('tasks').update({ assignee_id: assigneeId }).eq('id', taskId)
+    if (error) {
+      console.error(error)
+      toast('Cập nhật người phụ trách lỗi.', 'error')
+      return
+    }
+    // Thông báo cho người được phân công
+    if (assigneeId && assigneeId !== currentEmployee?.id) {
+      const t = tasks.find((x) => x.id === taskId)
+      pushNotify([{
+        recipient_id: assigneeId,
+        actor_id: currentEmployee?.id,
+        type: 'task_assigned',
+        title: 'Bạn được giao phụ trách một đầu việc',
+        body: t?.title || '',
+        task_id: taskId,
+      }])
+    }
+    toast('Đã cập nhật người phụ trách.', 'success')
     await refreshDataSilent()
   }
 
@@ -3387,6 +3412,7 @@ export default function Home() {
                   updateTaskStatus={updateTaskStatus}
                   updateIssueStatus={updateIssueStatus}
 updateTaskHead={updateTaskHead}
+                  updateTaskAssignee={updateTaskAssignee}
                   updateStep={updateStep}
                   submitStep={submitStep}
                   approveStep={approveCurrentStage}
@@ -4036,6 +4062,7 @@ function CooBoard(props: {
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
+  updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
@@ -4203,11 +4230,22 @@ function CooBoard(props: {
                               </div>
                             </button>
                             <div className="flex shrink-0 items-center gap-1.5">
-                              <HeadPicker
-                                headIds={ws.head_ids || (ws.head_id ? [ws.head_id] : [])}
-                                employees={props.employees}
-                                onSave={(ids) => props.updateTaskHead(ws.id, ids)}
-                              />
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO VIỆC</span>
+                                <HeadPicker
+                                  headIds={ws.head_ids || (ws.head_id ? [ws.head_id] : [])}
+                                  employees={props.employees}
+                                  onSave={(ids) => props.updateTaskHead(ws.id, ids)}
+                                />
+                              </div>
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="font-spec text-[8px] text-[var(--text-muted)]">PHỤ TRÁCH</span>
+                                <PersonPicker
+                                  value={ws.assignee_id}
+                                  employees={props.employees}
+                                  onSave={(id) => props.updateTaskAssignee(ws.id, id)}
+                                />
+                              </div>
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
                                   onClick={() => props.openSubtaskForm(ws)}
@@ -4286,7 +4324,23 @@ function CooBoard(props: {
                                             </div>
                                           </div>
                                         </button>
-                                        <div className="flex shrink-0 gap-1.5">
+                                        <div className="flex shrink-0 items-center gap-1.5">
+                                          <div className="flex flex-col items-start gap-0.5">
+                                            <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO</span>
+                                            <PersonPicker
+                                              value={subtask.head_id}
+                                              employees={props.employees}
+                                              onSave={(id) => props.updateTaskHead(subtask.id, id ? [id] : [])}
+                                            />
+                                          </div>
+                                          <div className="flex flex-col items-start gap-0.5">
+                                            <span className="font-spec text-[8px] text-[var(--text-muted)]">PHỤ TRÁCH</span>
+                                            <PersonPicker
+                                              value={subtask.assignee_id}
+                                              employees={props.employees}
+                                              onSave={(id) => props.updateTaskAssignee(subtask.id, id)}
+                                            />
+                                          </div>
                                           <button type="button"
                                             onClick={() => props.setSelectedTask(subtask)}
                                             className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
@@ -4326,6 +4380,7 @@ function CooBoard(props: {
                                             updateTaskStatus={props.updateTaskStatus}
                                             updateIssueStatus={props.updateIssueStatus}
                                             updateTaskHead={props.updateTaskHead}
+                                            updateTaskAssignee={props.updateTaskAssignee}
                                             updateStep={props.updateStep}
                                             submitStep={props.submitStep}
                                             approveStep={props.approveStep}
@@ -4484,6 +4539,7 @@ function SubtaskCard(props: {
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
+  updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
