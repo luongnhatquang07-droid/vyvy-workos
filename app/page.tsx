@@ -4248,10 +4248,14 @@ function CooBoard(props: {
                               </div>
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
-                                  onClick={() => props.openSubtaskForm(ws)}
-                                  className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--olive)] hover:border-[var(--olive)]"
+                                  onClick={() => props.subtaskOpenFor === ws.id ? props.setSubtaskOpenFor('') : props.openSubtaskForm(ws)}
+                                  className={`rounded-[var(--radius-sm)] border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                                    props.subtaskOpenFor === ws.id
+                                      ? 'border-[var(--olive)] bg-[var(--olive)] text-[var(--ivory)]'
+                                      : 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--olive)] hover:border-[var(--olive)]'
+                                  }`}
                                 >
-                                  + Việc con
+                                  {props.subtaskOpenFor === ws.id ? '× Đóng' : '+ Việc con'}
                                 </button>
                               )}
                               <button type="button"
