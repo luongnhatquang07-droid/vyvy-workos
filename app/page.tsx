@@ -3739,11 +3739,17 @@ export default function Home() {
               )}
 
               {view === 'admin' && canManageAll && (
-                <AdminUsersView
-                  departments={departments}
-                  onRefresh={fetchAll}
-                  canCreateUsers={canCreateUsers}
-                />
+                <div className="space-y-6">
+                  <AdminUsersView
+                    departments={departments}
+                    onRefresh={fetchAll}
+                    canCreateUsers={canCreateUsers}
+                  />
+                  <AdminDepartmentsSection
+                    departments={departments}
+                    onRefresh={fetchAll}
+                  />
+                </div>
               )}
             </>
           )}
@@ -9618,6 +9624,128 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
         </button>
       </div>
     </form>
+  )
+}
+
+// ─── AdminDepartmentsSection ──────────────────────────────────────────────────
+
+function AdminDepartmentsSection(props: { departments: Department[]; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false)
+  const [name, setName] = useState('')
+  const [code, setCode] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editCode, setEditCode] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) return
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('departments').insert({ name: name.trim(), code: code.trim() || null })
+    setSaving(false)
+    if (error) { setErr(error.message); return }
+    setName(''); setCode(''); setShowForm(false)
+    props.onRefresh()
+    toast('Đã thêm phòng ban')
+  }
+
+  async function handleEdit(id: string) {
+    if (!editName.trim()) return
+    setEditSaving(true)
+    await supabase.from('departments').update({ name: editName.trim(), code: editCode.trim() || null }).eq('id', id)
+    setEditSaving(false); setEditId(null)
+    props.onRefresh()
+    toast('Đã cập nhật phòng ban')
+  }
+
+  async function handleDelete(dept: Department) {
+    const ok = await confirmDialog(`Xóa phòng ban "${dept.name}"? Các nhân viên thuộc phòng ban này sẽ mất liên kết.`)
+    if (!ok) return
+    setDeletingId(dept.id)
+    await supabase.from('departments').delete().eq('id', dept.id)
+    setDeletingId(null)
+    props.onRefresh()
+    toast('Đã xóa phòng ban')
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-extrabold text-sm text-[var(--text-primary)]">Phòng ban ({props.departments.length})</h3>
+        {!showForm && (
+          <button type="button" onClick={() => setShowForm(true)}
+            className="flex items-center gap-1 rounded-xl bg-[var(--olive)] px-3 py-1.5 text-xs font-bold text-[var(--ivory)] hover:opacity-90">
+            <Ico d={IC.plus} size={12} /> Thêm phòng ban
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="mb-4 flex flex-wrap gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+          <input required value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="Tên phòng ban *" className="h-8 flex-1 min-w-[160px] rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 text-sm outline-none" />
+          <input value={code} onChange={(e) => setCode(e.target.value)}
+            placeholder="Mã (VD: KD, MKT)" className="h-8 w-28 rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 text-sm outline-none" />
+          {err && <p className="w-full text-xs text-[var(--danger)]">{err}</p>}
+          <div className="flex gap-2">
+            <button type="submit" disabled={saving}
+              className="rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-[var(--ivory)] disabled:opacity-60">
+              {saving ? 'Đang lưu...' : 'Lưu'}
+            </button>
+            <button type="button" onClick={() => { setShowForm(false); setErr('') }}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-secondary)]">
+              Hủy
+            </button>
+          </div>
+        </form>
+      )}
+
+      {props.departments.length === 0 ? (
+        <p className="text-center text-sm text-[var(--text-muted)] py-4">Chưa có phòng ban nào</p>
+      ) : (
+        <div className="divide-y divide-[var(--border)]">
+          {props.departments.map((dept) => (
+            <div key={dept.id} className="flex items-center gap-3 py-2.5">
+              {editId === dept.id ? (
+                <>
+                  <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                    className="h-7 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-2 text-sm outline-none" />
+                  <input value={editCode} onChange={(e) => setEditCode(e.target.value)}
+                    placeholder="Mã" className="h-7 w-20 rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-2 text-sm outline-none" />
+                  <button type="button" disabled={editSaving} onClick={() => handleEdit(dept.id)}
+                    className="rounded-lg bg-[var(--olive)] px-3 py-1 text-xs font-bold text-[var(--ivory)] disabled:opacity-60">
+                    {editSaving ? '...' : 'Lưu'}
+                  </button>
+                  <button type="button" onClick={() => setEditId(null)}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)]">
+                    Hủy
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-sm text-[var(--text-primary)]">{dept.name}</span>
+                    {dept.code && <span className="ml-2 rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-muted)]">{dept.code}</span>}
+                  </div>
+                  <button type="button" onClick={() => { setEditId(dept.id); setEditName(dept.name); setEditCode(dept.code || '') }}
+                    className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]">
+                    Sửa
+                  </button>
+                  <button type="button" disabled={deletingId === dept.id} onClick={() => handleDelete(dept)}
+                    className="rounded-lg border border-[var(--danger)]/30 px-2 py-1 text-xs font-bold text-[var(--danger)] hover:bg-[var(--danger)]/5 disabled:opacity-50">
+                    {deletingId === dept.id ? '...' : 'Xóa'}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
