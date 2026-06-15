@@ -51,6 +51,20 @@ async function sendNotifyEmail(payload: NotifyEmailPayload) {
   }
 }
 
+// ─── Gửi Web Push notification (fire-and-forget) ─────────────────────────────
+async function sendPush(employeeIds: string[], title: string, body: string, url = '/') {
+  if (!employeeIds.length) return
+  try {
+    await fetch('/api/push-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeIds, title, body, url, tag: 'workos' }),
+    })
+  } catch {
+    // best-effort
+  }
+}
+
 // ─── Gửi thông báo trong app (bảng notifications) ───────────────────────────
 async function pushNotify(rows: Array<{
   recipient_id: string
@@ -924,6 +938,53 @@ export default function Home() {
       setView('tasks')
     }
   }, [currentEmployee]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Đăng ký Web Push sau khi đăng nhập thành công
+  useEffect(() => {
+    if (!currentEmployee?.id || typeof window === 'undefined') return
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    if (!vapidKey) return
+
+    async function registerPush() {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        await navigator.serviceWorker.ready
+
+        // Kiểm tra quyền — chỉ xin nếu chưa từng cho phép
+        if (Notification.permission === 'denied') return
+        if (Notification.permission === 'default') {
+          const perm = await Notification.requestPermission()
+          if (perm !== 'granted') return
+        }
+
+        const existing = await reg.pushManager.getSubscription()
+        const sub = existing || await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey!),
+        })
+
+        await fetch('/api/push-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employeeId: currentEmployee!.id, subscription: sub.toJSON() }),
+        })
+      } catch {
+        // Push không khả dụng (HTTP, trình duyệt không hỗ trợ) — bỏ qua
+      }
+    }
+
+    function urlBase64ToUint8Array(base64String: string) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4)
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+      const raw = window.atob(base64)
+      const output = new Uint8Array(raw.length)
+      for (let i = 0; i < raw.length; ++i) output[i] = raw.charCodeAt(i)
+      return output
+    }
+
+    registerPush()
+  }, [currentEmployee?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function logout() {
     await supabase.auth.signOut()
@@ -1897,6 +1958,7 @@ export default function Home() {
       if (assigneeEmp?.email && t) {
         sendNotifyEmail({ type: 'task_assigned', to: assigneeEmp.email, toName: assigneeEmp.full_name, taskTitle: t.title, actorName: currentEmployee?.full_name })
       }
+      if (t) sendPush([assigneeId], '📌 Bạn được giao việc mới', t.title)
     }
     toast('Đã cập nhật người phụ trách.', 'success')
     await refreshDataSilent()
@@ -2024,6 +2086,7 @@ export default function Home() {
       if (approverEmp?.email) {
         sendNotifyEmail({ type: 'step_submitted', to: approverEmp.email, toName: approverEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name })
       }
+      sendPush([approverId], '⏳ Có bước chờ bạn duyệt', `${step.step_title} — ${stepTask?.title || ''}`)
     }
     toast('Đã gửi duyệt.', 'info')
   }
@@ -2047,6 +2110,9 @@ export default function Home() {
       if (ownerEmp?.email) {
         sendNotifyEmail({ type: emailType, to: ownerEmp.email, toName: ownerEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name, revisionNote })
       }
+      const pushTitle = emailType === 'step_approved' ? '✅ Bước được duyệt' : '🔴 Bước cần làm lại'
+      const pushBody = revisionNote ? `${step.step_title}: ${revisionNote.slice(0, 80)}` : step.step_title
+      sendPush([step.owner_id], pushTitle, pushBody)
     }
   }
 

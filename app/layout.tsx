@@ -38,6 +38,8 @@ const garamond = EB_Garamond({
 export const metadata: Metadata = {
   title: "VyVy WorkOS",
   description: "COO Operating System for VyVyHaircare",
+  manifest: "/manifest.json",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "VyVy WorkOS" },
 };
 
 export default function RootLayout({
@@ -47,6 +49,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" className={`h-full antialiased ${beVietnam.variable} ${oswald.variable} ${garamond.variable} ${jost.variable}`}>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#2D331A" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body className="min-h-full flex flex-col font-sans">{children}</body>
     </html>
   );
