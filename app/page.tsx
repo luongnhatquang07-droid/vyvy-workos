@@ -37,6 +37,20 @@ function confirmDialog(msg: string): Promise<boolean> {
   return _confirm ? _confirm(msg) : Promise.resolve(window.confirm(msg))
 }
 
+// ─── Gửi email thông báo (fire-and-forget, không block UI) ───────────────────
+import type { NotifyEmailPayload } from '@/app/api/notify-email/route'
+async function sendNotifyEmail(payload: NotifyEmailPayload) {
+  try {
+    await fetch('/api/notify-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    // Email là best-effort — không throw
+  }
+}
+
 // ─── Gửi thông báo trong app (bảng notifications) ───────────────────────────
 async function pushNotify(rows: Array<{
   recipient_id: string
@@ -118,6 +132,7 @@ type Department = {
 type Employee = {
   id: string
   full_name: string
+  email?: string | null
   position: string | null
   role?: string | null
   is_department_head?: boolean | null
@@ -933,7 +948,7 @@ export default function Home() {
   }, [])
 
   const fetchEmployees = useCallback(async () => {
-    const { data, error } = await supabase.from('employees').select('id, full_name, position').order('full_name')
+    const { data, error } = await supabase.from('employees').select('id, full_name, email, position').order('full_name')
     if (error) {
       console.error(error)
       setEmployees([])
@@ -1878,6 +1893,10 @@ export default function Home() {
         body: t?.title || '',
         task_id: taskId,
       }])
+      const assigneeEmp = employees.find((e) => e.id === assigneeId)
+      if (assigneeEmp?.email && t) {
+        sendNotifyEmail({ type: 'task_assigned', to: assigneeEmp.email, toName: assigneeEmp.full_name, taskTitle: t.title, actorName: currentEmployee?.full_name })
+      }
     }
     toast('Đã cập nhật người phụ trách.', 'success')
     await refreshDataSilent()
@@ -2000,11 +2019,16 @@ export default function Home() {
         body: step.step_title,
         task_id: step.task_id,
       }])
+      const approverEmp = employees.find((e) => e.id === approverId)
+      const stepTask = tasks.find((t) => t.id === step.task_id)
+      if (approverEmp?.email) {
+        sendNotifyEmail({ type: 'step_submitted', to: approverEmp.email, toName: approverEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name })
+      }
     }
     toast('Đã gửi duyệt.', 'info')
   }
 
-  function notifyStepResult(step: TaskStep, title: string, extraRecipient?: string | null) {
+  function notifyStepResult(step: TaskStep, title: string, extraRecipient?: string | null, emailType?: 'step_approved' | 'step_revision', revisionNote?: string) {
     const recipients = new Set<string>()
     if (step.owner_id) recipients.add(step.owner_id)
     if (extraRecipient) recipients.add(extraRecipient)
@@ -2017,6 +2041,13 @@ export default function Home() {
       body: step.step_title,
       task_id: step.task_id,
     })))
+    if (emailType && step.owner_id && step.owner_id !== currentEmployee?.id) {
+      const ownerEmp = employees.find((e) => e.id === step.owner_id)
+      const stepTask = tasks.find((t) => t.id === step.task_id)
+      if (ownerEmp?.email) {
+        sendNotifyEmail({ type: emailType, to: ownerEmp.email, toName: ownerEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name, revisionNote })
+      }
+    }
   }
 
   // Ai được duyệt bước ở tầng hiện tại
@@ -2093,7 +2124,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
-      notifyStepResult(step, 'Bước của bạn đã được duyệt hoàn tất ✓')
+      notifyStepResult(step, 'Bước của bạn đã được duyệt hoàn tất ✓', null, 'step_approved')
       toast('Đã duyệt bước hoàn tất.')
       return
     }
@@ -2121,7 +2152,7 @@ export default function Home() {
         is_done: true,
         approved_at: now,
       } as Partial<TaskStep>)
-      notifyStepResult(step, 'COO đã duyệt — bước của bạn hoàn tất ✓')
+      notifyStepResult(step, 'COO đã duyệt — bước của bạn hoàn tất ✓', null, 'step_approved')
       toast('COO đã duyệt — bước hoàn tất.')
       return
     }
@@ -2134,7 +2165,7 @@ export default function Home() {
       is_done: true,
       approved_at: now,
     } as Partial<TaskStep>)
-    notifyStepResult(step, 'CEO đã duyệt — bước của bạn hoàn tất ✓')
+    notifyStepResult(step, 'CEO đã duyệt — bước của bạn hoàn tất ✓', null, 'step_approved')
     toast('CEO đã duyệt — bước hoàn tất.')
   }
 
@@ -2172,7 +2203,7 @@ export default function Home() {
     }
 
     await addComment(step.id, note, 'revision')
-    notifyStepResult(step, `Bước cần làm lại: ${note.slice(0, 80)}`)
+    notifyStepResult(step, `Bước cần làm lại: ${note.slice(0, 80)}`, null, 'step_revision', note)
     setRevisionDrafts((current) => ({ ...current, [step.id]: '' }))
     toast('Đã gửi yêu cầu làm lại.', 'info')
     await syncTaskProgress(step.task_id)
