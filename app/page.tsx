@@ -558,6 +558,7 @@ type SubtaskForm = {
 
 type StepForm = {
   title: string
+  description: string
   ownerId: string
   approverId: string
   dueDate: string
@@ -781,6 +782,7 @@ export default function Home() {
   const [stepOpenFor, setStepOpenFor] = useState('')
   const [stepForm, setStepForm] = useState<StepForm>({
     title: '',
+    description: '',
     ownerId: '',
     approverId: '',
     dueDate: '',
@@ -1735,6 +1737,7 @@ export default function Home() {
     setStepOpenFor(task.id)
     setStepForm({
       title: '',
+      description: '',
       ownerId: task.assignee_id || task.head_id || employees[0]?.id || '',
       approverId: departmentApproverId || task.head_id || employees[0]?.id || '',
       dueDate: task.due_date || '',
@@ -1757,6 +1760,7 @@ export default function Home() {
     const { error } = await insertTaskStepsCompat({
       task_id: taskId,
       step_title: stepForm.title.trim(),
+      note: stepForm.description.trim() || null,
       step_order: nextOrder,
       is_done: false,
       owner_id: stepForm.ownerId || null,
@@ -4976,6 +4980,13 @@ function InlineStepForm(props: {
           placeholder="Tên bước"
           value={props.form.title}
           onChange={(value) => props.setForm({ ...props.form, title: value })}
+        />
+        <textarea
+          rows={2}
+          placeholder="Mô tả bước (yêu cầu đầu ra, tiêu chí hoàn thành...)"
+          className="col-span-full resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
+          value={props.form.description}
+          onChange={(e) => props.setForm({ ...props.form, description: e.target.value })}
         />
         <Select
           value={props.form.ownerId}
