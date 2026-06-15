@@ -4099,26 +4099,41 @@ function DashboardView(props: {
         {/* ── Right column ── */}
         <div className="space-y-4">
 
-          {/* Dự án cần chú ý */}
+          {/* Dự án cần chú ý — compact, click → COO Board */}
           <div className={cardCls}>
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2">
               <AlertTriangle size={15} className="text-[var(--warning)]"/>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">Dự án cần chú ý</p>
-              {attentionProjects.length > 0 && <span className="ml-auto text-xs font-bold text-[var(--warning)]">{attentionProjects.length}</span>}
+              {attentionProjects.length > 0
+                ? <span className="ml-auto rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-xs font-extrabold text-[var(--warning)]">{attentionProjects.length}</span>
+                : <span className="ml-auto text-xs text-[var(--text-muted)]">✓ Ổn</span>
+              }
             </div>
-            {attentionProjects.length === 0 ? (
-              <p className="text-xs text-[var(--text-muted)] text-center py-4">Tất cả dự án đang ổn ✓</p>
-            ) : attentionProjects.map((p) => (
-              <button key={p.id} type="button"
-                onClick={() => { props.setSelectedProjectId(p.id); props.setView('coo') }}
-                className="w-full text-left rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-3 mb-2 hover:border-[var(--warning)]/40 transition-colors">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{p.name}</p>
-                  <ProjectHealthBadge health={p.health} />
-                </div>
-                <ProjectHealthSummary health={p.health} />
-              </button>
-            ))}
+            {attentionProjects.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {attentionProjects.map((p) => {
+                  const issues = [
+                    p.health.overdueTasks > 0 && `${p.health.overdueTasks} việc trễ`,
+                    p.health.pendingSteps > 0 && `${p.health.pendingSteps} bước chờ duyệt`,
+                    p.health.revisionSteps > 0 && `${p.health.revisionSteps} bước làm lại`,
+                    p.health.missingReports > 0 && `${p.health.missingReports} bước thiếu báo cáo`,
+                    p.health.problemTasks > 0 && `${p.health.problemTasks} việc có vấn đề`,
+                  ].filter(Boolean) as string[]
+                  return (
+                    <button key={p.id} type="button"
+                      onClick={() => { props.setSelectedProjectId(p.id); props.setView('coo') }}
+                      className="group w-full text-left rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2.5 hover:border-[var(--warning)]/50 hover:bg-[var(--warning)]/5 transition-colors"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{p.name}</p>
+                        <span className="shrink-0 text-[10px] font-bold text-[var(--warning)] opacity-0 group-hover:opacity-100 transition-opacity">Xem →</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{issues.join(' · ')}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Việc khẩn */}
@@ -4306,6 +4321,24 @@ function CooBoard(props: {
   const [boardSearch, setBoardSearch] = useState('')
   const [boardDeptFilter, setBoardDeptFilter] = useState('')
   const [boardStatusFilter, setBoardStatusFilter] = useState('')
+
+  // Auto-expand project + workstreams khi nhảy từ dashboard
+  useEffect(() => {
+    const id = props.selectedProjectId
+    if (!id || id === 'all') return
+    setExpandedProjects((prev) => { const s = new Set(prev); s.add(id); return s })
+    // Expand tất cả workstream của project này
+    const wsList = props.workstreams.filter((ws) => ws.project_id === id)
+    if (wsList.length > 0) {
+      setExpandedWorkstreams((prev) => {
+        const s = new Set(prev)
+        wsList.forEach((ws) => s.add(ws.id))
+        return s
+      })
+    }
+    // Scroll về đầu sau một tick
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+  }, [props.selectedProjectId])
 
   function toggleProject(id: string) {
     setExpandedProjects((prev) => {
