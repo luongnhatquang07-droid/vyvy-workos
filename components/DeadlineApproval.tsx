@@ -97,6 +97,7 @@ export default function DeadlineApproval({ taskId, taskLevel, currentUser, emplo
   const round = data?.deadline_round ?? 0
   const isApprover = !!data?.deadline_approver_id && data.deadline_approver_id === currentUser.id
   const canSubmit = status === 'draft' || status === 'tra_lai'
+  const isManager = ['coo', 'ceo', 'admin'].includes((currentUser.role ?? '').toLowerCase())
 
   async function submitForApproval() {
     if (!pickedDeadline || !pickedApprover) return
@@ -196,8 +197,46 @@ export default function DeadlineApproval({ taskId, taskLevel, currentUser, emplo
         </div>
       )}
 
-      {/* Người gửi: nhập deadline + chọn người duyệt */}
-      {canSubmit && (
+      {/* Manager (CEO/COO/Admin): chốt deadline trực tiếp */}
+      {isManager && status !== 'da_duyet' && (
+        <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] p-3">
+          <Input
+            label="Chốt deadline"
+            type="date"
+            value={pickedDeadline}
+            onChange={(e) => setPickedDeadline(e.target.value)}
+          />
+          <Button onClick={async () => {
+            if (!pickedDeadline) return
+            setBusy(true)
+            await supabase.from('tasks').update({
+              due_date: pickedDeadline,
+              deadline_approval_status: 'da_duyet',
+              proposed_deadline: pickedDeadline,
+              deadline_approver_id: currentUser.id,
+              deadline_submitter_id: currentUser.id,
+              deadline_round: (round || 0) + 1,
+            }).eq('id', taskId)
+            await supabase.from('task_deadline_approval_log').insert({
+              task_id: taskId,
+              round: (round || 0) + 1,
+              submitter_id: currentUser.id,
+              proposed_deadline: pickedDeadline,
+              approver_id: currentUser.id,
+              decision: 'approve',
+              note: 'Chốt trực tiếp',
+            })
+            setBusy(false)
+            await load()
+            onChanged?.()
+          }} loading={busy} disabled={!pickedDeadline}>
+            Chốt deadline
+          </Button>
+        </div>
+      )}
+
+      {/* Nhân viên / trưởng phòng: gửi lên sếp duyệt */}
+      {!isManager && canSubmit && (
         <div className="flex flex-col gap-3 rounded-[var(--radius)] border border-[var(--border)] p-3">
           <Input
             label="Deadline đề xuất"
