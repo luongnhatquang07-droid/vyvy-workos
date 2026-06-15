@@ -4724,10 +4724,12 @@ function InlineSubtaskForm(props: {
           value={props.form.title}
           onChange={(value) => props.setForm({ ...props.form, title: value })}
         />
-        <Input
-          placeholder="Mô tả"
+        <textarea
+          rows={2}
+          placeholder="Mô tả — mục tiêu, yêu cầu đầu ra..."
+          className="resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-hover)] xl:col-span-1"
           value={props.form.description}
-          onChange={(value) => props.setForm({ ...props.form, description: value })}
+          onChange={(e) => props.setForm({ ...props.form, description: e.target.value })}
         />
         <Select
           value={props.form.departmentId}
@@ -4906,19 +4908,16 @@ function SubtaskCard(props: {
           <select
             className="h-10 rounded-xl border border-[var(--border)] px-2 text-xs font-bold"
             value={props.supporterDrafts[props.task.id] || ''}
-            onChange={(event) => props.setSupporterDrafts({ ...props.supporterDrafts, [props.task.id]: event.target.value })}
+            onChange={(event) => {
+              props.setSupporterDrafts({ ...props.supporterDrafts, [props.task.id]: event.target.value })
+              if (event.target.value) setTimeout(() => props.createSupporter(props.task.id), 0)
+            }}
           >
-            <option value="">+ Người hỗ trợ</option>
+            <option value="">+ Thêm người hỗ trợ</option>
             {props.employees.map((employee) => (
               <option key={employee.id} value={employee.id}>{employee.full_name}</option>
             ))}
           </select>
-          <button type="button"
-            onClick={() => props.createSupporter(props.task.id)}
-            className="h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold"
-          >
-            Thêm HT
-          </button>
 
           <button type="button"
             onClick={() => props.setSelectedTask(props.task)}
@@ -7929,8 +7928,14 @@ function CreatePanel(props: {
         {props.tab === 'project' && (
           <div className="space-y-3">
             <Input placeholder="Tên dự án" value={props.projectName} onChange={props.setProjectName} />
-            <Input placeholder="Mã dự án" value={props.projectCode} onChange={props.setProjectCode} />
-            <Input placeholder="Mô tả dự án" value={props.projectDesc} onChange={props.setProjectDesc} />
+            <Input placeholder="Mã dự án (VD: VYVY-OS)" value={props.projectCode} onChange={props.setProjectCode} />
+            <textarea
+              rows={3}
+              placeholder="Mô tả dự án — mục tiêu, phạm vi, ghi chú..."
+              className="w-full resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+              value={props.projectDesc}
+              onChange={(e) => props.setProjectDesc(e.target.value)}
+            />
 
             <Select value={props.projectDepartmentId} onChange={props.setProjectDepartmentId}>
               <option value="">Chọn phòng ban chính</option>
@@ -7963,7 +7968,13 @@ function CreatePanel(props: {
         {props.tab === 'workstream' && (
           <div className="space-y-3">
             <Input placeholder="Tên đầu việc lớn" value={props.workTitle} onChange={props.setWorkTitle} />
-            <Input placeholder="Mô tả" value={props.workDesc} onChange={props.setWorkDesc} />
+            <textarea
+              rows={3}
+              placeholder="Mô tả — mục tiêu, yêu cầu đầu ra, tiêu chí hoàn thành..."
+              className="w-full resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+              value={props.workDesc}
+              onChange={(e) => props.setWorkDesc(e.target.value)}
+            />
 
             <input
               type="date"
