@@ -5240,7 +5240,6 @@ function StepWorkflowCard(props: {
       </div>
 
       <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3">
-        <p className="mb-2 text-xs font-extrabold text-[var(--text-secondary)]">Người duyệt</p>
         <Select
           value={props.step.department_approver_id || props.step.approver_id || ''}
           onChange={(value) =>
