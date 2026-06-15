@@ -552,6 +552,7 @@ type SubtaskForm = {
   description: string
   departmentId: string
   headId: string
+  headIds: string[]
   assigneeId: string
   dueDate: string
   priority: string
@@ -765,6 +766,7 @@ export default function Home() {
   const [workProjectId, setWorkProjectId] = useState('')
   const [workDepartmentId, setWorkDepartmentId] = useState('')
   const [workHeadId, setWorkHeadId] = useState('')
+  const [workHeadIds, setWorkHeadIds] = useState<string[]>([])
   const [workAssigneeId, setWorkAssigneeId] = useState('')
   const [workDueDate, setWorkDueDate] = useState('')
   const [workPriority, setWorkPriority] = useState('medium')
@@ -775,6 +777,7 @@ export default function Home() {
     description: '',
     departmentId: '',
     headId: '',
+    headIds: [],
     assigneeId: '',
     dueDate: '',
     priority: 'medium',
@@ -1666,7 +1669,8 @@ export default function Home() {
       due_date: workDueDate || null,
       department_id: workDepartmentId || null,
       assignee_id: workAssigneeId || null,
-      head_id: workHeadId || null,
+      head_id: workHeadIds[0] || workHeadId || null,
+      head_ids: workHeadIds.length > 0 ? workHeadIds : (workHeadId ? [workHeadId] : []),
       project_id: workProjectId || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -1683,6 +1687,7 @@ export default function Home() {
     setWorkTitle('')
     setWorkDesc('')
     setWorkDueDate('')
+    setWorkHeadIds([])
     await refreshDataSilent()
   }
 
@@ -1693,6 +1698,7 @@ export default function Home() {
       description: '',
       departmentId: parent.department_id || departments[0]?.id || '',
       headId: parent.head_id || parent.assignee_id || employees[0]?.id || '',
+      headIds: [],
       assigneeId: parent.assignee_id || parent.head_id || employees[0]?.id || '',
       dueDate: parent.due_date || '',
       priority: parent.priority || 'medium',
@@ -1716,7 +1722,8 @@ export default function Home() {
       due_date: subtaskForm.dueDate || null,
       department_id: subtaskForm.departmentId || null,
       assignee_id: subtaskForm.assigneeId || null,
-      head_id: subtaskForm.headId || null,
+      head_id: (subtaskForm.headIds?.[0]) || subtaskForm.headId || null,
+      head_ids: subtaskForm.headIds?.length > 0 ? subtaskForm.headIds : (subtaskForm.headId ? [subtaskForm.headId] : []),
       project_id: parent.project_id || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -3058,7 +3065,7 @@ export default function Home() {
   function canCreateSubtask(task: Task): boolean {
     if (canManageAll) return true
     if (isDeptHead && currentEmployee?.department_id && task.department_id === currentEmployee.department_id) return true
-    if (currentEmployee?.id && task.head_id === currentEmployee.id) return true
+    if (currentEmployee?.id && (task.head_id === currentEmployee.id || (task.head_ids || []).includes(currentEmployee.id))) return true
     return false
   }
 
@@ -3068,7 +3075,7 @@ export default function Home() {
   // Tạo step: CEO, COO, Admin, Trưởng BP, hoặc người được assign task đó
   function canCreateStep(task: Task): boolean {
     if (canManageAll || isDeptHead) return true
-    if (currentEmployee?.id && (task.assignee_id === currentEmployee.id || task.head_id === currentEmployee.id)) return true
+    if (currentEmployee?.id && (task.assignee_id === currentEmployee.id || task.head_id === currentEmployee.id || (task.head_ids || []).includes(currentEmployee.id))) return true
     return false
   }
 
@@ -3078,7 +3085,7 @@ export default function Home() {
     return tasks.filter((t) => {
       if (t.status !== 'pending_approval') return false
       if (canManageAll) return true
-      if (t.head_id === currentEmployee.id) return true
+      if (t.head_id === currentEmployee.id || (t.head_ids || []).includes(currentEmployee.id)) return true
       if (isDeptHead && t.department_id && t.department_id === currentEmployee.department_id) return true
       return false
     })
@@ -3771,6 +3778,8 @@ export default function Home() {
         setWorkDepartmentId={setWorkDepartmentId}
         workHeadId={workHeadId}
         setWorkHeadId={setWorkHeadId}
+        workHeadIds={workHeadIds}
+        setWorkHeadIds={setWorkHeadIds}
         workAssigneeId={workAssigneeId}
         setWorkAssigneeId={setWorkAssigneeId}
         workDueDate={workDueDate}
@@ -3890,7 +3899,7 @@ function DashboardView(props: {
 
   // My tasks (for employee view)
   const myTasks = currentEmployee?.id
-    ? tasks.filter((t) => t.assignee_id === currentEmployee.id || t.head_id === currentEmployee.id)
+    ? tasks.filter((t) => t.assignee_id === currentEmployee.id || t.head_id === currentEmployee.id || (t.head_ids || []).includes(currentEmployee.id))
     : []
   const myOverdue = myTasks.filter((t) => isTaskOverdue(t))
   const myDueToday = myTasks.filter((t) => {
@@ -4565,7 +4574,8 @@ function CooBoard(props: {
                                   const subtaskProgress = calculateTaskProgress(subtask, stepsForSubtask)
                                   const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
-                                  const subtaskHead = props.employeeMap.get(subtask.head_id || '')
+                                  const subtaskHeadIds = subtask.head_ids && subtask.head_ids.length > 0 ? subtask.head_ids : (subtask.head_id ? [subtask.head_id] : [])
+                                  const subtaskHeadNames = subtaskHeadIds.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
 
                                   return (
                                     <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
@@ -4587,7 +4597,7 @@ function CooBoard(props: {
                                               </span>
                                             </div>
                                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHead ? subtaskHead.full_name : 'Chưa gán'}</span>
+                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}</span>
                                               <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}</span>
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
                                               <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
@@ -4602,10 +4612,10 @@ function CooBoard(props: {
                                         <div className="flex shrink-0 items-center gap-1.5">
                                           <div className="flex flex-col items-start gap-0.5">
                                             <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO</span>
-                                            <PersonPicker
-                                              value={subtask.head_id}
+                                            <HeadPicker
+                                              headIds={subtaskHeadIds}
                                               employees={props.employees}
-                                              onSave={(id) => props.updateTaskHead(subtask.id, id ? [id] : [])}
+                                              onSave={(ids) => props.updateTaskHead(subtask.id, ids)}
                                             />
                                           </div>
                                           <div className="flex flex-col items-start gap-0.5">
@@ -4742,17 +4752,14 @@ function InlineSubtaskForm(props: {
             </option>
           ))}
         </Select>
-        <Select
-          value={props.form.headId}
-          onChange={(value) => props.setForm({ ...props.form, headId: value })}
-        >
-          <option value="">Chọn Head</option>
-          {props.employees.map((employee) => (
-            <option key={employee.id} value={employee.id}>
-              {employeeSelectLabel(employee)}
-            </option>
-          ))}
-        </Select>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-bold text-[var(--text-secondary)]">Người giao (Head)</label>
+          <HeadPicker
+            headIds={props.form.headIds || []}
+            employees={props.employees}
+            onSave={(ids) => props.setForm({ ...props.form, headIds: ids, headId: ids[0] || '' })}
+          />
+        </div>
         <Select
           value={props.form.assigneeId}
           onChange={(value) => props.setForm({ ...props.form, assigneeId: value })}
@@ -7890,6 +7897,8 @@ function CreatePanel(props: {
   setWorkDepartmentId: (value: string) => void
   workHeadId: string
   setWorkHeadId: (value: string) => void
+  workHeadIds: string[]
+  setWorkHeadIds: (ids: string[]) => void
   workAssigneeId: string
   setWorkAssigneeId: (value: string) => void
   workDueDate: string
@@ -8001,14 +8010,14 @@ function CreatePanel(props: {
               ))}
             </Select>
 
-            <Select value={props.workHeadId} onChange={props.setWorkHeadId}>
-              <option value="">Chọn Head</option>
-              {props.employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.full_name}
-                </option>
-              ))}
-            </Select>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc (Head)</label>
+              <HeadPicker
+                headIds={props.workHeadIds}
+                employees={props.employees}
+                onSave={props.setWorkHeadIds}
+              />
+            </div>
 
             <Select value={props.workAssigneeId} onChange={props.setWorkAssigneeId}>
               <option value="">Chọn người phụ trách</option>
