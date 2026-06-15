@@ -4042,16 +4042,16 @@ function DashboardView(props: {
     .filter((row) => row.employee.status !== 'inactive')
     .sort((a, b) => b.total - a.total || b.overdue - a.overdue || b.doing - a.doing)
 
-  // Chỉ hiện người có task, tránh trùng tên: dùng tên gọi ngắn nhất mà còn phân biệt được
-  const activeWithTask = activePeopleReports.filter((r) => r.total > 0)
-  const lastNames = activeWithTask.map((r) => r.employee.full_name.split(' ').slice(-1)[0])
-  const workloadData = activeWithTask.slice(0, 8).map((r, i) => {
-    const lastName = r.employee.full_name.split(' ').slice(-1)[0]
-    const isDupe = lastNames.filter((n) => n === lastName).length > 1
-    const name = isDupe
-      ? r.employee.full_name.split(' ').slice(-2).join(' ')  // lấy 2 chữ cuối nếu trùng
-      : lastName
-    return { name, done: r.done, doing: r.doing, overdue: r.overdue }
+  // Chart tiến độ dự án — stacked bar: xong / đang làm / trễ / chưa bắt đầu
+  const projectChartData = props.projectCards.slice(0, 8).map((p) => {
+    const projectTasks = props.tasks.filter((t) => t.project_id === p.id)
+    const xong = projectTasks.filter((t) => t.status === 'completed').length
+    const tre = projectTasks.filter((t) => isTaskOverdue(t)).length
+    const dangLam = Math.max(0, projectTasks.filter((t) => t.status === 'in_progress').length - tre)
+    const chuaBatDau = Math.max(0, p.total - xong - tre - dangLam)
+    const words = p.name.split(/[\s\-–—]+/)
+    const shortName = words.length > 2 ? words.slice(0, 2).join(' ') + '…' : p.name
+    return { name: shortName, xong, dangLam, tre, chuaBatDau }
   })
 
   const cardCls = 'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5'
@@ -4143,11 +4143,19 @@ function DashboardView(props: {
               )}
             </div>
 
-            {/* Bar — khối lượng nhân sự */}
+            {/* Bar — tiến độ dự án */}
             <div className={cardCls}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Khối lượng theo người</p>
-              {workloadData.length > 0 ? (
-                <DashboardWorkloadBar data={workloadData} />
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-[var(--text-secondary)]">Tiến độ theo dự án</p>
+                <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#5B6B2E]"/>Xong</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#8A8047]"/>Đang làm</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#8A3A2E]"/>Trễ</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#D4CFC8]"/>Chưa bắt đầu</span>
+                </div>
+              </div>
+              {projectChartData.length > 0 ? (
+                <DashboardProjectBar data={projectChartData} />
               ) : (
                 <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dữ liệu</p>
               )}
@@ -4476,21 +4484,32 @@ function DashboardDonut({ data, total }: { data: Array<{ name: string; value: nu
   )
 }
 
-function DashboardWorkloadBar({ data }: { data: Array<{ name: string; done: number; doing: number; overdue: number }> }) {
+function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: number; dangLam: number; tre: number; chuaBatDau: number }> }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <div className="h-48 skeleton rounded-[var(--radius)]" />
+  if (!mounted) return <div className="h-44 skeleton rounded-[var(--radius)]" />
 
-  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } = require('recharts')
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } = require('recharts')
+
+  const tooltipFormatter = (value: number, name: string) => {
+    const labels: Record<string, string> = { xong: 'Xong', dangLam: 'Đang làm', tre: 'Trễ', chuaBatDau: 'Chưa bắt đầu' }
+    return [value, labels[name] || name]
+  }
+
   return (
-    <ResponsiveContainer width="100%" height={160}>
-      <BarChart data={data} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-        <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-        <Bar dataKey="done" name="Xong" fill="#5B6B2E" radius={[3,3,0,0]} stackId="a" />
-        <Bar dataKey="doing" name="Đang làm" fill="#8A8047" radius={[3,3,0,0]} stackId="a" />
-        <Bar dataKey="overdue" name="Trễ" fill="#8A3A2E" radius={[3,3,0,0]} stackId="a" />
+    <ResponsiveContainer width="100%" height={170}>
+      <BarChart data={data} margin={{ top: 0, right: 0, left: -24, bottom: 0 }} barCategoryGap="30%">
+        <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} interval={0} />
+        <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+        <Tooltip
+          formatter={tooltipFormatter}
+          contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
+        />
+        <Bar dataKey="xong"       name="xong"        fill="#5B6B2E" stackId="a" />
+        <Bar dataKey="dangLam"    name="dangLam"     fill="#8A8047" stackId="a" />
+        <Bar dataKey="tre"        name="tre"         fill="#8A3A2E" stackId="a" />
+        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="#D4CFC8" stackId="a" radius={[3,3,0,0]} />
       </BarChart>
     </ResponsiveContainer>
   )
