@@ -216,6 +216,7 @@ type TaskStep = {
   department_approved_at: string | null
   coo_approved_at: string | null
   ceo_approved_at: string | null
+  description: string | null
   report_file_url: string | null
   report_file_name: string | null
   report_link: string | null
@@ -1768,7 +1769,7 @@ export default function Home() {
     const { error } = await insertTaskStepsCompat({
       task_id: taskId,
       step_title: stepForm.title.trim(),
-      note: stepForm.description.trim() || null,
+      description: stepForm.description.trim() || null,
       step_order: nextOrder,
       is_done: false,
       owner_id: stepForm.ownerId || null,
@@ -5586,6 +5587,13 @@ function StepWorkflowCard(props: {
           </button>
         </div>
       </div>
+      )}
+
+      {props.step.description && (
+        <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2">
+          <p className="mb-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Yêu cầu / Mô tả bước</p>
+          <p className="text-xs text-[var(--text-secondary)] leading-5">{props.step.description}</p>
+        </div>
       )}
 
       <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3">
