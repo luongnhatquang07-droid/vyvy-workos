@@ -4043,7 +4043,7 @@ function DashboardView(props: {
     .sort((a, b) => b.total - a.total || b.overdue - a.overdue || b.doing - a.doing)
 
   // Chart tiến độ dự án — stacked bar: xong / đang làm / trễ / chưa bắt đầu
-  const projectChartData = props.projectCards.slice(0, 8).map((p) => {
+  const projectChartData = props.projectCards.filter((p) => p.total > 0).slice(0, 8).map((p) => {
     const projectTasks = props.tasks.filter((t) => t.project_id === p.id)
     const xong = projectTasks.filter((t) => t.status === 'completed').length
     const tre = projectTasks.filter((t) => isTaskOverdue(t)).length
@@ -4182,7 +4182,7 @@ function DashboardView(props: {
                     </div>
                     <div className="text-right shrink-0">
                       <ProjectHealthBadge health={project.health} />
-                      <p className="text-xl font-bold text-[var(--olive)] mt-1">{project.rate}%</p>
+                      <p className="text-xl font-bold text-[var(--olive)] mt-1">{isNaN(project.rate) ? 0 : project.rate}%</p>
                     </div>
                   </div>
                   <ProgressBar value={project.rate} />
@@ -4357,42 +4357,35 @@ function DashboardView(props: {
         {/* ── Right column ── */}
         <div className="space-y-4">
 
-          {/* Dự án cần chú ý — compact, click → COO Board */}
-          <div className={cardCls}>
+          {/* Dự án cần chú ý — compact 1 dòng, click → COO Board */}
+          <button type="button"
+            onClick={() => attentionProjects.length > 0 ? props.setView('coo') : undefined}
+            className={`${cardCls} w-full text-left group ${attentionProjects.length > 0 ? 'cursor-pointer hover:border-[var(--warning)]/60 hover:bg-[var(--warning)]/5 transition-colors' : 'cursor-default'}`}
+          >
             <div className="flex items-center gap-2">
-              <AlertTriangle size={15} className="text-[var(--warning)]"/>
+              <AlertTriangle size={15} className={attentionProjects.length > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}/>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">Dự án cần chú ý</p>
-              {attentionProjects.length > 0
-                ? <span className="ml-auto rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-xs font-extrabold text-[var(--warning)]">{attentionProjects.length}</span>
-                : <span className="ml-auto text-xs text-[var(--text-muted)]">✓ Ổn</span>
-              }
+              {attentionProjects.length > 0 ? (
+                <>
+                  <span className="ml-auto rounded-full bg-[var(--warning)]/15 px-2.5 py-0.5 text-xs font-extrabold text-[var(--warning)]">
+                    {attentionProjects.length} dự án
+                  </span>
+                  <span className="text-xs font-bold text-[var(--warning)] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                </>
+              ) : (
+                <span className="ml-auto text-xs text-[var(--text-muted)]">✓ Ổn</span>
+              )}
             </div>
             {attentionProjects.length > 0 && (
-              <div className="mt-3 space-y-1.5">
-                {attentionProjects.map((p) => {
-                  const issues = [
-                    p.health.overdueTasks > 0 && `${p.health.overdueTasks} việc trễ`,
-                    p.health.pendingSteps > 0 && `${p.health.pendingSteps} bước chờ duyệt`,
-                    p.health.revisionSteps > 0 && `${p.health.revisionSteps} bước làm lại`,
-                    p.health.missingReports > 0 && `${p.health.missingReports} bước thiếu báo cáo`,
-                    p.health.problemTasks > 0 && `${p.health.problemTasks} việc có vấn đề`,
-                  ].filter(Boolean) as string[]
-                  return (
-                    <button key={p.id} type="button"
-                      onClick={() => { props.setSelectedProjectId(p.id); props.setView('coo') }}
-                      className="group w-full text-left rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2.5 hover:border-[var(--warning)]/50 hover:bg-[var(--warning)]/5 transition-colors"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{p.name}</p>
-                        <span className="shrink-0 text-[10px] font-bold text-[var(--warning)] opacity-0 group-hover:opacity-100 transition-opacity">Xem →</span>
-                      </div>
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{issues.join(' · ')}</p>
-                    </button>
-                  )
-                })}
-              </div>
+              <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+                {[
+                  attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0)} việc trễ`,
+                  attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0)} bước chờ duyệt`,
+                  attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0)} bước làm lại`,
+                ].filter(Boolean).join(' · ') || 'Nhấn để xem chi tiết'}
+              </p>
             )}
-          </div>
+          </button>
 
           {/* Việc khẩn */}
           <div className={cardCls}>
@@ -4488,8 +4481,10 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
   if (!mounted) return <div className="h-44 skeleton rounded-[var(--radius)]" />
+  if (data.length === 0) return <p className="h-44 flex items-center justify-center text-xs text-[var(--text-muted)]">Chưa có dự án nào có đầu việc</p>
 
   const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } = require('recharts')
+  const maxVal = Math.max(...data.map(d => d.xong + d.dangLam + d.tre + d.chuaBatDau), 1)
 
   const tooltipFormatter = (value: number, name: string) => {
     const labels: Record<string, string> = { xong: 'Xong', dangLam: 'Đang làm', tre: 'Trễ', chuaBatDau: 'Chưa bắt đầu' }
@@ -4500,7 +4495,7 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
     <ResponsiveContainer width="100%" height={170}>
       <BarChart data={data} margin={{ top: 0, right: 0, left: -24, bottom: 0 }} barCategoryGap="30%">
         <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} interval={0} />
-        <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={[0, maxVal]} />
         <Tooltip
           formatter={tooltipFormatter}
           contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
@@ -6116,12 +6111,12 @@ function ProjectsView(props: {
                   </div>
                   <div className="flex flex-1 items-center gap-2">
                     <div className="relative h-5 flex-1 overflow-hidden rounded-full bg-[var(--bg-surface)]">
-                      <div className={`h-5 rounded-full transition-all ${healthColor}`} style={{ width: `${Math.max(project.rate, 1)}%` }} />
-                      {project.rate > 10 && (
-                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[var(--text-primary)]">{project.rate}%</span>
+                      <div className={`h-5 rounded-full transition-all ${healthColor}`} style={{ width: `${Math.max(isNaN(project.rate) ? 0 : project.rate, 1)}%` }} />
+                      {(isNaN(project.rate) ? 0 : project.rate) > 10 && (
+                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] font-extrabold text-[var(--text-primary)]">{isNaN(project.rate) ? 0 : project.rate}%</span>
                       )}
                     </div>
-                    {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[var(--text-primary)]">{project.rate}%</span>}
+                    {(isNaN(project.rate) ? 0 : project.rate) <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[var(--text-primary)]">{isNaN(project.rate) ? 0 : project.rate}%</span>}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
                     <span className="font-bold text-[var(--success)]">{project.done}<span className="font-normal text-[var(--text-muted)]">/{project.total}</span></span>
@@ -6263,7 +6258,7 @@ function ProjectsView(props: {
                 <div className="h-2.5 rounded-full" style={{ width: `${Math.max(project.rate, 1)}%`, background: barColor }} />
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <span className="font-bold tabular-nums text-[var(--text-secondary)]">{project.rate}% · {project.done}/{project.total} việc</span>
+                <span className="font-bold tabular-nums text-[var(--text-secondary)]">{isNaN(project.rate) ? 0 : project.rate}% · {project.done}/{project.total} việc</span>
                 {project.overdue > 0 && <span className="font-semibold text-[var(--crit)]">{project.overdue} trễ</span>}
                 {project.problem > 0 && <span className="font-semibold text-[var(--warn)]">{project.problem} vấn đề</span>}
                 <span className="ml-auto font-extrabold text-[var(--text-primary)]">Mở bảng →</span>
@@ -8514,7 +8509,7 @@ function MetricCard(props: {
 }
 
 function ProgressBar({ value, showLabel }: { value: number; showLabel?: boolean }) {
-  const clamped = Math.max(0, Math.min(100, value))
+  const clamped = Math.max(0, Math.min(100, isNaN(value) ? 0 : value))
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-2 overflow-hidden rounded-full bg-[var(--border)]">
@@ -8839,7 +8834,8 @@ function calculateProjectProgress(
     return sum + calculateWorkstreamProgress(workstream, tasksByParent, stepsByTask)
   }, 0)
 
-  return Math.round(total / workstreams.length)
+  const result = Math.round(total / workstreams.length)
+  return isNaN(result) ? 0 : result
 }
 
 function calculateProjectHealth(
