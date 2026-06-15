@@ -2186,7 +2186,7 @@ export default function Home() {
   }
 
   async function deleteTask(task: Task) {
-    const label = task.task_level === 'workstream' || !task.parent_task_id ? 'đầu việc lớn' : 'đầu việc con'
+    const label = isWorkstream(task) ? 'đầu việc lớn' : 'đầu việc con'
     if (!(await confirmDialog(`Xóa ${label} "${task.title}"?`))) return
 
     const { error } = await supabase.from('tasks').delete().eq('id', task.id)
@@ -2691,9 +2691,7 @@ export default function Home() {
   }, [tasks])
 
   // Tất cả đầu việc lớn (không lọc theo dự án) — dùng cho cây COO Board
-  const allWorkstreams = tasks.filter(
-    (task) => task.task_level === 'workstream' || !task.parent_task_id
-  )
+  const allWorkstreams = tasks.filter(isWorkstream)
 
   const workstreams = allWorkstreams.filter(
     (task) => selectedProjectId === 'all' || task.project_id === selectedProjectId
@@ -2704,9 +2702,7 @@ export default function Home() {
 
   const projectCards = projects.map((project) => {
     const projectWorkstreams = tasks.filter(
-      (task) =>
-        task.project_id === project.id &&
-        (task.task_level === 'workstream' || !task.parent_task_id)
+      (task) => task.project_id === project.id && isWorkstream(task)
     )
 
     const projectTasks = tasks.filter((task) => task.project_id === project.id)
@@ -3095,7 +3091,7 @@ export default function Home() {
                       >
                         <span>
                           {task.status === 'completed' ? (
-                            <Ico d={IC.check} size={15} className="text-[var(--accent-hover)]"/>
+                            <Ico d={IC.check} size={15} className="text-[var(--success)]"/>
                           ) : (
                             <Ico d={IC.clock} size={15} className="text-[var(--text-muted)]"/>
                           )}
@@ -3160,7 +3156,7 @@ export default function Home() {
                               </button>
                               <button type="button"
                                 onClick={() => rejectAssignment(task)}
-                                className="rounded-lg border border-red-200 px-2.5 py-1 text-[11px] font-bold text-red-600"
+                                className="rounded-lg border border-[var(--danger)]/30 px-2.5 py-1 text-[11px] font-bold text-[var(--danger)]"
                               >
                                 Trả lại
                               </button>
@@ -3262,11 +3258,11 @@ export default function Home() {
             <div
               title={realtimeStatus === 'live' ? 'Đang đồng bộ tự động' : realtimeStatus === 'connecting' ? 'Đang kết nối...' : 'Mất kết nối realtime'}
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold sm:flex
-                ${realtimeStatus === 'live' ? 'bg-[var(--accent-soft)] text-[var(--accent-hover)]' :
-                  realtimeStatus === 'connecting' ? 'bg-amber-50 text-amber-700' :
+                ${realtimeStatus === 'live' ? 'bg-[var(--success-soft)] text-[var(--success)]' :
+                  realtimeStatus === 'connecting' ? 'bg-[var(--warning-soft)] text-[var(--warning)]' :
                   'bg-[var(--danger-soft)] text-[var(--danger)]'}`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[var(--accent-hover)]' : realtimeStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[var(--success)]' : realtimeStatus === 'connecting' ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]'}`} />
               {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
             </div>
             {primaryAction && (
@@ -3274,7 +3270,7 @@ export default function Home() {
                 onClick={primaryAction.onClick}
                 disabled={primaryAction.disabled}
                 title={primaryAction.title}
-                className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-extrabold text-[var(--text-primary)] shadow-sm hover:bg-[#cfd41d] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
+                className="rounded-xl bg-[var(--accent)] px-3 py-2 text-sm font-extrabold text-[var(--text-primary)] shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-4"
               >
                 {primaryAction.label}
               </button>
@@ -3587,7 +3583,7 @@ updateTaskHead={updateTaskHead}
             className="w-full max-w-sm rounded-2xl bg-[var(--bg-card)] p-5 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-50 text-amber-600"><Ico d={IC.warning} size={20}/></div>
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--warning-soft)] text-[var(--warning)]"><Ico d={IC.warning} size={20}/></div>
             <p className="text-sm font-bold text-[var(--text-primary)]">{confirmState.message}</p>
             <p className="mt-1 text-xs text-[var(--text-secondary)]">Hành động này không thể hoàn tác.</p>
             <div className="mt-4 flex justify-end gap-2">
@@ -4059,14 +4055,7 @@ function CooBoard(props: {
       ) : (
         props.projects.map((project) => {
           const projectWorkstreams = props.workstreams.filter((ws) => ws.project_id === project.id)
-          const projectProgress = projectWorkstreams.length > 0
-            ? Math.round(
-                projectWorkstreams.reduce(
-                  (sum, ws) => sum + calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask),
-                  0
-                ) / projectWorkstreams.length
-              )
-            : 0
+          const projectProgress = calculateProjectProgress(projectWorkstreams, props.tasksByParent, props.stepsByTask)
           const isProjectExpanded = expandedProjects.has(project.id)
 
           return (
@@ -4089,9 +4078,9 @@ function CooBoard(props: {
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <div className="h-1.5 w-32 rounded-full bg-[#d9d3c5]">
+                      <div className="h-1.5 w-32 rounded-full bg-[var(--border)]">
                         <div
-                          className="h-1.5 rounded-full bg-[var(--accent)] transition-all"
+                          className="h-1.5 rounded-full bg-[var(--olive)] transition-all"
                           style={{ width: `${projectProgress}%` }}
                         />
                       </div>
@@ -4171,7 +4160,7 @@ function CooBoard(props: {
                               {props.canCreateSubtask(ws) && (
                                 <button type="button"
                                   onClick={() => props.openSubtaskForm(ws)}
-                                  className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--accent)]"
+                                  className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--olive)] hover:border-[var(--olive)]"
                                 >
                                   + Việc con
                                 </button>
@@ -4214,10 +4203,7 @@ function CooBoard(props: {
                               ) : (
                                 subtasks.map((subtask) => {
                                   const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
-                                  const doneSteps = stepsForSubtask.filter((s) => s.approval_status === 'approved').length
-                                  const subtaskProgress = stepsForSubtask.length > 0
-                                    ? Math.round((doneSteps / stepsForSubtask.length) * 100)
-                                    : subtask.progress_percent || 0
+                                  const subtaskProgress = calculateTaskProgress(subtask, stepsForSubtask)
                                   const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
 
@@ -4476,14 +4462,14 @@ function SubtaskCard(props: {
   const problem = isTaskProblem(props.task)
 
   return (
-    <div className={`rounded-2xl border bg-[var(--bg-card)] p-5 shadow-sm ${overdue || problem ? 'border-red-200' : 'border-[var(--border)]'}`}>
+    <div className={`rounded-2xl border bg-[var(--bg-card)] p-5 shadow-sm ${overdue || problem ? 'border-[var(--danger)]/30' : 'border-[var(--border)]'}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h4 className="text-lg font-extrabold">{props.task.title}</h4>
             <StatusBadge status={props.task.status} label={props.getStatusLabel(props.task.status)} />
             <IssueBadge issueStatus={props.task.issue_status} />
-            {slow && <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">Chậm tiến độ</span>}
+            {slow && <span className="rounded-full bg-[var(--warning-soft)] px-3 py-1 text-xs font-bold text-[var(--warning)]">Chậm tiến độ</span>}
             {overdue && <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-semibold text-[var(--danger)]">Quá hạn</span>}
           </div>
 
@@ -4558,7 +4544,7 @@ function SubtaskCard(props: {
       <div className="mb-4">
         <div className="mb-2 flex justify-between text-sm">
           <span className="font-bold">Tiến độ theo bước đã duyệt</span>
-          <span className="font-extrabold text-[var(--accent-hover)]">{progress}%</span>
+          <span className="font-extrabold text-[var(--olive)]">{progress}%</span>
         </div>
         <ProgressBar value={progress} />
       </div>
@@ -4903,13 +4889,13 @@ function StepWorkflowCard(props: {
       </div>
 
       {props.step.support_request && (
-        <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+        <div className="mt-3 rounded-xl bg-[var(--warning-soft)] p-3 text-sm text-[var(--warning)]">
           <b>Yêu cầu hỗ trợ:</b> {props.step.support_request}
         </div>
       )}
 
       {props.step.approval_note && (
-        <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3 text-sm text-[#594e3d]">
+        <div className="mt-3 rounded-xl bg-[var(--bg-surface)] p-3 text-sm text-[var(--text-secondary)]">
           <b>Ghi chú duyệt:</b> {props.step.approval_note}
         </div>
       )}
@@ -5053,7 +5039,7 @@ function StepWorkflowCard(props: {
         <p className="mb-2 text-sm font-semibold text-[var(--danger)]">Yêu cầu làm lại nếu chưa đạt</p>
         <div className="flex gap-2">
           <input
-            className="h-9 flex-1 rounded-lg border border-red-100 px-3 text-xs outline-none"
+            className="h-9 flex-1 rounded-lg border border-[var(--danger)]/20 px-3 text-xs outline-none"
             placeholder="Nhập lý do cần làm lại..."
             value={props.revisionDrafts[props.step.id] || ''}
             onChange={(event) =>
@@ -5066,7 +5052,7 @@ function StepWorkflowCard(props: {
           <button type="button"
             disabled={props.locked}
             onClick={() => props.requestRevision(props.step)}
-            className="rounded-lg bg-red-600 px-3 text-xs font-bold text-[var(--text-primary)] disabled:opacity-40"
+            className="rounded-[var(--radius-sm)] bg-[var(--danger)] px-3 text-xs font-bold text-[var(--paper)] disabled:opacity-40"
           >
             Gửi
           </button>
@@ -5077,7 +5063,7 @@ function StepWorkflowCard(props: {
         <button type="button"
           disabled={props.locked || status === 'approved'}
           onClick={() => props.submitStep(props.step)}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-extrabold text-[var(--text-primary)] disabled:opacity-40"
+          className="rounded-[var(--radius)] bg-[var(--olive)] px-4 py-2 text-xs font-extrabold text-[var(--ivory)] disabled:opacity-40"
         >
           Gửi duyệt
         </button>
@@ -5168,20 +5154,20 @@ function ProjectsView(props: {
     <div className="space-y-5">
 
       {/* ══ Hero — đích cuối ══ */}
-      <div className="overflow-hidden rounded-2xl border border-[#2d331a] bg-[var(--bg-card-hover)] text-[var(--text-primary)]">
+      <div className="overflow-hidden rounded-2xl border border-[var(--olive)] bg-[var(--bg-card-hover)] text-[var(--text-primary)]">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
           <div className="shrink-0 sm:w-44">
             <p className="font-spec text-[10px] text-[var(--text-muted)]">Đích cuối</p>
-            <p className="font-display text-4xl leading-none text-[var(--accent)]">100<span className="text-base">%</span></p>
+            <p className="font-display text-4xl leading-none text-[var(--olive)]">100<span className="text-base">%</span></p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">hoàn thành toàn bộ dự án</p>
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex items-baseline justify-between">
-              <p className="text-sm font-bold">Hiện tại: <span className="tabular-nums text-[var(--accent)]">{overallRate}%</span> · {totalDone}/{totalTasks} đầu việc</p>
+              <p className="text-sm font-bold">Hiện tại: <span className="tabular-nums text-[var(--text-primary)]">{overallRate}%</span> · {totalDone}/{totalTasks} đầu việc</p>
               <p className="text-xs text-[var(--text-muted)]">{props.projectCards.length} dự án</p>
             </div>
-            <div className="relative h-5 overflow-hidden rounded-full bg-[#3a3f27]">
-              <div className="h-5 rounded-full bg-[var(--accent)] transition-all" style={{ width: `${Math.max(overallRate, 1)}%` }} />
+            <div className="relative h-5 overflow-hidden rounded-full bg-[var(--border)]">
+              <div className="h-5 rounded-full bg-[var(--olive)] transition-all" style={{ width: `${Math.max(overallRate, 1)}%` }} />
             </div>
             <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">Thanh này tự cộng từ tiến độ thật của mọi dự án — không nhập tay.</p>
           </div>
@@ -5195,9 +5181,9 @@ function ProjectsView(props: {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
             <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Phải xong tuần này</p>
-            <span className="rounded-full bg-[#f0f5c4] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[var(--accent-hover)]">{dueThisWeek.length}</span>
+            <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[var(--text-secondary)]">{dueThisWeek.length}</span>
           </div>
-          <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
+          <div className="max-h-56 divide-y divide-[var(--border)] overflow-y-auto">
             {dueThisWeek.length === 0 ? (
               <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có việc đến hạn trong tuần.</p>
             ) : dueThisWeek.slice(0, 8).map((t) => (
@@ -5210,18 +5196,18 @@ function ProjectsView(props: {
           </div>
         </div>
         {/* Đang kẹt / quá hạn */}
-        <div className={`rounded-2xl border bg-[var(--bg-card)] ${stuck.length > 0 ? 'border-red-200' : 'border-[var(--border)]'}`}>
-          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-red-100' : 'border-[var(--border)]'}`}>
+        <div className={`rounded-2xl border bg-[var(--bg-card)] ${stuck.length > 0 ? 'border-[var(--danger)]/30' : 'border-[var(--border)]'}`}>
+          <div className={`flex items-center justify-between border-b px-4 py-2.5 ${stuck.length > 0 ? 'border-[var(--danger)]/20' : 'border-[var(--border)]'}`}>
             <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Đang kẹt / quá hạn</p>
             <span className={`rounded-full px-2 py-0.5 text-xs font-extrabold tabular-nums ${stuck.length > 0 ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>{stuck.length}</span>
           </div>
-          <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
+          <div className="max-h-56 divide-y divide-[var(--border)] overflow-y-auto">
             {stuck.length === 0 ? (
               <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có gì kẹt. Tốt.</p>
             ) : stuck.slice(0, 8).map((t) => (
               <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                 className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-[var(--danger-soft)]">
-                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${isTaskOverdue(t) ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-amber-100 text-amber-700'}`}>
+                <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${isTaskOverdue(t) ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--warning-soft)] text-[var(--warning)]'}`}>
                   {isTaskOverdue(t) ? 'TRỄ' : 'KẸT'}
                 </span>
                 <span className="truncate text-sm font-bold text-[var(--text-primary)]">{t.title}</span>
@@ -5233,16 +5219,16 @@ function ProjectsView(props: {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
             <p className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Chờ duyệt</p>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-extrabold tabular-nums text-amber-700">{pendingSteps.length}</span>
+            <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-xs font-extrabold tabular-nums text-[var(--warning)]">{pendingSteps.length}</span>
           </div>
-          <div className="max-h-56 divide-y divide-[#f1ede4] overflow-y-auto">
+          <div className="max-h-56 divide-y divide-[var(--border)] overflow-y-auto">
             {pendingSteps.length === 0 ? (
               <p className="px-4 py-4 text-xs text-[var(--text-muted)]">Không có bước nào chờ duyệt.</p>
             ) : pendingSteps.slice(0, 8).map((s) => (
               <button key={s.id} type="button" onClick={() => openTaskOfStep(s)}
                 className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left hover:bg-[var(--bg-surface)]">
                 <span className="truncate text-sm font-bold text-[var(--text-primary)]">{s.step_title}</span>
-                <span className="shrink-0 text-[10px] font-bold text-amber-600">duyệt →</span>
+                <span className="shrink-0 text-[10px] font-bold text-[var(--warning)]">duyệt →</span>
               </button>
             ))}
           </div>
@@ -5268,7 +5254,7 @@ function ProjectsView(props: {
                   key={project.id}
                   type="button"
                   onClick={() => setFocusProject(isFocus ? null : project.id)}
-                  className={`flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors ${isFocus ? 'bg-[#f5f2e8]' : 'hover:bg-[var(--bg-surface)]'}`}
+                  className={`flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors ${isFocus ? 'bg-[var(--bg-surface)]' : 'hover:bg-[var(--bg-surface)]'}`}
                 >
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotColor}`} />
                   <div className="w-36 shrink-0">
@@ -5285,9 +5271,9 @@ function ProjectsView(props: {
                     {project.rate <= 10 && <span className="shrink-0 text-xs font-extrabold tabular-nums text-[var(--text-primary)]">{project.rate}%</span>}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
-                    <span className="font-bold text-[var(--accent-hover)]">{project.done}<span className="font-normal text-[var(--text-muted)]">/{project.total}</span></span>
-                    {project.overdue > 0 && <span className="font-bold text-red-600">⚠ {project.overdue}</span>}
-                    {project.problem > 0 && <span className="font-bold text-amber-600">! {project.problem}</span>}
+                    <span className="font-bold text-[var(--success)]">{project.done}<span className="font-normal text-[var(--text-muted)]">/{project.total}</span></span>
+                    {project.overdue > 0 && <span className="font-bold text-[var(--danger)]">⚠ {project.overdue}</span>}
+                    {project.problem > 0 && <span className="font-bold text-[var(--warning)]">! {project.problem}</span>}
                   </div>
                   <Ico d={IC.chevronRight} size={13} className={`shrink-0 text-[var(--text-muted)] transition-transform ${isFocus ? 'rotate-90' : ''}`} />
                 </button>
@@ -5304,7 +5290,7 @@ function ProjectsView(props: {
                 <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">{focusedProject.name}</p>
                 <button type="button"
                   onClick={() => { props.setSelectedProjectId(focusedProject.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[var(--bg-card)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
+                  className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1 text-xs font-semibold text-[var(--olive)] hover:border-[var(--olive)]">
                   Mở COO Board
                 </button>
               </div>
@@ -5313,8 +5299,8 @@ function ProjectsView(props: {
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {[
                     { label: 'Tổng', v: focusedProject.total, c: 'text-[var(--text-primary)]' },
-                    { label: 'Xong', v: focusedProject.done, c: 'text-[var(--accent-hover)]' },
-                    { label: 'Trễ', v: focusedProject.overdue, c: focusedProject.overdue > 0 ? 'text-red-600' : 'text-[var(--text-muted)]' },
+                    { label: 'Xong', v: focusedProject.done, c: 'text-[var(--success)]' },
+                    { label: 'Trễ', v: focusedProject.overdue, c: focusedProject.overdue > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]' },
                   ].map((n) => (
                     <div key={n.label} className="rounded-xl bg-[var(--bg-surface)] py-2">
                       <p className={`text-xl font-extrabold tabular-nums ${n.c}`}>{n.v}</p>
@@ -5348,7 +5334,7 @@ function ProjectsView(props: {
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-[#d4cbb8] bg-[var(--bg-surface)] px-4 py-6 text-center">
+            <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] px-4 py-6 text-center">
               <p className="text-sm font-bold text-[var(--text-muted)]">Bấm vào một dự án bên trái<br/>để sổ ra chi tiết tại đây</p>
             </div>
           )}
@@ -5388,7 +5374,7 @@ function ProjectsView(props: {
                     style={{ width: `${(w.n / maxLoad) * 100}%` }}
                   />
                 </div>
-                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-red-600' : 'text-[var(--text-primary)]'}`}>{w.n} việc</p>
+                <p className={`w-14 shrink-0 text-right text-sm font-extrabold tabular-nums ${w.n > 5 ? 'text-[var(--danger)]' : 'text-[var(--text-primary)]'}`}>{w.n} việc</p>
               </div>
             ))}
           </div>
@@ -5445,7 +5431,7 @@ function ProjectsView(props: {
         }).length
         const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
         const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
-        const workstreams = props.tasks.filter((t) => t.project_id === boardProjectCard.id && (t.task_level === 'workstream' || !t.parent_task_id))
+        const workstreams = props.tasks.filter((t) => t.project_id === boardProjectCard.id && isWorkstream(t))
 
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
@@ -5461,7 +5447,7 @@ function ProjectsView(props: {
                 </div>
                 <button type="button"
                   onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[#c8cc18] transition-colors">
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--accent-hover)] transition-colors">
                   Mở COO Board
                 </button>
                 {props.canDeleteProject && (
@@ -5478,8 +5464,8 @@ function ProjectsView(props: {
               </div>
 
               {/* ── Progress bar ── */}
-              <div className="h-1 w-full bg-[#e8e4da]">
-                <div className="h-full bg-[var(--accent)] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
+              <div className="h-1 w-full bg-[var(--border)]">
+                <div className="h-full bg-[var(--olive)] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
               </div>
 
               <div className="p-5 space-y-6">
@@ -5493,9 +5479,9 @@ function ProjectsView(props: {
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[var(--text-primary)]' },
-                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[var(--accent-hover)]' : 'text-[var(--text-muted)]' },
-                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-red-600' : 'text-[var(--text-muted)]' },
-                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-amber-600' : 'text-[var(--text-muted)]' },
+                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[var(--success)]' : 'text-[var(--text-muted)]' },
+                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]' },
+                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]' },
                   ].map((x) => (
                     <div key={x.label} className="rounded-xl bg-[var(--bg-surface)] px-3.5 py-3">
                       <p className={`text-2xl font-extrabold tabular-nums leading-none ${x.c}`}>{x.v}</p>
@@ -5517,20 +5503,20 @@ function ProjectsView(props: {
                       const doneCount = children.filter((c) => c.status === 'completed').length
                       const wsProgress = children.length > 0 ? Math.round((doneCount / children.length) * 100) : 0
                       return (
-                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-[var(--bg-card)]">
+                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
                           {/* Workstream header */}
                           <div className="flex items-center gap-3 px-4 py-2.5">
                             <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)]">{ws.title}</p>
                             <div className="flex items-center gap-2 shrink-0">
-                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[#e8e4da]">
-                                <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${wsProgress}%` }} />
+                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+                                <div className="h-full rounded-full bg-[var(--olive)]" style={{ width: `${wsProgress}%` }} />
                               </div>
                               <span className="w-10 text-right text-[10px] font-bold tabular-nums text-[var(--text-muted)]">{doneCount}/{children.length}</span>
                             </div>
                           </div>
                           {/* Child tasks */}
                           {children.length > 0 && (
-                            <div className="border-t border-[#f1ede4] divide-y divide-[#f1ede4]">
+                            <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">
                               {children.map((t) => {
                                                                 const desc = t.description || ''
                                 const ownerM = (desc.match(/owner:\s*([^|]+)/) || [])[1]?.trim()
@@ -5541,17 +5527,17 @@ function ProjectsView(props: {
                                 const who = props.employeeMap.get(t.assignee_id || t.head_id || '')?.full_name
                                   || (desc.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || ownerM || '—'
                                 const st =
-                                  t.status === 'completed' ? { dot: 'bg-[var(--accent-hover)]', txt: 'Xong', cls: 'text-[var(--accent-hover)] bg-[#f0f5c4]' } :
+                                  t.status === 'completed' ? { dot: 'bg-[var(--success)]', txt: 'Xong', cls: 'text-[var(--success)] bg-[var(--success-soft)]' } :
                                   isTaskOverdue(t) ? { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' } :
-                                  t.status === 'in_progress' ? { dot: 'bg-[var(--accent)]', txt: 'Đang', cls: 'text-[var(--accent-hover)] bg-[var(--accent-soft)]' } :
+                                  t.status === 'in_progress' ? { dot: 'bg-[var(--olive)]', txt: 'Đang', cls: 'text-[var(--olive)] bg-[var(--bg-surface)]' } :
                                   t.status === 'pending' ? { dot: 'bg-[var(--warn)]', txt: 'Kẹt', cls: 'text-[var(--warn)] bg-[var(--warning-soft)]' } :
-                                  { dot: 'bg-[#d9d3c5]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[#f5f2ec]' }
+                                  { dot: 'bg-[var(--border)]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[var(--bg-surface)]' }
                                 return (
                                   <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
                                     className="flex w-full flex-col gap-1 px-4 py-2 text-left hover:bg-[var(--bg-surface)] transition-colors group">
                                     <span className="flex w-full items-center gap-3">
                                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[#2d331a]">{t.title}</span>
+                                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[var(--olive)]">{t.title}</span>
                                       <span className="w-20 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
                                       <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
                                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
@@ -5826,10 +5812,10 @@ function MeetingView(props: {
   const [directionInput, setDirectionInput] = useState('')
 
   const issueStatusMap: Record<MeetingIssue['status'], { label: string; cls: string }> = {
-    urgent: { label: 'Cần xử lý', cls: 'bg-red-50 text-red-700 border-red-200' },
-    ok:     { label: 'Tạm ổn',    cls: 'bg-green-50 text-green-700 border-green-200' },
-    hard:   { label: 'Còn khó',   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-    pending:{ label: 'Chưa chốt', cls: 'bg-[#f5f2ec] text-[var(--text-secondary)] border-[var(--border)]' },
+    urgent: { label: 'Cần xử lý', cls: 'bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/30' },
+    ok:     { label: 'Tạm ổn',    cls: 'bg-[var(--success-soft)] text-[var(--success)] border-[var(--success)]/30' },
+    hard:   { label: 'Còn khó',   cls: 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/30' },
+    pending:{ label: 'Chưa chốt', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border-[var(--border)]' },
   }
 
   function updateRow(rowId: string, patch: Partial<NotexRow>) {
@@ -5862,7 +5848,7 @@ function MeetingView(props: {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="xl:col-span-2">
             <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Tên biên bản</label>
-            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
               value={props.meetingTitle}
               onChange={(e) => props.setMeetingTitle(e.target.value)}
               placeholder="VD: Recap họp Dữ liệu & Tăng trưởng đa kênh"
@@ -5870,13 +5856,13 @@ function MeetingView(props: {
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Ngày họp</label>
-            <input type="date" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+            <input type="date" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
               value={r.date} onChange={(e) => set({ date: e.target.value })}
             />
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Nền tảng / Context</label>
-            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
               value={r.platforms} onChange={(e) => set({ platforms: e.target.value })}
               placeholder="TikTok Shop, Facebook, Shopee"
             />
@@ -5889,7 +5875,7 @@ function MeetingView(props: {
         <SH n="②" title="Tình hình kinh doanh" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {r.metrics.map((m, i) => (
-            <div key={i} className="rounded-xl border border-[#e8e4da] bg-[var(--bg-surface)] p-3 space-y-2">
+            <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 space-y-2">
               <input className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs font-semibold outline-none"
                 placeholder="Nhãn (VD: CDA Affiliate tháng 6)"
                 value={m.label} onChange={(e) => patchMetric(i, { label: e.target.value })}
@@ -5921,8 +5907,8 @@ function MeetingView(props: {
         ) : (
           <div className="space-y-3">
             {r.issues.map((iss) => (
-              <div key={iss.id} className="overflow-hidden rounded-xl border border-[#e8e4da] bg-[var(--bg-card)]">
-                <div className="flex items-center gap-2 border-b border-[#f1ede4] bg-[var(--bg-surface)] px-3 py-2">
+              <div key={iss.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+                <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
                   <input className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm font-semibold outline-none"
                     placeholder="Nguồn / chủ đề (VD: TikTok Shop — GM Max)"
                     value={iss.source} onChange={(e) => patchIssue(iss.id, { source: e.target.value })}
@@ -5937,7 +5923,7 @@ function MeetingView(props: {
                     ))}
                   </select>
                   <button type="button" onClick={() => removeIssue(iss.id)}
-                    className="h-8 w-8 shrink-0 rounded-lg text-[var(--text-muted)] hover:bg-[var(--danger-soft)] hover:text-red-600 transition-colors text-lg leading-none">×</button>
+                    className="h-8 w-8 shrink-0 rounded-lg text-[var(--text-muted)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] transition-colors text-lg leading-none">×</button>
                 </div>
                 <textarea className="block w-full resize-none p-3 text-sm text-[var(--text-primary)] outline-none"
                   rows={2}
@@ -5958,7 +5944,7 @@ function MeetingView(props: {
             {r.focuses.map((f, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="w-5 shrink-0 text-center text-xs font-bold text-[var(--text-muted)]">{i + 1}</span>
-                <input className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+                <input className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
                   placeholder={i === 0 ? 'VD: Dữ liệu — gom, làm sạch, dựng dashboard' : 'VD: Gap mục tiêu — đang hụt bao nhiêu, hụt ở đâu'}
                   value={f}
                   onChange={(e) => {
@@ -5983,7 +5969,7 @@ function MeetingView(props: {
             ))}
           </div>
           <div className="flex gap-2">
-            <input className="h-9 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+            <input className="h-9 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
               placeholder="VD: Affiliate + KOL"
               value={directionInput}
               onChange={(e) => setDirectionInput(e.target.value)}
@@ -5992,7 +5978,7 @@ function MeetingView(props: {
             <button type="button" onClick={() => { addDirection(directionInput); setDirectionInput('') }}
               className="rounded-xl bg-[var(--bg-card)] px-4 text-xs font-bold text-[var(--text-primary)]">+ Thêm</button>
           </div>
-          <textarea className="mt-3 w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[#191919]"
+          <textarea className="mt-3 w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[var(--char)]"
             rows={2}
             placeholder="Mô tả thêm về hướng tăng trưởng..."
             value={r.directionNote} onChange={(e) => set({ directionNote: e.target.value })}
@@ -6015,14 +6001,14 @@ function MeetingView(props: {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="border-b border-[#e8e4da] text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">
+                <tr className="border-b border-[var(--border)] text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">
                   <th className="pb-2 pl-1 text-left w-40">Người phụ trách</th>
                   <th className="pb-2 pl-3 text-left">Đầu việc (mỗi dòng / dấu · = 1 task)</th>
                   <th className="pb-2 pl-3 text-left w-36">Deadline</th>
                   <th className="pb-2 w-8" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#f1ede4]">
+              <tbody className="divide-y divide-[var(--border)]">
                 {r.assignments.map((a) => (
                   <tr key={a.id} className="align-top">
                     <td className="py-2 pl-1 pr-2">
@@ -6043,7 +6029,7 @@ function MeetingView(props: {
                       />
                     </td>
                     <td className="py-2 pl-3 pr-2">
-                      <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-2 text-sm outline-none focus:border-[#191919]"
+                      <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-2 text-sm outline-none focus:border-[var(--char)]"
                         rows={3}
                         placeholder={"Gom số liệu (ưu tiên của Yến)\nNghiên cứu so sánh tool\nKiểm tra MCP tất cả FB"}
                         value={a.tasks}
@@ -6057,7 +6043,7 @@ function MeetingView(props: {
                     </td>
                     <td className="py-2">
                       <button type="button" onClick={() => removeAssignment(a.id)}
-                        className="h-8 w-8 rounded-lg text-[var(--text-muted)] hover:bg-[var(--danger-soft)] hover:text-red-600 transition-colors text-lg leading-none">×</button>
+                        className="h-8 w-8 rounded-lg text-[var(--text-muted)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] transition-colors text-lg leading-none">×</button>
                     </td>
                   </tr>
                 ))}
@@ -6071,7 +6057,7 @@ function MeetingView(props: {
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
           <SH n="⑦" title="Quote / câu chốt cuộc họp" />
-          <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm italic outline-none focus:border-[#191919]"
+          <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm italic outline-none focus:border-[var(--char)]"
             placeholder='"Họp phải có số liệu, dashboard, đường dây chỉ số rõ ràng."'
             value={r.quote} onChange={(e) => set({ quote: e.target.value })}
           />
@@ -6079,7 +6065,7 @@ function MeetingView(props: {
 
         <Card>
           <SH n="⑧" title="Tóm lại — điểm cần nhớ trước họp" />
-          <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[#191919]"
+          <textarea className="w-full resize-none rounded-xl border border-[var(--border)] p-3 text-sm outline-none focus:border-[var(--char)]"
             rows={3}
             placeholder={"Vào họp mở thẳng bằng gap mục tiêu\nYến cần confirm đã xin quyền TikTok Seller\nVũ cần có kết quả scan MCP Facebook"}
             value={r.notes} onChange={(e) => set({ notes: e.target.value })}
@@ -6093,7 +6079,7 @@ function MeetingView(props: {
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[220px] flex-1">
             <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Tên dự án import vào</label>
-            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[#191919]"
+            <input className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
               placeholder="Tên dự án mới hoặc hiện có"
               value={props.notexProjectName}
               onChange={(e) => props.setNotexProjectName(e.target.value)}
@@ -6113,7 +6099,7 @@ function MeetingView(props: {
           </button>
           <button type="button" onClick={props.importNotexRows}
             disabled={props.importing || props.notexRows.length === 0}
-            className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-40 hover:bg-[#c8cc18] transition-colors">
+            className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-40 hover:bg-[var(--accent-hover)] transition-colors">
             {props.importing ? 'Đang import...' : `Import ${props.notexRows.length > 0 ? `(${props.notexRows.length} việc)` : ''}`}
           </button>
         </div>
@@ -6246,7 +6232,7 @@ function RecurringFormPanel(props: {
               Gắn lịch họp, hạn nộp và người nhận nhắc cho các việc lặp lại.
             </p>
           </div>
-          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
+          <button type="button" onClick={closePanel} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]">
             <Ico d={IC.x} size={16}/>
           </button>
         </div>
@@ -6475,16 +6461,16 @@ where not exists (select 1 from public.recurring_tasks where title = 'Họp Perf
     ? `https://supabase.com/dashboard/project/${projectRef}/sql/new?content=${sql}`
     : `https://supabase.com/dashboard`
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+    <div className="flex items-start gap-3 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
       <span className="mt-0.5 text-amber-500">⚠</span>
       <div className="flex-1">
-        <p className="text-sm font-bold text-amber-900">Cần khởi tạo database lần đầu</p>
-        <p className="mt-0.5 text-xs text-amber-700">Các bảng cần thiết chưa tồn tại trong Supabase. Bấm nút bên dưới — trang SQL Editor sẽ mở với SQL đã điền sẵn, bấm <strong>Run</strong> là xong.</p>
+        <p className="text-sm font-bold text-[var(--warning)]">Cần khởi tạo database lần đầu</p>
+        <p className="mt-0.5 text-xs text-[var(--warning)]">Các bảng cần thiết chưa tồn tại trong Supabase. Bấm nút bên dưới — trang SQL Editor sẽ mở với SQL đã điền sẵn, bấm <strong>Run</strong> là xong.</p>
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-bold text-[var(--text-primary)] hover:bg-amber-700 transition-colors"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--warning)] px-4 py-2 text-xs font-bold text-[var(--paper)] hover:opacity-90 transition-colors"
         >
           Mở Supabase SQL Editor →
         </a>
@@ -6621,9 +6607,9 @@ function RecurringView(props: {
                 const alert = recurringAlertState(task, props.now)
                 const recipientNames = recurringRecipientNames(task, props.employeeMap)
                 const tone =
-                  alert.tone === 'red' ? 'bg-red-50 text-red-700 border-red-100' :
-                  alert.tone === 'amber' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                  'bg-[var(--accent-soft)] text-[var(--accent-hover)] border-[#eef3b8]'
+                  alert.tone === 'red' ? 'bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/20' :
+                  alert.tone === 'amber' ? 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/20' :
+                  'bg-[var(--success-soft)] text-[var(--success)] border-[var(--accent)]/30'
                 const taskMeetingFiles = task.kind === 'meeting'
                   ? props.meetingFiles.filter((file) => file.recurring_task_id === task.id)
                   : []
@@ -6641,7 +6627,7 @@ function RecurringView(props: {
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${tone}`}>{alert.label}</span>
                           <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[var(--text-primary)]">{task.title}</h4>
-                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[#594e3d]">
+                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
                             {recurringKindLabel(task.kind)}
                           </span>
                           <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
@@ -6667,7 +6653,7 @@ function RecurringView(props: {
                               setMeetingArchiveQuery('')
                               setMeetingArchiveOpen(true)
                             }}
-                            className="h-8 rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] px-2.5 text-xs font-bold text-[var(--accent-hover)]"
+                            className="h-8 rounded-lg border border-[var(--border)] bg-[var(--success-soft)] px-2.5 text-xs font-bold text-[var(--success)]"
                           >
                             Hồ sơ
                           </button>
@@ -6688,7 +6674,7 @@ function RecurringView(props: {
                         </button>
                         <button type="button"
                           onClick={() => props.deleteTask(task)}
-                          className="flex h-8 items-center gap-1.5 rounded-lg bg-red-50 px-2.5 text-xs font-bold text-red-600"
+                          className="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--danger-soft)] px-2.5 text-xs font-bold text-[var(--danger)]"
                           title="Xóa việc định kỳ"
                         >
                           <Ico d={IC.trash} size={13}/>
@@ -6804,7 +6790,7 @@ function RecurringView(props: {
                   Tìm lại recap, lịch sử họp và file đã lưu theo từng lịch họp định kỳ.
                 </p>
               </div>
-              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]">
+              <button type="button" onClick={() => setMeetingArchiveOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]">
                 <Ico d={IC.x} size={16}/>
               </button>
             </div>
@@ -6872,7 +6858,7 @@ function RecurringView(props: {
                       ) : (
                         <div className="max-h-44 space-y-2 overflow-y-auto">
                           {selectedMeetingHistory.map((line, index) => (
-                            <p key={`${selectedMeeting.id}-archive-history-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                            <p key={`${selectedMeeting.id}-archive-history-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[var(--text-secondary)]">
                               {line}
                             </p>
                           ))}
@@ -6887,7 +6873,7 @@ function RecurringView(props: {
                       ) : (
                         <div className="max-h-44 space-y-2 overflow-y-auto">
                           {selectedMeetingPrepFiles.map((line, index) => (
-                            <p key={`${selectedMeeting.id}-archive-prep-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[#594e3d]">
+                            <p key={`${selectedMeeting.id}-archive-prep-${index}`} className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-sm leading-5 text-[var(--text-secondary)]">
                               {line}
                             </p>
                           ))}
@@ -6903,7 +6889,7 @@ function RecurringView(props: {
                         <p className="mt-1 text-xs text-[var(--text-secondary)]">Mỗi buổi: ngày + tên · bấm để xem biên bản đã chốt.</p>
                       </div>
                       {isLocalRecurringTask(selectedMeeting) && (
-                        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                        <span className="rounded-full bg-[var(--warning-soft)] px-3 py-1 text-xs font-bold text-[var(--warning)]">
                           Cần lưu lịch trước
                         </span>
                       )}
@@ -6969,7 +6955,7 @@ function RecurringView(props: {
                               <span className="shrink-0 text-xs text-[var(--text-muted)]">▾ Xem biên bản</span>
                             </summary>
                             <div className="border-t border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-secondary)]">
-                              {file.note && <p className="mb-2 whitespace-pre-line leading-5 text-[#594e3d]">{file.note}</p>}
+                              {file.note && <p className="mb-2 whitespace-pre-line leading-5 text-[var(--text-secondary)]">{file.note}</p>}
                               <p className="text-[var(--text-muted)]">{file.uploaded_by && props.employeeMap.get(file.uploaded_by) ? `Người lưu: ${props.employeeMap.get(file.uploaded_by)?.full_name} · ` : ''}{file.file_name}</p>
                               <div className="mt-2 flex gap-2">
                                 <a href={file.file_url} target="_blank" rel="noreferrer" className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">Mở biên bản đã chốt</a>
@@ -7007,7 +6993,7 @@ function RecurringMeetingSummary({ description, compact = false }: { description
           {sections.map((section) => (
             <div key={section.label} className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2">
               <p className="mb-1 text-[11px] font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
-              <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[#594e3d]">
+              <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">
                 {section.value || '- Chưa cập nhật.'}
               </p>
             </div>
@@ -7024,7 +7010,7 @@ function RecurringMeetingSummary({ description, compact = false }: { description
         {sections.map((section) => (
           <div key={section.label} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
             <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
-            <p className="whitespace-pre-line text-sm leading-6 text-[#594e3d]">
+            <p className="whitespace-pre-line text-sm leading-6 text-[var(--text-secondary)]">
               {section.value || '- Chưa cập nhật.'}
             </p>
           </div>
@@ -7102,7 +7088,7 @@ function AutomationView(props: {
                 {nextTask ? `Sắp tới sẽ theo dõi: ${nextTask.title}` : 'Chưa có lịch định kỳ đang bật.'}
               </p>
             </div>
-            <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">
+            <span className="rounded-full bg-[var(--success-soft)] px-3 py-1 text-xs font-extrabold text-[var(--success)]">
               Đang bật
             </span>
           </div>
@@ -7128,7 +7114,7 @@ function AutomationView(props: {
 
           {props.result && (
             <div className={`mt-4 rounded-2xl border p-4 text-sm ${
-              props.result.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[var(--accent-soft)] text-[var(--accent-hover)]'
+              props.result.ok === false ? 'border-[var(--danger)]/20 bg-[var(--danger-soft)] text-[var(--danger)]' : 'border-[var(--accent)]/30 bg-[var(--success-soft)] text-[var(--success)]'
             }`}>
               <p className="font-extrabold">
                 {props.result.ok === false ? 'Kiểm tra lỗi' : 'Kiểm tra xong'}
@@ -7140,7 +7126,7 @@ function AutomationView(props: {
             </div>
           )}
 
-          <div className="mt-6 border-t border-[#e8e4da] pt-5">
+          <div className="mt-6 border-t border-[var(--border)] pt-5">
             <h4 className="mb-1 text-sm font-extrabold">Tóm tắt buổi sáng</h4>
             <p className="mb-3 text-xs text-[var(--text-secondary)]">
               Tự gửi lúc 08:00 mỗi ngày — việc hôm nay &amp; việc đang trễ.
@@ -7158,7 +7144,7 @@ function AutomationView(props: {
             </button>
             {props.digestResult && (
               <div className={`mt-3 rounded-2xl border p-3 text-sm ${
-                props.digestResult.ok === false ? 'border-red-100 bg-red-50 text-red-700' : 'border-[#eef3b8] bg-[var(--accent-soft)] text-[var(--accent-hover)]'
+                props.digestResult.ok === false ? 'border-[var(--danger)]/20 bg-[var(--danger-soft)] text-[var(--danger)]' : 'border-[var(--accent)]/30 bg-[var(--success-soft)] text-[var(--success)]'
               }`}>
                 <p className="font-extrabold">
                   {props.digestResult.ok === false ? 'Lỗi' : 'Đã gửi'}
@@ -7195,11 +7181,11 @@ function AutomationView(props: {
                       <div>
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${
-                            isError ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : run.status === 'running' ? 'bg-amber-50 text-amber-700' : 'bg-[var(--accent-soft)] text-[var(--accent-hover)]'
+                            isError ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : run.status === 'running' ? 'bg-[var(--warning-soft)] text-[var(--warning)]' : 'bg-[var(--success-soft)] text-[var(--success)]'
                           }`}>
                             {runStatusLabel(run.status)}
                           </span>
-                          <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-bold text-[#594e3d]">
+                          <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
                             {runSourceLabel(run.source)}
                           </span>
                         </div>
@@ -7212,7 +7198,7 @@ function AutomationView(props: {
                             minute: '2-digit',
                           })}
                         </p>
-                        {run.detail?.error && <p className="mt-1 text-sm text-red-600">{run.detail.error}</p>}
+                        {run.detail?.error && <p className="mt-1 text-sm text-[var(--danger)]">{run.detail.error}</p>}
                       </div>
 
                       <div className="grid min-w-[220px] grid-cols-2 gap-2">
@@ -7375,7 +7361,7 @@ function CreatePanel(props: {
       <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[520px] sm:p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">{props.tab === 'project' ? 'Tạo dự án' : 'Tạo đầu việc lớn'}</h3>
-          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={() => props.setOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -7523,7 +7509,7 @@ function TaskDetailDrawer(props: {
       <div className="h-full w-full max-w-[560px] overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[#d9d3c5]"><Ico d={IC.x} size={16}/>
+          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
 
@@ -7559,7 +7545,7 @@ function TaskDetailDrawer(props: {
           <div>
             <div className="mb-2 flex justify-between text-sm">
               <span className="font-bold">Tiến độ theo bước đã duyệt</span>
-              <span className="font-extrabold text-[var(--accent-hover)]">{progress}%</span>
+              <span className="font-extrabold text-[var(--olive)]">{progress}%</span>
             </div>
             <ProgressBar value={progress} />
           </div>
@@ -7606,7 +7592,7 @@ function TaskDetailDrawer(props: {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="rounded-2xl bg-[var(--warning-soft)] p-4 text-sm text-[var(--warning)]">
             <b>Gợi ý COO cần hỏi:</b> {buildFollowUpQuestion(props.task, head?.full_name)}
           </div>
         </div>
@@ -7627,15 +7613,15 @@ function MetricCard(props: {
 }) {
   const toneMap = {
     blue:   'bg-[var(--bg-surface)] text-[var(--text-primary)]',
-    green:  'bg-[#f0f5c4] text-[var(--accent-hover)]',
-    purple: 'bg-[var(--bg-surface)] text-[#594e3d]',
-    red:    'bg-[#fdf0ee] text-red-600',
+    green:  'bg-[var(--success-soft)] text-[var(--success)]',
+    purple: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]',
+    red:    'bg-[var(--danger-soft)] text-[var(--danger)]',
   }
   const accentMap = {
     blue:   'before:bg-[var(--bg-card)]',
-    green:  'before:bg-[var(--accent)]',
+    green:  'before:bg-[var(--success)]',
     purple: 'before:bg-[#594e3d]',
-    red:    'before:bg-red-400',
+    red:    'before:bg-[var(--danger)]',
   }
 
   return (
@@ -7681,7 +7667,7 @@ function StatusDistributionRow(props: {
           {props.count} <span className="text-[var(--text-secondary)]">({percent}%)</span>
         </p>
       </div>
-      <div className="h-3 overflow-hidden rounded-full bg-[#d9d3c5]">
+      <div className="h-3 overflow-hidden rounded-full bg-[var(--border)]">
         <div className={`h-full rounded-full ${props.color}`} style={{ width: `${percent}%` }} />
       </div>
     </div>
@@ -7691,7 +7677,7 @@ function StatusDistributionRow(props: {
 function MiniStat({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
   return (
     <div className="rounded-xl bg-[var(--bg-surface)] p-2">
-      <p className={`text-lg font-extrabold ${danger && value > 0 ? 'text-red-600' : ''}`}>{value}</p>
+      <p className={`text-lg font-extrabold ${danger && value > 0 ? 'text-[var(--danger)]' : ''}`}>{value}</p>
       <p className="text-[11px] font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   )
@@ -7735,15 +7721,15 @@ function DashboardStepList(props: {
 function StatusBadge({ status, label }: { status: string; label: string }) {
   const cls =
     status === 'completed'
-      ? 'bg-[#DCFCE7] text-[var(--accent-hover)]'
+      ? 'bg-[var(--success-soft)] text-[var(--success)]'
       : status === 'in_progress'
-        ? 'bg-[#E0F2FE] text-[#0369A1]'
+        ? 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
         : status === 'pending'
-          ? 'bg-[#EDE9FE] text-[#6D28D9]'
+          ? 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
           : status === 'pending_approval'
-            ? 'bg-amber-50 text-amber-700'
+            ? 'bg-[var(--warning-soft)] text-[var(--warning)]'
             : status === 'overdue'
-              ? 'bg-[#FEE2E2] text-[#DC2626]'
+              ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
               : 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{label}</span>
@@ -7753,18 +7739,18 @@ function IssueBadge({ issueStatus }: { issueStatus?: string | null }) {
   const value = issueStatus || 'normal'
 
   if (value === 'problem') {
-    return <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-extrabold text-red-700">Có vấn đề</span>
+    return <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-extrabold text-[var(--danger)]">Có vấn đề</span>
   }
 
   if (value === 'slow') {
-    return <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-extrabold text-amber-700">Đang chậm</span>
+    return <span className="rounded-full bg-[var(--warning-soft)] px-3 py-1 text-xs font-extrabold text-[var(--warning)]">Đang chậm</span>
   }
 
   if (value === 'watch') {
-    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Cần theo dõi</span>
+    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[var(--text-secondary)]">Cần theo dõi</span>
   }
 
-  return <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Ổn</span>
+  return <span className="rounded-full bg-[var(--success-soft)] px-3 py-1 text-xs font-extrabold text-[var(--success)]">Ổn</span>
 }
 
 function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
@@ -7772,8 +7758,8 @@ function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
     health.level === 'problem'
       ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
       : health.level === 'watch'
-        ? 'bg-amber-50 text-amber-700'
-        : 'bg-[var(--accent-soft)] text-[var(--accent-hover)]'
+        ? 'bg-[var(--warning-soft)] text-[var(--warning)]'
+        : 'bg-[var(--success-soft)] text-[var(--success)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{health.label}</span>
 }
@@ -7796,7 +7782,7 @@ function ProjectHealthSummary({ health }: { health: ProjectHealth }) {
   }
 
   return (
-    <div className="space-y-1 text-sm text-[#475569]">
+    <div className="space-y-1 text-sm text-[var(--text-secondary)]">
       {items.map((item) => (
         <p key={item.label}>
           + {item.value} {item.label}
@@ -7812,15 +7798,15 @@ function StepApprovalBadge({ status }: { status: string }) {
   }
 
   if (status === 'approved') {
-    return <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-extrabold text-[var(--accent-hover)]">Đã duyệt</span>
+    return <span className="rounded-full bg-[var(--success-soft)] px-3 py-1 text-xs font-extrabold text-[var(--success)]">Đã duyệt</span>
   }
 
   if (status === 'pending') {
-    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[#594e3d]">Chờ duyệt</span>
+    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[var(--text-secondary)]">Chờ duyệt</span>
   }
 
   if (status === 'revision') {
-    return <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-extrabold text-red-700">Cần làm lại</span>
+    return <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-extrabold text-[var(--danger)]">Cần làm lại</span>
   }
 
   return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-600">Chưa gửi</span>
@@ -8022,6 +8008,12 @@ function calculateProjectHealth(
     overdueSteps,
     totalWarnings: problemWarnings + watchWarnings,
   }
+}
+
+// Đầu việc lớn = task_level 'workstream', hoặc task gốc không có cha (và không phải subtask)
+function isWorkstream(task: Task) {
+  if (task.task_level === 'workstream') return true
+  return task.task_level !== 'subtask' && !task.parent_task_id
 }
 
 function isTaskOverdue(task: Task) {
@@ -8752,7 +8744,7 @@ function AdminUsersView(props: {
               </select>
             </div>
             {createError && (
-              <div className="col-span-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{createError}</div>
+              <div className="col-span-2 rounded-xl bg-[var(--danger-soft)] px-4 py-3 text-sm font-bold text-[var(--danger)]">{createError}</div>
             )}
             <div className="col-span-2 flex gap-3">
               <button type="submit" disabled={creating}
@@ -8808,7 +8800,7 @@ function AdminUsersView(props: {
                       className={`rounded-full px-3 py-1 text-xs font-bold ${
                         emp.status === 'active'
                           ? 'bg-emerald-100 text-[var(--accent-hover)]'
-                          : 'bg-red-100 text-red-600'
+                          : 'bg-[var(--danger-soft)] text-[var(--danger)]'
                       }`}
                     >
                       {emp.status === 'active' ? 'Hoạt động' : 'Đã khóa'}
@@ -8822,7 +8814,7 @@ function AdminUsersView(props: {
                       </button>
                       {emp.email && <ResetPasswordButton authUserId={emp.email} />}
                       <button type="button" disabled={deletingId === emp.id} onClick={() => handleDelete(emp)}
-                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-[var(--danger-soft)] disabled:opacity-40">
+                        className="rounded-lg border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-bold text-[var(--danger)] hover:bg-[var(--danger-soft)] disabled:opacity-40">
                         {deletingId === emp.id ? '...' : 'Xóa'}
                       </button>
                     </div>
@@ -8918,7 +8910,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
-        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 hover:bg-amber-200">
+        className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)] hover:bg-amber-200">
         Đặt lại MK
       </button>
     )
@@ -8928,10 +8920,10 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
     <form onSubmit={handleReset} className="flex flex-col gap-1">
       <input required minLength={6} type="password" value={pw} onChange={(e) => setPw(e.target.value)}
         placeholder="Mật khẩu mới" className="h-7 w-32 rounded border border-[var(--border)] px-2 text-xs outline-none" />
-      {msg && <p className={`text-[10px] font-bold ${msg.includes('Đã') ? 'text-[var(--accent-hover)]' : 'text-red-600'}`}>{msg}</p>}
+      {msg && <p className={`text-[10px] font-bold ${msg.includes('Đã') ? 'text-[var(--accent-hover)]' : 'text-[var(--danger)]'}`}>{msg}</p>}
       <div className="flex gap-1">
         <button type="submit" disabled={loading}
-          className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-[var(--text-primary)] disabled:opacity-60">
+          className="rounded bg-[var(--olive)] px-2 py-0.5 text-[10px] font-bold text-[var(--ivory)] disabled:opacity-60">
           {loading ? '...' : 'Lưu'}
         </button>
         <button type="button" onClick={() => { setOpen(false); setMsg('') }}
