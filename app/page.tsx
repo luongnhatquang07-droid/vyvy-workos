@@ -3615,7 +3615,15 @@ export default function Home() {
               )}
 
               {view === 'assigned' && (
-                <MyDeadlineInbox tasks={visibleTasks} currentUserId={currentEmployee?.id || ''} employees={Array.from(employeeMap.values())} seeAll={['admin','coo','ceo'].includes(currentEmployee?.role || '')} />
+                <MyWorkView
+                  tasks={visibleTasks}
+                  stepsByTask={stepsByTask}
+                  currentEmployee={currentEmployee}
+                  employeeMap={employeeMap}
+                  setSelectedTask={setSelectedTask}
+                  employees={Array.from(employeeMap.values())}
+                  seeAll={['admin','coo','ceo'].includes(currentEmployee?.role || '')}
+                />
               )}
 
               {view === 'tasks' && (
@@ -9547,5 +9555,102 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
         </button>
       </div>
     </form>
+  )
+}
+
+// ─── MyWorkView ───────────────────────────────────────────────────────────────
+// View "Việc được giao": danh sách task của tôi + inbox deadline
+
+function MyWorkView(props: {
+  tasks: Task[]
+  stepsByTask: Map<string, TaskStep[]>
+  currentEmployee: Employee | null
+  employeeMap: Map<string, Employee>
+  setSelectedTask: (task: Task) => void
+  employees: Employee[]
+  seeAll: boolean
+}) {
+  const myId = props.currentEmployee?.id || ''
+
+  const myTasks = props.tasks.filter((t) => {
+    if (t.status === 'completed' || t.status === 'cancelled') return false
+    return (
+      t.assignee_id === myId ||
+      t.head_id === myId ||
+      (t.head_ids || []).includes(myId)
+    )
+  })
+
+  const groups: { label: string; status: string; tasks: Task[] }[] = [
+    { label: 'Đang thực hiện', status: 'in_progress', tasks: myTasks.filter((t) => t.status === 'in_progress') },
+    { label: 'Chưa bắt đầu', status: 'not_started', tasks: myTasks.filter((t) => t.status === 'not_started' || !t.status) },
+    { label: 'Chờ duyệt phân công', status: 'pending_approval', tasks: myTasks.filter((t) => t.status === 'pending_approval') },
+  ].filter((g) => g.tasks.length > 0)
+
+  return (
+    <div className="space-y-4">
+      <MyDeadlineInbox
+        tasks={props.tasks}
+        currentUserId={myId}
+        employees={props.employees}
+        seeAll={props.seeAll}
+      />
+
+      {myTasks.length === 0 ? (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center">
+          <p className="font-extrabold text-[var(--text-primary)]">Không có việc đang mở</p>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Tất cả việc của bạn đã hoàn thành hoặc chưa được giao.</p>
+        </div>
+      ) : (
+        groups.map((group) => (
+          <div key={group.status} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
+            <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)] px-5 py-3">
+              <p className="font-extrabold text-sm">{group.label}</p>
+              <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">{group.tasks.length}</span>
+            </div>
+            <div className="divide-y divide-[var(--border)]">
+              {group.tasks.map((task) => {
+                const steps = props.stepsByTask.get(task.id) || []
+                const progress = calculateTaskProgress(task, steps)
+                const pendingSteps = steps.filter((s) => s.approval_status === 'pending')
+                const mySteps = steps.filter((s) => s.owner_id === myId && s.approval_status !== 'approved')
+                const head = props.employeeMap.get(task.head_id || '')
+                const assignee = props.employeeMap.get(task.assignee_id || '')
+
+                return (
+                  <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg-surface)] transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-sm text-[var(--text-primary)] truncate">{task.title}</span>
+                        <IssueBadge issueStatus={task.issue_status} />
+                        {task.due_date && (
+                          <span className={`text-xs ${isTaskOverdue(task) ? 'font-bold text-[var(--danger)]' : 'text-[var(--text-muted)]'}`}>
+                            · {task.due_date}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
+                        {head && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {head.full_name}</span>}
+                        {assignee && assignee.id !== head?.id && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
+                        <span>{steps.length} bước · <b className="text-[var(--text-primary)]">{progress}%</b></span>
+                        {pendingSteps.length > 0 && <span className="font-bold text-[var(--warn)]">{pendingSteps.length} bước chờ duyệt</span>}
+                        {mySteps.length > 0 && <span className="font-bold text-[var(--olive)]">{mySteps.length} bước của tôi chưa xong</span>}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => props.setSelectedTask(task)}
+                      className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]"
+                    >
+                      Chi tiết
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
   )
 }
