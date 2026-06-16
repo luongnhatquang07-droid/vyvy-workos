@@ -5686,11 +5686,31 @@ function StepWorkflowCard(props: {
             <span>{deadlineApproved ? `✓ ${props.step.step_proposed_deadline || props.step.due_date || '—'}` : deadlineStatus === 'cho_duyet' ? 'Chờ duyệt' : deadlineStatus === 'tra_lai' ? 'Bị trả lại' : 'Chưa gửi'}</span>
           </div>
           <div className="w-px bg-[var(--border)]" />
-          {/* GĐ2: Kết quả */}
-          <div className={`flex items-center gap-1 px-2.5 py-1 ${!deadlineApproved ? 'bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-50' : status === 'approved' ? 'bg-[var(--success-soft)] text-[var(--success)]' : status === 'pending' ? 'bg-[var(--warning-soft)] text-[var(--warning)]' : status === 'revision' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
-            <span>Kết quả</span>
-            <span>{status === 'approved' ? '✓ Đã duyệt' : status === 'pending' ? 'Chờ duyệt' : status === 'revision' ? 'Làm lại' : 'Chưa gửi'}</span>
-          </div>
+          {/* GĐ2: Kết quả — 5 bước */}
+          {(() => {
+            const s = props.step
+            let label: string
+            let cls: string
+            if (!deadlineApproved) {
+              label = 'Chưa bắt đầu'; cls = 'bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-50'
+            } else if (s.approval_status === 'approved') {
+              label = '✓ Hoàn thành'; cls = 'bg-[var(--success-soft)] text-[var(--success)]'
+            } else if (s.approval_status === 'pending') {
+              label = '⏳ Chờ duyệt'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
+            } else if (s.approval_status === 'revision') {
+              label = '↩ Cần làm lại'; cls = 'bg-[var(--danger-soft)] text-[var(--danger)]'
+            } else if (s.is_done) {
+              label = '📤 Đã làm xong'; cls = 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
+            } else {
+              label = 'Chưa bắt đầu'; cls = 'bg-[var(--bg-surface)] text-[var(--text-muted)]'
+            }
+            return (
+              <div className={`flex items-center gap-1 px-2.5 py-1 ${cls}`}>
+                <span>Kết quả</span>
+                <span>{label}</span>
+              </div>
+            )
+          })()}
         </div>
         {props.locked && <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Khóa</span>}
         <span className="shrink-0 text-xs text-[var(--text-muted)]">{owner?.full_name || '—'}</span>
