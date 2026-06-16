@@ -305,7 +305,7 @@ type StepComment = {
 
 type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history'
 
 type RecurringTask = {
   id: string
@@ -3275,6 +3275,8 @@ export default function Home() {
     { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
     { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !canManageAll },
     { key: 'feedback', label: 'Góp ý hệ thống', icon: <Ico d={IC.messageSquare} size={18}/> },
+    { key: 'import', label: 'Nhập Excel', icon: <Ico d={IC.clipboard} size={18}/>, hide: !canManageAll && !isDeptHead },
+    { key: 'history', label: 'Lịch sử & Restore', icon: <Ico d={IC.clock} size={18}/>, hide: !canManageAll && !isDeptHead },
   ]
   const menu = allMenuItems.filter((item) => !item.hide)
   const primaryAction =
@@ -3431,6 +3433,8 @@ export default function Home() {
               {view === 'assistant' && 'COO Assistant'}
               {view === 'admin' && 'Quản lý nhân sự'}
               {view === 'feedback' && 'Góp ý hệ thống'}
+              {view === 'import' && 'Nhập đầu việc từ Excel'}
+              {view === 'history' && 'Lịch sử & Restore'}
             </h2>
             <p className="hidden text-xs text-[var(--text-secondary)] sm:block">
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
@@ -3926,6 +3930,24 @@ export default function Home() {
                   currentEmployee={currentEmployee}
                   canManageAll={canManageAll}
                   employeeMap={employeeMap}
+                />
+              )}
+
+              {view === 'import' && (canManageAll || isDeptHead) && (
+                <ImportExcelView
+                  employees={employees}
+                  projects={projects}
+                  currentEmployee={currentEmployee}
+                  onDone={refreshDataSilent}
+                />
+              )}
+
+              {view === 'history' && (canManageAll || isDeptHead) && (
+                <HistoryView
+                  employees={employees}
+                  employeeMap={employeeMap}
+                  tasks={tasks}
+                  currentEmployee={currentEmployee}
                 />
               )}
             </>
@@ -10348,6 +10370,400 @@ function FeedbackView(props: {
                           onBlur={() => saveAdminNote(row.id)}
                         />
                       </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Import Excel ──────────────────────────────────────────────────────────────
+type ImportRow = {
+  rowNum: number
+  project: string
+  group: string
+  level: string
+  title: string
+  description: string
+  output: string
+  owner: string
+  deadline: string
+  notes: string
+  error?: string
+}
+
+function ImportExcelView(props: {
+  employees: Employee[]
+  projects: Project[]
+  currentEmployee: Employee | null
+  onDone: () => void
+}) {
+  const [rows, setRows] = useState<ImportRow[]>([])
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<{ ok: number; fail: number } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+
+  const empByName = useMemo(() => {
+    const m = new Map<string, string>()
+    props.employees.forEach(e => {
+      m.set(e.full_name.toLowerCase().trim(), e.id)
+      // partial match by first word
+      const first = e.full_name.split(' ')[0].toLowerCase()
+      if (!m.has(first)) m.set(first, e.id)
+    })
+    return m
+  }, [props.employees])
+
+  const projByName = useMemo(() => {
+    const m = new Map<string, string>()
+    props.projects.forEach(p => m.set(p.name.toLowerCase().trim(), p.id))
+    return m
+  }, [props.projects])
+
+  function parseFile(file: File) {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        // dynamic import xlsx already bundled via page deps — use fetch trick
+        const ab = e.target?.result as ArrayBuffer
+        // parse manually: xlsx is available at runtime via dynamic require
+        // We'll use a simple CSV-like parse for .xlsx via reading as text is not possible
+        // Instead send to a simple inline parser
+        parseXLSXBuffer(ab)
+      } catch {
+        alert('Không đọc được file. Hãy dùng đúng file mẫu .xlsx')
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  function parseXLSXBuffer(ab: ArrayBuffer) {
+    // Use SheetJS if available via window, else show error
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const XLSX = (window as any).XLSX
+    if (!XLSX) { alert('Thư viện Excel chưa sẵn sàng, hãy thử lại.'); return }
+    const wb = XLSX.read(ab, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+    // Skip header row
+    const parsed: ImportRow[] = data.slice(1).filter(r => r[3]?.toString().trim()).map((r, i) => {
+      const [proj, group, level, title, desc, output, owner, deadline, notes] = r.map(c => String(c ?? '').trim())
+      const errors: string[] = []
+      if (!title) errors.push('Thiếu tên đầu việc')
+      if (!proj) errors.push('Thiếu dự án')
+      return { rowNum: i + 2, project: proj, group, level, title, description: desc, output, owner, deadline, notes, error: errors.join('; ') || undefined }
+    })
+    setRows(parsed)
+    setResult(null)
+  }
+
+  async function doImport() {
+    setImporting(true)
+    let ok = 0, fail = 0
+    // Group by project+group to find/create workstreams
+    const msCache = new Map<string, string>()
+
+    for (const row of rows) {
+      if (row.error) { fail++; continue }
+      try {
+        // Resolve project
+        let projId = projByName.get(row.project.toLowerCase().trim())
+        if (!projId) {
+          const { data } = await supabase.from('projects').insert({ name: row.project, status: 'active' }).select('id').single()
+          if (!data) { fail++; continue }
+          projId = data.id
+          projByName.set(row.project.toLowerCase().trim(), projId!)
+        }
+
+        // Resolve owner
+        const ownerId = empByName.get(row.owner.toLowerCase().trim()) || null
+
+        // Resolve deadline
+        let dueDate: string | null = null
+        if (row.deadline) {
+          const d = new Date(row.deadline)
+          if (!isNaN(d.getTime())) dueDate = d.toISOString().split('T')[0]
+        }
+
+        const isMs = row.level.toLowerCase().includes('milestone')
+        const desc = [row.description, row.output ? `Output: ${row.output}` : ''].filter(Boolean).join(' | ')
+
+        if (isMs) {
+          const { data } = await supabase.from('tasks').insert({
+            title: row.title, description: desc, project_id: projId,
+            task_level: 'workstream', status: 'not_started', head_id: ownerId, due_date: dueDate,
+            notes: row.notes || null,
+          }).select('id').single()
+          if (data) { msCache.set(`${row.project}|${row.group}`, data.id); ok++ }
+          else fail++
+        } else {
+          const parentId = msCache.get(`${row.project}|${row.group}`) || null
+          const { error } = await supabase.from('tasks').insert({
+            title: row.title, description: desc, project_id: projId,
+            task_level: parentId ? 'subtask' : 'workstream', status: 'not_started',
+            head_id: ownerId, due_date: dueDate, notes: row.notes || null,
+            parent_task_id: parentId,
+          })
+          if (!error) ok++; else fail++
+        }
+      } catch { fail++ }
+    }
+    setResult({ ok, fail })
+    setImporting(false)
+    if (ok > 0) props.onDone()
+  }
+
+  function downloadTemplate() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const XLSX = (window as any).XLSX
+    if (!XLSX) { alert('Thư viện chưa sẵn sàng'); return }
+    const header = ['Dự án', 'Nhóm việc', 'Cấp độ (Milestone/Task)', 'Tên đầu việc *', 'Mô tả', 'Output / Kết quả mong muốn', 'Owner (Tên nhân viên)', 'Deadline (YYYY-MM-DD)', 'Ghi chú']
+    const example = [
+      ['Marketing Growth System', 'KOL/Affiliate', 'Milestone', 'Thiết kế hệ thống KOL', 'Xây cách vận hành KOL/Affiliate', 'Framework KOL hoàn chỉnh', 'Đào Hoàng Vũ', '2026-07-15', 'Ưu tiên cao'],
+      ['Marketing Growth System', 'KOL/Affiliate', 'Task', 'Tuyển nhân sự KOL', 'Tìm người chuyên trách KOL', 'JD + quyết định phân công', 'Đào Hoàng Vũ', '2026-07-01', ''],
+    ]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([header, ...example])
+    ws['!cols'] = header.map((_, i) => ({ wch: [20,15,22,30,35,30,18,18,20][i] }))
+    XLSX.utils.book_append_sheet(wb, ws, 'Đầu việc')
+    XLSX.writeFile(wb, 'mau_nhap_dau_viec.xlsx')
+  }
+
+  const validRows = rows.filter(r => !r.error)
+  const errorRows = rows.filter(r => r.error)
+
+  return (
+    <div className="space-y-5">
+      {/* Load XLSX lib from CDN */}
+      <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" />
+
+      {/* Upload zone */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-extrabold">Tải lên file Excel</h3>
+          <button onClick={downloadTemplate}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-bold hover:border-[var(--border-strong)]">
+            ↓ Tải file mẫu
+          </button>
+        </div>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f) }}
+          className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed py-10 transition-colors cursor-pointer ${dragOver ? 'border-[var(--olive)] bg-[var(--olive)]/5' : 'border-[var(--border)] hover:border-[var(--border-strong)]'}`}
+          onClick={() => { const inp = document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=(e)=>{ const f=(e.target as HTMLInputElement).files?.[0]; if(f) parseFile(f) }; inp.click() }}
+        >
+          <p className="text-sm font-semibold text-[var(--text-secondary)]">Kéo thả file .xlsx vào đây</p>
+          <p className="text-xs text-[var(--text-muted)] mt-1">hoặc click để chọn file</p>
+        </div>
+      </div>
+
+      {/* Preview */}
+      {rows.length > 0 && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-extrabold">
+              Xem trước <span className="font-normal text-[var(--text-muted)]">({validRows.length} hợp lệ{errorRows.length > 0 ? `, ${errorRows.length} lỗi` : ''})</span>
+            </h3>
+            <button onClick={doImport} disabled={importing || validRows.length === 0}
+              className="rounded-lg bg-[var(--olive)] px-5 py-2 text-xs font-bold text-[var(--ivory)] disabled:opacity-40">
+              {importing ? 'Đang nhập…' : `Xác nhận nhập ${validRows.length} đầu việc`}
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-left">
+                  {['#','Dự án','Nhóm','Cấp độ','Tên đầu việc','Owner','Deadline','Lỗi'].map(h=>(
+                    <th key={h} className="py-2 pr-3 font-bold whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.rowNum} className={`border-b border-[var(--border)]/50 ${r.error ? 'bg-[var(--danger-soft)]' : ''}`}>
+                    <td className="py-2 pr-3 text-[var(--text-muted)]">{r.rowNum}</td>
+                    <td className="py-2 pr-3 max-w-[120px] truncate">{r.project}</td>
+                    <td className="py-2 pr-3">{r.group}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">{r.level}</td>
+                    <td className="py-2 pr-3 max-w-[200px] font-medium">{r.title}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">{r.owner}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">{r.deadline}</td>
+                    <td className="py-2 pr-3 text-[var(--danger)] font-medium">{r.error || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Result */}
+      {result && (
+        <div className={`rounded-xl border p-4 text-sm font-semibold ${result.fail === 0 ? 'border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]' : 'border-[var(--warning)]/30 bg-[var(--warning-soft)] text-[var(--warning)]'}`}>
+          ✓ Nhập xong: {result.ok} thành công{result.fail > 0 ? `, ${result.fail} lỗi (kiểm tra lại dữ liệu)` : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Lịch sử & Restore ─────────────────────────────────────────────────────────
+type TaskVersion = {
+  id: string
+  task_id: string
+  version: number
+  change_type: string
+  changed_by: string | null
+  changed_at: string
+  snapshot: Record<string, unknown>
+}
+
+function HistoryView(props: {
+  employees: Employee[]
+  employeeMap: Map<string, Employee>
+  tasks: Task[]
+  currentEmployee: Employee | null
+}) {
+  const [versions, setVersions] = useState<TaskVersion[]>([])
+  const [loading, setLoading] = useState(true)
+  const [restoring, setRestoring] = useState<string | null>(null)
+  const [expandedTask, setExpandedTask] = useState<string | null>(null)
+  const [filterTask, setFilterTask] = useState('')
+  const [toast2, setToast2] = useState('')
+
+  const taskMap = useMemo(() => new Map(props.tasks.map(t => [t.id, t])), [props.tasks])
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('task_versions')
+      .select('*')
+      .order('changed_at', { ascending: false })
+      .limit(200)
+    setVersions((data || []) as TaskVersion[])
+    setLoading(false)
+  }
+
+  useEffect(() => { void load() }, [])
+
+  async function restore(v: TaskVersion) {
+    if (!confirm(`Khôi phục về version ${v.version}? Thao tác này sẽ ghi đè dữ liệu hiện tại.`)) return
+    setRestoring(v.id)
+    const snap = { ...v.snapshot } as Record<string, unknown>
+    delete snap.id; delete snap.created_at
+    // Save current as a new version first
+    const cur = props.tasks.find(t => t.id === v.task_id)
+    if (cur) {
+      const { data: lastVer } = await supabase.from('task_versions').select('version').eq('task_id', v.task_id).order('version', { ascending: false }).limit(1).single()
+      await supabase.from('task_versions').insert({
+        task_id: v.task_id, version: (lastVer?.version || 0) + 1,
+        change_type: 'before_restore', changed_by: props.currentEmployee?.id || null,
+        snapshot: cur,
+      })
+    }
+    await supabase.from('tasks').update(snap).eq('id', v.task_id)
+    setRestoring(null)
+    setToast2('✓ Đã khôi phục về version ' + v.version)
+    setTimeout(() => setToast2(''), 3000)
+    await load()
+  }
+
+  const changeTypeLabel: Record<string, string> = {
+    insert: 'Tạo mới', update: 'Cập nhật', delete: 'Xóa', before_restore: 'Trước khi restore',
+  }
+
+  const filtered = filterTask
+    ? versions.filter(v => {
+        const t = taskMap.get(v.task_id)
+        return t?.title.toLowerCase().includes(filterTask.toLowerCase()) || v.task_id.includes(filterTask)
+      })
+    : versions
+
+  // Group by task
+  const byTask = new Map<string, TaskVersion[]>()
+  filtered.forEach(v => {
+    if (!byTask.has(v.task_id)) byTask.set(v.task_id, [])
+    byTask.get(v.task_id)!.push(v)
+  })
+
+  return (
+    <div className="space-y-4">
+      {toast2 && (
+        <div className="rounded-xl border border-[var(--success)]/30 bg-[var(--success-soft)] px-4 py-2 text-sm font-semibold text-[var(--success)]">{toast2}</div>
+      )}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <h3 className="text-sm font-extrabold flex-1">Lịch sử thay đổi</h3>
+          <input
+            className="w-56 rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 py-1.5 text-xs outline-none focus:border-[var(--border-strong)]"
+            placeholder="Tìm theo tên đầu việc..."
+            value={filterTask}
+            onChange={e => setFilterTask(e.target.value)}
+          />
+          <button onClick={load} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold hover:border-[var(--border-strong)]">↺ Làm mới</button>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">{[1,2,3].map(i=><div key={i} className="skeleton h-12 rounded-xl"/>)}</div>
+        ) : byTask.size === 0 ? (
+          <div className="py-10 text-center text-sm text-[var(--text-muted)]">
+            <p>Chưa có lịch sử nào.</p>
+            <p className="mt-1 text-xs">Lịch sử sẽ được ghi lại khi đầu việc được tạo hoặc cập nhật.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {Array.from(byTask.entries()).map(([taskId, vlist]) => {
+              const task = taskMap.get(taskId)
+              const isOpen = expandedTask === taskId
+              return (
+                <div key={taskId} className="rounded-xl border border-[var(--border)] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedTask(isOpen ? null : taskId)}
+                    className="w-full flex items-center gap-3 px-4 py-3 bg-[var(--bg-surface)] hover:bg-[var(--border)]/30 text-left"
+                  >
+                    <span className="flex-1 font-semibold text-sm truncate">{task?.title || taskId}</span>
+                    <span className="shrink-0 text-xs text-[var(--text-muted)]">{vlist.length} phiên bản</span>
+                    <span className="shrink-0 text-xs text-[var(--text-muted)]">{isOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="divide-y divide-[var(--border)]">
+                      {vlist.map(v => {
+                        const changer = props.employeeMap.get(v.changed_by || '')
+                        const snap = v.snapshot as Record<string, unknown>
+                        return (
+                          <div key={v.id} className="flex items-start gap-3 px-4 py-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-[var(--text-primary)]">v{v.version}</span>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${v.change_type === 'insert' ? 'bg-[var(--success-soft)] text-[var(--success)]' : v.change_type === 'delete' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--accent-soft)] text-[var(--accent-hover)]'}`}>
+                                  {changeTypeLabel[v.change_type] || v.change_type}
+                                </span>
+                                <span className="text-xs text-[var(--text-muted)]">{changer?.full_name || 'Hệ thống'}</span>
+                                <span className="text-xs text-[var(--text-muted)]">· {new Date(v.changed_at).toLocaleString('vi-VN')}</span>
+                              </div>
+                              <div className="text-xs text-[var(--text-secondary)] space-y-0.5">
+                                {snap.title ? <div>Tên: <b>{String(snap.title)}</b></div> : null}
+                                {snap.status ? <div>Trạng thái: <b>{String(snap.status)}</b></div> : null}
+                                {snap.due_date ? <div>Deadline: <b>{String(snap.due_date)}</b></div> : null}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => restore(v)}
+                              disabled={restoring === v.id}
+                              className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-bold hover:border-[var(--olive)] hover:text-[var(--olive)] disabled:opacity-40 transition-colors"
+                            >
+                              {restoring === v.id ? '…' : '↺ Restore'}
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
