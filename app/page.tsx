@@ -5646,24 +5646,23 @@ function StepWorkflowCard(props: {
         {/* Nhân viên: gửi duyệt deadline */}
         {!deadlineApproved && deadlineStatus !== 'cho_duyet' && (
           <div className="flex flex-col gap-2">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <input type="date"
                 className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none"
                 value={props.step.step_proposed_deadline || props.step.due_date || ''}
                 onChange={(e) => props.updateStep(props.step, { step_proposed_deadline: e.target.value || null } as Partial<TaskStep>)}
               />
-              <select
-                className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
-                value={props.step.step_deadline_approver_id || props.step.department_approver_id || ''}
-                onChange={(e) => props.updateStep(props.step, { step_deadline_approver_id: e.target.value || null } as Partial<TaskStep>)}
-              >
-                <option value="">Chọn người duyệt deadline</option>
-                {props.employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-              </select>
+              <span className="text-xs text-[var(--text-muted)] shrink-0">
+                Duyệt: <b>{(props.employeeMap.get(props.step.step_deadline_approver_id || '') || props.employeeMap.get(props.step.department_approver_id || ''))?.full_name || 'Chưa gắn'}</b>
+              </span>
             </div>
             <button type="button"
-              disabled={props.locked || !props.step.step_proposed_deadline}
-              onClick={() => props.updateStep(props.step, { step_deadline_status: 'cho_duyet' } as Partial<TaskStep>)}
+              disabled={props.locked || !(props.step.step_proposed_deadline || props.step.due_date)}
+              onClick={() => props.updateStep(props.step, {
+                step_deadline_status: 'cho_duyet',
+                step_proposed_deadline: props.step.step_proposed_deadline || props.step.due_date,
+                step_deadline_approver_id: props.step.step_deadline_approver_id || props.step.department_approver_id,
+              } as Partial<TaskStep>)}
               className="self-start rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-white disabled:opacity-40"
             >
               Gửi duyệt Deadline
