@@ -5678,15 +5678,18 @@ function StepWorkflowCard(props: {
       >
         <span className="shrink-0 text-xs font-extrabold text-[var(--text-muted)] w-5">{props.step.step_order}.</span>
         <span className="flex-1 min-w-0 font-semibold text-sm text-[var(--text-primary)] truncate">{props.step.step_title}</span>
-        {/* Badge theo phase hiện tại */}
-        {!deadlineApproved ? (
-          deadlineStatus === 'draft' ? <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-500">Chưa gửi deadline</span>
-          : deadlineStatus === 'cho_duyet' ? <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-3 py-1 text-xs font-extrabold text-[var(--warning)]">Chờ duyệt deadline</span>
-          : deadlineStatus === 'tra_lai' ? <span className="shrink-0 rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-extrabold text-[var(--danger)]">Deadline bị trả lại</span>
-          : <StepApprovalBadge status={status} />
-        ) : (
-          <StepApprovalBadge status={status} />
-        )}
+        {/* Thanh thông tin giai đoạn */}
+        <div className="shrink-0 flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-surface)] px-2 py-1">
+          {/* GĐ1 */}
+          <span className={`text-[10px] font-extrabold ${deadlineApproved ? 'text-[var(--success)]' : deadlineStatus === 'cho_duyet' ? 'text-[var(--warning)]' : deadlineStatus === 'tra_lai' ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]'}`}>
+            {deadlineApproved ? `📅 ${props.step.step_proposed_deadline || props.step.due_date || '—'}` : deadlineStatus === 'cho_duyet' ? '📅 Chờ duyệt' : deadlineStatus === 'tra_lai' ? '📅 Trả lại' : '📅 Chưa gửi'}
+          </span>
+          <span className="text-[var(--border)]">·</span>
+          {/* GĐ2 */}
+          <span className={`text-[10px] font-extrabold ${!deadlineApproved ? 'text-[var(--text-muted)] opacity-40' : status === 'approved' ? 'text-[var(--success)]' : status === 'pending' ? 'text-[var(--warning)]' : status === 'revision' ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]'}`}>
+            {status === 'approved' ? '✓ Đã duyệt' : status === 'pending' ? '⏳ Chờ duyệt' : status === 'revision' ? '↩ Làm lại' : 'Chưa gửi'}
+          </span>
+        </div>
         {props.locked && <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Khóa</span>}
         <span className="shrink-0 text-xs text-[var(--text-muted)]">{owner?.full_name || '—'}</span>
         {props.step.due_date && <span className="shrink-0 text-[10px] text-[var(--text-muted)] hidden sm:block">{props.step.due_date}</span>}
