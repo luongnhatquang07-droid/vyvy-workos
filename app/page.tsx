@@ -110,6 +110,7 @@ const TASK_STEP_MATRIX_COLUMNS = [
   'step_proposed_deadline',
   'step_deadline_approver_id',
   'step_deadline_note',
+  'step_in_progress',
 ]
 
 function toLegacyTaskStepPayload(payload: DbPayload) {
@@ -258,6 +259,7 @@ type TaskStep = {
   step_proposed_deadline: string | null
   step_deadline_approver_id: string | null
   step_deadline_note: string | null
+  step_in_progress: boolean
 }
 
 type TaskSupporter = {
@@ -5696,11 +5698,11 @@ function StepWorkflowCard(props: {
             } else if (s.approval_status === 'approved') {
               label = '✓ Hoàn thành'; cls = 'bg-[var(--success-soft)] text-[var(--success)]'
             } else if (s.approval_status === 'pending') {
-              label = '⏳ Chờ duyệt'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
+              label = '⏳ Chờ duyệt kết quả'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
             } else if (s.approval_status === 'revision') {
-              label = '↩ Cần làm lại'; cls = 'bg-[var(--danger-soft)] text-[var(--danger)]'
-            } else if (s.is_done) {
-              label = '📤 Đã làm xong'; cls = 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
+              label = '↩ Kết quả bị trả lại'; cls = 'bg-[var(--danger-soft)] text-[var(--danger)]'
+            } else if (s.step_in_progress) {
+              label = '🔄 Đang thực hiện'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
             } else {
               label = 'Chưa bắt đầu'; cls = 'bg-[var(--bg-surface)] text-[var(--text-muted)]'
             }
@@ -5801,6 +5803,25 @@ function StepWorkflowCard(props: {
         </p>
       )}
       <div className={!deadlineApproved ? 'pointer-events-none opacity-40' : ''}>
+
+      {/* Nút Bắt đầu thực hiện */}
+      {deadlineApproved && !props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
+        <button type="button"
+          onClick={() => props.updateStep(props.step, { step_in_progress: true } as Partial<TaskStep>)}
+          className="mb-3 w-full rounded-xl border-2 border-dashed border-[var(--olive)]/40 py-2 text-sm font-bold text-[var(--olive)] hover:bg-[var(--olive)]/5 transition-colors"
+        >
+          ▶ Bắt đầu thực hiện
+        </button>
+      )}
+      {deadlineApproved && props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
+        <div className="mb-3 flex items-center justify-between rounded-xl bg-[var(--warning-soft)] px-3 py-2">
+          <span className="text-xs font-bold text-[var(--warning)]">🔄 Đang thực hiện</span>
+          <button type="button"
+            onClick={() => props.updateStep(props.step, { step_in_progress: false } as Partial<TaskStep>)}
+            className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >Hoàn tác</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Select
