@@ -10442,21 +10442,36 @@ function ImportExcelView(props: {
     reader.readAsArrayBuffer(file)
   }
 
+  // Map Vietnamese level labels → internal
+  const LEVEL_MAP: Record<string, string> = {
+    'đầu việc lớn': 'workstream', 'workstream': 'workstream', 'milestone': 'workstream',
+    'đầu việc con': 'subtask', 'subtask': 'subtask', 'task': 'subtask',
+  }
+  const STATUS_IMPORT_MAP: Record<string, string> = {
+    'chưa bắt đầu': 'not_started', 'đang thực hiện': 'in_progress',
+    'đã hoàn thành': 'completed', 'đang chờ': 'pending', 'pending': 'pending',
+  }
+
   function parseXLSXBuffer(ab: ArrayBuffer) {
-    // Use SheetJS if available via window, else show error
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const XLSX = (window as any).XLSX
     if (!XLSX) { alert('Thư viện Excel chưa sẵn sàng, hãy thử lại.'); return }
     const wb = XLSX.read(ab, { type: 'array' })
-    const ws = wb.Sheets[wb.SheetNames[0]]
+    // Skip sheet named "Hướng dẫn" or "Danh mục", take first data sheet
+    const dataSheet = wb.SheetNames.find((n: string) => !['Hướng dẫn','Danh mục'].includes(n)) || wb.SheetNames[0]
+    const ws = wb.Sheets[dataSheet]
     const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-    // Skip header row
-    const parsed: ImportRow[] = data.slice(1).filter(r => r[3]?.toString().trim()).map((r, i) => {
-      const [proj, group, level, title, desc, output, owner, deadline, notes] = r.map(c => String(c ?? '').trim())
+    // Skip header rows (first 2 rows: title + header)
+    const startRow = data.findIndex(r => String(r[0]).toLowerCase().includes('dự án') || String(r[3]).toLowerCase().includes('tên'))
+    const dataRows = data.slice(startRow + 1).filter(r => r[3]?.toString().trim())
+    const parsed: ImportRow[] = dataRows.map((r, i) => {
+      const [proj, group, level, title, desc, output, owner, deadline, status, notes] = r.map(c => String(c ?? '').trim())
       const errors: string[] = []
       if (!title) errors.push('Thiếu tên đầu việc')
       if (!proj) errors.push('Thiếu dự án')
-      return { rowNum: i + 2, project: proj, group, level, title, description: desc, output, owner, deadline, notes, error: errors.join('; ') || undefined }
+      const levelNorm = LEVEL_MAP[level.toLowerCase()] || 'subtask'
+      if (level && !LEVEL_MAP[level.toLowerCase()]) errors.push(`Cấp độ không hợp lệ: "${level}"`)
+      return { rowNum: startRow + i + 2, project: proj, group, level: levelNorm, title, description: desc, output, owner, deadline, notes: [status, notes].filter(Boolean).join(' | '), error: errors.join('; ') || undefined }
     })
     setRows(parsed)
     setResult(null)
@@ -10490,14 +10505,19 @@ function ImportExcelView(props: {
           if (!isNaN(d.getTime())) dueDate = d.toISOString().split('T')[0]
         }
 
-        const isMs = row.level.toLowerCase().includes('milestone')
+        const isMs = row.level === 'workstream'
         const desc = [row.description, row.output ? `Output: ${row.output}` : ''].filter(Boolean).join(' | ')
+        // notes field contains "status | notes" from parser — extract real notes
+        const noteParts = row.notes.split(' | ')
+        const rawStatus = noteParts[0] || ''
+        const realNotes = noteParts.slice(1).join(' | ') || null
+        const taskStatus = STATUS_IMPORT_MAP[rawStatus.toLowerCase()] || 'not_started'
 
         if (isMs) {
           const { data } = await supabase.from('tasks').insert({
             title: row.title, description: desc, project_id: projId,
-            task_level: 'workstream', status: 'not_started', head_id: ownerId, due_date: dueDate,
-            notes: row.notes || null,
+            task_level: 'workstream', status: taskStatus, head_id: ownerId, due_date: dueDate,
+            notes: realNotes,
           }).select('id').single()
           if (data) { msCache.set(`${row.project}|${row.group}`, data.id); ok++ }
           else fail++
@@ -10505,8 +10525,8 @@ function ImportExcelView(props: {
           const parentId = msCache.get(`${row.project}|${row.group}`) || null
           const { error } = await supabase.from('tasks').insert({
             title: row.title, description: desc, project_id: projId,
-            task_level: parentId ? 'subtask' : 'workstream', status: 'not_started',
-            head_id: ownerId, due_date: dueDate, notes: row.notes || null,
+            task_level: parentId ? 'subtask' : 'workstream', status: taskStatus,
+            head_id: ownerId, due_date: dueDate, notes: realNotes,
             parent_task_id: parentId,
           })
           if (!error) ok++; else fail++
@@ -10522,16 +10542,89 @@ function ImportExcelView(props: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const XLSX = (window as any).XLSX
     if (!XLSX) { alert('Thư viện chưa sẵn sàng'); return }
-    const header = ['Dự án', 'Nhóm việc', 'Cấp độ (Milestone/Task)', 'Tên đầu việc *', 'Mô tả', 'Output / Kết quả mong muốn', 'Owner (Tên nhân viên)', 'Deadline (YYYY-MM-DD)', 'Ghi chú']
-    const example = [
-      ['Marketing Growth System', 'KOL/Affiliate', 'Milestone', 'Thiết kế hệ thống KOL', 'Xây cách vận hành KOL/Affiliate', 'Framework KOL hoàn chỉnh', 'Đào Hoàng Vũ', '2026-07-15', 'Ưu tiên cao'],
-      ['Marketing Growth System', 'KOL/Affiliate', 'Task', 'Tuyển nhân sự KOL', 'Tìm người chuyên trách KOL', 'JD + quyết định phân công', 'Đào Hoàng Vũ', '2026-07-01', ''],
-    ]
+
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet([header, ...example])
-    ws['!cols'] = header.map((_, i) => ({ wch: [20,15,22,30,35,30,18,18,20][i] }))
-    XLSX.utils.book_append_sheet(wb, ws, 'Đầu việc')
-    XLSX.writeFile(wb, 'mau_nhap_dau_viec.xlsx')
+
+    // ── Sheet 1: Đầu việc (data entry) ──
+    const header = [
+      'Dự án *', 'Nhóm việc', 'Cấp độ *', 'Tên đầu việc *',
+      'Mô tả công việc', 'Output / Kết quả mong muốn',
+      'Người phụ trách', 'Deadline (YYYY-MM-DD)', 'Trạng thái', 'Ghi chú',
+    ]
+    const examples = [
+      ['Marketing Growth System', 'KOL/Affiliate', 'Đầu việc lớn', 'Thiết kế hệ thống KOL & Affiliate',
+        'Xây cách vận hành KOL/Affiliate tạo branding và doanh số', 'Framework KOL hoàn chỉnh',
+        'Đào Hoàng Vũ', '2026-07-15', 'Chưa bắt đầu', 'Ưu tiên cao'],
+      ['Marketing Growth System', 'KOL/Affiliate', 'Đầu việc con', 'Tuyển nhân sự chuyên trách KOL',
+        'Tìm người quản lý KOL, micro-app, app 0 đồng', 'JD + quyết định phân công',
+        'Đào Hoàng Vũ', '2026-07-01', 'Chưa bắt đầu', ''],
+      ['Content - Branding System', 'Content', 'Đầu việc lớn', 'Xây chiến lược branding',
+        'Làm rõ thông điệp thương hiệu tăng hiệu quả ads', 'Brand strategy brief',
+        'Nhung', '2026-07-10', 'Đang thực hiện', ''],
+      ['Content - Branding System', 'Content', 'Đầu việc con', 'Thiết lập OKR cho content',
+        'Xây OKR content theo mục tiêu búp kênh và doanh số', 'Bộ OKR content',
+        'Nhung', '2026-07-05', 'Chưa bắt đầu', 'Gắn với target live'],
+    ]
+    const wsData = XLSX.utils.aoa_to_sheet([header, ...examples])
+    wsData['!cols'] = [22,14,16,32,38,32,18,20,18,22].map(w => ({ wch: w }))
+
+    // Data validation: Cột C (Cấp độ) và I (Trạng thái)
+    wsData['!dataValidations'] = [
+      {
+        sqref: 'C2:C1000',
+        type: 'list',
+        formula1: '"Đầu việc lớn,Đầu việc con"',
+        showErrorMessage: true,
+        error: 'Chỉ được chọn: Đầu việc lớn hoặc Đầu việc con',
+        errorTitle: 'Giá trị không hợp lệ',
+      },
+      {
+        sqref: 'I2:I1000',
+        type: 'list',
+        formula1: '"Chưa bắt đầu,Đang thực hiện,Đã hoàn thành,Đang chờ"',
+        showErrorMessage: true,
+        error: 'Chỉ được chọn một trong các trạng thái cho phép',
+        errorTitle: 'Giá trị không hợp lệ',
+      },
+    ]
+    XLSX.utils.book_append_sheet(wb, wsData, 'Đầu việc')
+
+    // ── Sheet 2: Hướng dẫn ──
+    const guide = [
+      ['HƯỚNG DẪN NHẬP ĐẦU VIỆC — VYVY WORKOS'],
+      [''],
+      ['📌 CÁC CỘT BẮT BUỘC (đánh dấu *)'],
+      ['Cột', 'Ý nghĩa', 'Lưu ý'],
+      ['Dự án *', 'Tên dự án trong hệ thống', 'Nếu chưa có sẽ tự tạo mới'],
+      ['Cấp độ *', 'Loại đầu việc', 'Chọn từ dropdown: Đầu việc lớn / Đầu việc con'],
+      ['Tên đầu việc *', 'Tên hiển thị trong hệ thống', 'Bắt buộc, không để trống'],
+      [''],
+      ['📋 CÁC GIÁ TRỊ HỢP LỆ'],
+      ['Cấp độ', '', ''],
+      ['  • Đầu việc lớn', '→ Milestone, mốc lớn trong dự án', ''],
+      ['  • Đầu việc con', '→ Task cụ thể thuộc một nhóm', ''],
+      [''],
+      ['Trạng thái', '', ''],
+      ['  • Chưa bắt đầu', '→ Mặc định khi tạo mới', ''],
+      ['  • Đang thực hiện', '→ Đang trong quá trình làm', ''],
+      ['  • Đã hoàn thành', '→ Đã xong, đã được duyệt', ''],
+      ['  • Đang chờ', '→ Chờ task khác hoặc chờ quyết định', ''],
+      [''],
+      ['📐 QUY TẮC PHÂN CẤP'],
+      ['Đầu việc con sẽ tự gắn vào Đầu việc lớn cùng Nhóm việc trong cùng Dự án.'],
+      ['Ví dụ: Cột "Nhóm việc" = "KOL/Affiliate" → Đầu việc con KOL sẽ nằm dưới Đầu việc lớn KOL.'],
+      [''],
+      ['📅 ĐỊNH DẠNG NGÀY'],
+      ['Deadline phải theo định dạng: YYYY-MM-DD (ví dụ: 2026-07-15)'],
+      [''],
+      ['👤 NGƯỜI PHỤ TRÁCH'],
+      ['Nhập đúng tên nhân viên trong hệ thống. Có thể để trống nếu chưa phân công.'],
+    ]
+    const wsGuide = XLSX.utils.aoa_to_sheet(guide)
+    wsGuide['!cols'] = [{ wch: 30 }, { wch: 40 }, { wch: 30 }]
+    XLSX.utils.book_append_sheet(wb, wsGuide, 'Hướng dẫn')
+
+    XLSX.writeFile(wb, 'mau_nhap_dau_viec_vyvy.xlsx')
   }
 
   const validRows = rows.filter(r => !r.error)
