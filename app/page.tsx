@@ -250,6 +250,10 @@ type TaskStep = {
   report_file_name: string | null
   report_link: string | null
   support_request: string | null
+  step_deadline_status: string | null
+  step_proposed_deadline: string | null
+  step_deadline_approver_id: string | null
+  step_deadline_note: string | null
 }
 
 type TaskSupporter = {
@@ -5155,6 +5159,7 @@ function SubtaskCard(props: {
   const overdue = isTaskOverdue(props.task)
   const problem = isTaskProblem(props.task)
   const [descriptionDraft, setDescriptionDraft] = useState(props.task.description || '')
+  const [descOpen, setDescOpen] = useState(false)
 
   useEffect(() => {
     setDescriptionDraft(props.task.description || '')
@@ -5245,24 +5250,31 @@ function SubtaskCard(props: {
         <ProgressBar value={progress} />
       </div>
 
-      <div className="mb-4 rounded-2xl bg-[var(--bg-surface)] p-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="text-sm font-extrabold">Mô tả đầu việc</p>
-          <button
-            type="button"
-            disabled={descriptionDraft.trim() === (props.task.description || '').trim()}
-            onClick={() => props.updateTaskDescription(props.task.id, descriptionDraft)}
-            className="rounded-lg bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] disabled:opacity-40"
-          >
-            Lưu mô tả
-          </button>
+      {/* Mô tả đầu việc — accordion */}
+      <div className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] overflow-hidden">
+        <button type="button" onClick={() => setDescOpen(!descOpen)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-card)] transition-colors"
+        >
+          <span>Mô tả đầu việc</span>
+          <span className={`text-[var(--text-muted)] transition-transform ${descOpen ? 'rotate-180' : ''}`}>▾</span>
+        </button>
+        <div className={descOpen ? 'block' : 'hidden'}>
+          <div className="px-4 pb-4 pt-1">
+            <textarea
+              value={descriptionDraft}
+              onChange={(e) => setDescriptionDraft(e.target.value)}
+              placeholder="Mục tiêu, phạm vi, yêu cầu đầu ra, ghi chú..."
+              className="min-h-[5rem] w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-6 outline-none focus:border-[var(--accent-hover)]"
+            />
+            <button type="button"
+              disabled={descriptionDraft.trim() === (props.task.description || '').trim()}
+              onClick={() => props.updateTaskDescription(props.task.id, descriptionDraft)}
+              className="mt-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] px-4 py-1.5 text-xs font-bold text-[var(--text-primary)] disabled:opacity-40"
+            >
+              Lưu mô tả
+            </button>
+          </div>
         </div>
-        <textarea
-          value={descriptionDraft}
-          onChange={(event) => setDescriptionDraft(event.target.value)}
-          placeholder="Nhập mục tiêu, phạm vi, yêu cầu đầu ra hoặc ghi chú cho đầu việc này..."
-          className="min-h-20 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-6 outline-none focus:border-[var(--accent-hover)]"
-        />
       </div>
 
       <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
@@ -5582,8 +5594,13 @@ function StepWorkflowCard(props: {
     ...(props.step.requires_ceo_approval ? [{ role: 'CEO', employee: ceoApprover }] : []),
   ]
 
-  // Mặc định mở nếu cần hành động: cần làm lại, chờ duyệt (có quyền duyệt), chưa gửi
-  const needsAction = status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
+  const deadlineStatus = props.step.step_deadline_status || 'draft'
+  const deadlineApproved = deadlineStatus === 'da_duyet'
+  const deadlineApprover = props.employeeMap.get(props.step.step_deadline_approver_id || '')
+  const isDeadlineApprover = !!props.step.step_deadline_approver_id && props.step.step_deadline_approver_id === props.employeeMap.get(props.step.step_deadline_approver_id || '')?.id
+
+  // Mặc định mở nếu cần hành động
+  const needsAction = !deadlineApproved || status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
   const [expanded, setExpanded] = useState(needsAction)
 
   return (
@@ -5614,6 +5631,77 @@ function StepWorkflowCard(props: {
           Xóa bước
         </button>
       </div>
+
+      {/* ── Giai đoạn 1: Duyệt Deadline ── */}
+      <div className={`mb-4 rounded-xl border p-3 ${deadlineApproved ? 'border-[var(--success)]/30 bg-[var(--success-soft)]' : deadlineStatus === 'tra_lai' ? 'border-[var(--danger)]/30 bg-[var(--danger-soft)]' : deadlineStatus === 'cho_duyet' ? 'border-[var(--warning)]/30 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Giai đoạn 1 · Duyệt Deadline</span>
+          {deadlineApproved && <span className="rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">Đã chốt {props.step.step_proposed_deadline}</span>}
+          {deadlineStatus === 'cho_duyet' && <span className="rounded-full bg-[var(--warning)] px-2 py-0.5 text-[10px] font-bold text-white">Chờ duyệt · {props.step.step_proposed_deadline}</span>}
+          {deadlineStatus === 'tra_lai' && <span className="rounded-full bg-[var(--danger)] px-2 py-0.5 text-[10px] font-bold text-white">Bị trả lại</span>}
+        </div>
+        {deadlineStatus === 'tra_lai' && props.step.step_deadline_note && (
+          <p className="mb-2 text-xs text-[var(--danger)]">Lý do: {props.step.step_deadline_note}</p>
+        )}
+        {/* Nhân viên: gửi duyệt deadline */}
+        {!deadlineApproved && deadlineStatus !== 'cho_duyet' && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <input type="date"
+                className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none"
+                value={props.step.step_proposed_deadline || props.step.due_date || ''}
+                onChange={(e) => props.updateStep(props.step, { step_proposed_deadline: e.target.value || null } as Partial<TaskStep>)}
+              />
+              <select
+                className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
+                value={props.step.step_deadline_approver_id || props.step.department_approver_id || ''}
+                onChange={(e) => props.updateStep(props.step, { step_deadline_approver_id: e.target.value || null } as Partial<TaskStep>)}
+              >
+                <option value="">Chọn người duyệt deadline</option>
+                {props.employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+              </select>
+            </div>
+            <button type="button"
+              disabled={props.locked || !props.step.step_proposed_deadline}
+              onClick={() => props.updateStep(props.step, { step_deadline_status: 'cho_duyet' } as Partial<TaskStep>)}
+              className="self-start rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+            >
+              Gửi duyệt Deadline
+            </button>
+          </div>
+        )}
+        {/* Người duyệt deadline: duyệt / trả lại */}
+        {deadlineStatus === 'cho_duyet' && props.canApprove && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button"
+              onClick={() => props.updateStep(props.step, { step_deadline_status: 'da_duyet', due_date: props.step.step_proposed_deadline } as Partial<TaskStep>)}
+              className="rounded-lg bg-[var(--success)] px-4 py-1.5 text-xs font-bold text-white"
+            >
+              Duyệt deadline
+            </button>
+            <button type="button"
+              onClick={() => {
+                const note = prompt('Lý do trả lại?')
+                if (note) props.updateStep(props.step, { step_deadline_status: 'tra_lai', step_deadline_note: note } as Partial<TaskStep>)
+              }}
+              className="rounded-lg bg-[var(--danger-soft)] px-4 py-1.5 text-xs font-bold text-[var(--danger)]"
+            >
+              Trả lại
+            </button>
+          </div>
+        )}
+        {deadlineStatus === 'cho_duyet' && !props.canApprove && (
+          <p className="text-xs text-[var(--text-muted)]">Đang chờ {deadlineApprover?.full_name || 'người duyệt'} chốt deadline…</p>
+        )}
+      </div>
+
+      {/* ── Giai đoạn 2: Thực hiện & Duyệt kết quả (chỉ mở khi deadline đã chốt) ── */}
+      {!deadlineApproved && (
+        <p className="mb-3 rounded-xl bg-[var(--bg-base)] px-3 py-2 text-xs text-[var(--text-muted)]">
+          Chốt deadline trước khi bắt đầu thực hiện.
+        </p>
+      )}
+      <div className={!deadlineApproved ? 'pointer-events-none opacity-40' : ''}>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <Select
@@ -5920,6 +6008,7 @@ function StepWorkflowCard(props: {
         </button>
         )}
       </div>
+      </div>{/* end phase 2 wrapper */}
     </div>
   </div>
   </div>
