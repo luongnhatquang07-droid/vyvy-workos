@@ -3133,6 +3133,12 @@ export default function Home() {
   const pendingForMe = useMemo(() => {
     if (!currentEmployee?.id) return []
     return steps.filter((step) => {
+      // Deadline chờ duyệt
+      if ((step.step_deadline_status || 'draft') === 'cho_duyet') {
+        const approverId = step.step_deadline_approver_id || step.department_approver_id || step.approver_id
+        return approverId === currentEmployee.id
+      }
+      // Kết quả chờ duyệt
       if (step.approval_status !== 'pending') return false
       const stage = step.approval_stage || 'department'
       const approverId =
