@@ -2146,10 +2146,6 @@ export default function Home() {
       toast('Bước chưa được người thực hiện gửi duyệt.', 'warning')
       return
     }
-    if (!step.report_file_url && !step.report_link && !step.note?.trim()) {
-      toast('Bước chưa có báo cáo (file, link hoặc ghi chú kết quả). Yêu cầu người thực hiện cập nhật trước.', 'warning')
-      return
-    }
     const now = new Date().toISOString()
     const stage = step.approval_stage || 'department'
 
