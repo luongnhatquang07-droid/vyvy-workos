@@ -111,6 +111,9 @@ const TASK_STEP_MATRIX_COLUMNS = [
   'step_deadline_approver_id',
   'step_deadline_note',
   'step_in_progress',
+  'step_deadline_submitted_at',
+  'step_deadline_approved_at',
+  'step_started_at',
 ]
 
 function toLegacyTaskStepPayload(payload: DbPayload) {
@@ -260,6 +263,9 @@ type TaskStep = {
   step_deadline_approver_id: string | null
   step_deadline_note: string | null
   step_in_progress: boolean
+  step_deadline_submitted_at: string | null
+  step_deadline_approved_at: string | null
+  step_started_at: string | null
 }
 
 type TaskSupporter = {
@@ -2066,6 +2072,17 @@ export default function Home() {
       console.error(error)
       toast('Cập nhật bước bị lỗi.', 'error')
       return
+    }
+
+    // Ghi timestamp tự động
+    if (patch.step_deadline_status === 'cho_duyet' && !step.step_deadline_submitted_at) {
+      await updateTaskStepCompat(step.id, { step_deadline_submitted_at: new Date().toISOString() } as DbPayload)
+    }
+    if (patch.step_deadline_status === 'da_duyet') {
+      await updateTaskStepCompat(step.id, { step_deadline_approved_at: new Date().toISOString() } as DbPayload)
+    }
+    if ((patch as Record<string, unknown>).step_in_progress === true && !step.step_started_at) {
+      await updateTaskStepCompat(step.id, { step_started_at: new Date().toISOString() } as DbPayload)
     }
 
     // Notify khi gửi duyệt deadline
@@ -5795,6 +5812,33 @@ function StepWorkflowCard(props: {
           <p className="text-xs text-[var(--text-muted)]">Đang chờ {deadlineApprover?.full_name || 'người duyệt'} chốt deadline…</p>
         )}
       </div>
+
+      {/* ── Timeline lịch sử ── */}
+      {(() => {
+        const s = props.step
+        const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null
+        const events: { icon: string; label: string; time: string | null; done: boolean }[] = [
+          { icon: '📅', label: 'Gửi duyệt deadline', time: fmt(s.step_deadline_submitted_at), done: !!s.step_deadline_submitted_at },
+          { icon: '✅', label: `Deadline chốt: ${s.step_proposed_deadline || s.due_date || '—'}`, time: fmt(s.step_deadline_approved_at), done: !!s.step_deadline_approved_at },
+          { icon: '▶', label: 'Bắt đầu thực hiện', time: fmt(s.step_started_at), done: !!s.step_started_at },
+          { icon: '📤', label: 'Gửi duyệt kết quả', time: fmt(s.submitted_at), done: !!s.submitted_at },
+          { icon: '🏁', label: 'Hoàn thành', time: fmt(s.approved_at), done: s.approval_status === 'approved' },
+        ]
+        return (
+          <div className="mb-4 flex items-center gap-0">
+            {events.map((ev, i) => (
+              <div key={i} className="flex flex-1 items-center">
+                <div className={`flex flex-col items-center gap-0.5 min-w-0 flex-1 ${ev.done ? 'opacity-100' : 'opacity-35'}`}>
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${ev.done ? 'bg-[var(--olive)] text-white' : 'bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--text-muted)]'}`}>{ev.icon}</div>
+                  <p className="text-center text-[9px] font-bold leading-tight text-[var(--text-secondary)] px-0.5">{ev.label}</p>
+                  {ev.time && <p className="text-[9px] text-[var(--text-muted)]">{ev.time}</p>}
+                </div>
+                {i < events.length - 1 && <div className={`h-px w-4 shrink-0 ${events[i+1].done || ev.done ? 'bg-[var(--olive)]/40' : 'bg-[var(--border)]'}`} />}
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* ── Giai đoạn 2: Thực hiện & Duyệt kết quả (chỉ mở khi deadline đã chốt) ── */}
       {!deadlineApproved && (
