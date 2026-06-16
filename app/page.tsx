@@ -1760,7 +1760,7 @@ export default function Home() {
       priority: workPriority,
       progress_percent: 0,
       due_date: workDueDate || null,
-      department_id: workDepartmentId || null,
+      department_id: workDepartmentId || employees.find((e) => e.id === (workHeadIds[0] || workHeadId))?.department_id || null,
       assignee_id: workAssigneeId || null,
       head_id: workHeadIds[0] || workHeadId || null,
       head_ids: workHeadIds.length > 0 ? workHeadIds : (workHeadId ? [workHeadId] : []),
@@ -1813,7 +1813,7 @@ export default function Home() {
       priority: subtaskForm.priority,
       progress_percent: 0,
       due_date: subtaskForm.dueDate || null,
-      department_id: subtaskForm.departmentId || null,
+      department_id: subtaskForm.departmentId || employees.find((e) => e.id === (subtaskForm.headIds?.[0] || subtaskForm.headId))?.department_id || employees.find((e) => e.id === subtaskForm.assigneeId)?.department_id || null,
       assignee_id: subtaskForm.assigneeId || null,
       head_id: (subtaskForm.headIds?.[0]) || subtaskForm.headId || null,
       head_ids: subtaskForm.headIds?.length > 0 ? subtaskForm.headIds : (subtaskForm.headId ? [subtaskForm.headId] : []),
@@ -1957,7 +1957,11 @@ export default function Home() {
   }
 
   async function updateTaskAssignee(taskId: string, assigneeId: string | null) {
-    const { error } = await supabase.from('tasks').update({ assignee_id: assigneeId }).eq('id', taskId)
+    const assigneeEmp = employees.find((e) => e.id === assigneeId)
+    const deptId = assigneeEmp?.department_id ?? null
+    const patch: Record<string, unknown> = { assignee_id: assigneeId }
+    if (deptId) patch.department_id = deptId
+    const { error } = await supabase.from('tasks').update(patch).eq('id', taskId)
     if (error) {
       console.error(error)
       toast('Cập nhật người phụ trách lỗi.', 'error')
@@ -4818,6 +4822,8 @@ function CooBoard(props: {
                         ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
                         : wsHead ? [wsHead.full_name] : [])
                       const wsAssignee = props.employeeMap.get(ws.assignee_id || '')
+                      const wsHeadNoDept = !!wsHead && !wsHead.department_id
+                      const wsAssigneeNoDept = !!wsAssignee && !wsAssignee.department_id
                       const subtasks = props.tasksByParent.get(ws.id) || []
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
@@ -4841,8 +4847,8 @@ function CooBoard(props: {
                                   </span>
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}</span>
-                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}</span>
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}{wsHeadNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}{wsAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
                                   {ws.due_date && <span>· {ws.due_date}</span>}
                                   <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                                 </div>
@@ -4925,6 +4931,9 @@ function CooBoard(props: {
                                   const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
                                   const subtaskHeadIds = subtask.head_ids && subtask.head_ids.length > 0 ? subtask.head_ids : (subtask.head_id ? [subtask.head_id] : [])
                                   const subtaskHeadNames = subtaskHeadIds.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
+                                  const subtaskHead = props.employeeMap.get(subtask.head_id || '')
+                                  const subtaskHeadNoDept = !!subtaskHead && !subtaskHead.department_id
+                                  const subtaskAssigneeNoDept = !!subtaskAssignee && !subtaskAssignee.department_id
 
                                   return (
                                     <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
@@ -4946,8 +4955,8 @@ function CooBoard(props: {
                                               </span>
                                             </div>
                                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}</span>
-                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}</span>
+                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}{subtaskHeadNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
+                                              <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}{subtaskAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
                                               {subtask.due_date && <span>· {subtask.due_date}</span>}
                                               <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
                                             </div>
