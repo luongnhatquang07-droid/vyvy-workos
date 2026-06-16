@@ -5678,7 +5678,15 @@ function StepWorkflowCard(props: {
       >
         <span className="shrink-0 text-xs font-extrabold text-[var(--text-muted)] w-5">{props.step.step_order}.</span>
         <span className="flex-1 min-w-0 font-semibold text-sm text-[var(--text-primary)] truncate">{props.step.step_title}</span>
-        <StepApprovalBadge status={status} />
+        {/* Badge theo phase hiện tại */}
+        {!deadlineApproved ? (
+          deadlineStatus === 'draft' ? <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-500">Chưa gửi deadline</span>
+          : deadlineStatus === 'cho_duyet' ? <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-3 py-1 text-xs font-extrabold text-[var(--warning)]">Chờ duyệt deadline</span>
+          : deadlineStatus === 'tra_lai' ? <span className="shrink-0 rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-extrabold text-[var(--danger)]">Deadline bị trả lại</span>
+          : <StepApprovalBadge status={status} />
+        ) : (
+          <StepApprovalBadge status={status} />
+        )}
         {props.locked && <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Khóa</span>}
         <span className="shrink-0 text-xs text-[var(--text-muted)]">{owner?.full_name || '—'}</span>
         {props.step.due_date && <span className="shrink-0 text-[10px] text-[var(--text-muted)] hidden sm:block">{props.step.due_date}</span>}
