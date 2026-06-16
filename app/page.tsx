@@ -1938,9 +1938,13 @@ export default function Home() {
   }
 
   async function updateTaskHead(taskId: string, headIds: string[]) {
-    const result = await supabase.from('tasks').update({ head_ids: headIds, head_id: headIds[0] || null }).eq('id', taskId)
+    const headEmp = employees.find((e) => e.id === headIds[0])
+    const deptId = headEmp?.department_id ?? null
+    const patch: Record<string, unknown> = { head_ids: headIds, head_id: headIds[0] || null }
+    if (deptId) patch.department_id = deptId
+    const result = await supabase.from('tasks').update(patch).eq('id', taskId)
     const fallback = isSchemaCacheColumnError(result.error, 'tasks')
-      ? await supabase.from('tasks').update({ head_id: headIds[0] || null }).eq('id', taskId)
+      ? await supabase.from('tasks').update({ head_id: headIds[0] || null, ...(deptId ? { department_id: deptId } : {}) }).eq('id', taskId)
       : result
     const { error } = fallback
     if (error) {
@@ -5240,6 +5244,7 @@ function SubtaskCard(props: {
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
   const department = props.departmentMap.get(props.task.department_id || '')
+  const headHasNoDept = !!head && !head.department_id
   const progress = calculateTaskProgress(props.task, props.steps)
   const slow = isTaskSlow(props.task, props.steps)
   const overdue = isTaskOverdue(props.task)
@@ -5270,7 +5275,10 @@ function SubtaskCard(props: {
               employees={props.employees}
               onSave={(ids) => props.updateTaskHead(props.task.id, ids)}
             />
-            <span>· Phòng ban: <b>{department?.name || 'Chưa gắn'}</b> · Deadline: <b>{props.task.due_date || 'Chưa có'}</b></span>
+            <span>· Phòng ban: {headHasNoDept
+              ? <b className="text-[var(--warning)]">⚠ Head chưa được gắn phòng ban</b>
+              : <b>{department?.name || 'Chưa gắn'}</b>
+            } · Deadline: <b>{props.task.due_date || 'Chưa có'}</b></span>
           </div>
         </div>
 
