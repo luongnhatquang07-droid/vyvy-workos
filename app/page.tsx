@@ -2066,6 +2066,26 @@ export default function Home() {
       return
     }
 
+    // Notify khi gửi duyệt deadline
+    if (patch.step_deadline_status === 'cho_duyet') {
+      const approverId = (patch.step_deadline_approver_id as string | null) || step.step_deadline_approver_id || step.department_approver_id || step.approver_id
+      if (approverId && approverId !== currentEmployee?.id) {
+        const stepTask = tasks.find((t) => t.id === step.task_id)
+        pushNotify([{ recipient_id: approverId, actor_id: currentEmployee?.id || null, type: 'step_submitted', title: 'Có deadline chờ bạn duyệt', body: step.step_title, task_id: step.task_id }])
+        sendPush([approverId], '📅 Có deadline chờ bạn duyệt', `${step.step_title} — ${stepTask?.title || ''}`)
+      }
+    }
+
+    // Notify khi duyệt/trả lại deadline
+    if (patch.step_deadline_status === 'da_duyet' || patch.step_deadline_status === 'tra_lai') {
+      if (step.owner_id && step.owner_id !== currentEmployee?.id) {
+        const approved = patch.step_deadline_status === 'da_duyet'
+        const stepTask = tasks.find((t) => t.id === step.task_id)
+        pushNotify([{ recipient_id: step.owner_id, actor_id: currentEmployee?.id || null, type: approved ? 'step_approved' : 'step_revision', title: approved ? 'Deadline đã được chốt' : 'Deadline bị trả lại', body: step.step_title, task_id: step.task_id }])
+        sendPush([step.owner_id], approved ? '✅ Deadline đã được chốt' : '🔴 Deadline bị trả lại', `${step.step_title} — ${stepTask?.title || ''}`)
+      }
+    }
+
     await syncTaskProgress(step.task_id)
     await refreshDataSilent()
   }
