@@ -10563,6 +10563,110 @@ function ImportExcelView(props: {
         </div>
       </div>
 
+      {/* Hướng dẫn sử dụng */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-5">
+        <h3 className="text-sm font-extrabold">Hướng dẫn nhập đầu việc bằng Excel</h3>
+
+        {/* Bước thực hiện */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            { step: '1', title: 'Tải file mẫu', desc: 'Bấm "↓ Tải file mẫu" để lấy file .xlsx có sẵn cấu trúc và ví dụ minh họa.' },
+            { step: '2', title: 'Điền dữ liệu', desc: 'Mở file bằng Excel/Google Sheets, điền từng dòng theo đúng cột. Không thay đổi hàng tiêu đề.' },
+            { step: '3', title: 'Upload & Xác nhận', desc: 'Kéo thả file vào ô upload. Kiểm tra bảng xem trước rồi bấm "Xác nhận nhập".' },
+          ].map(s => (
+            <div key={s.step} className="flex gap-3 rounded-xl bg-[var(--bg-surface)] p-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--olive)] text-xs font-extrabold text-[var(--ivory)]">{s.step}</span>
+              <div>
+                <p className="text-xs font-bold text-[var(--text-primary)] mb-0.5">{s.title}</p>
+                <p className="text-xs text-[var(--text-secondary)] leading-5">{s.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Cấu trúc cột */}
+        <div>
+          <p className="text-xs font-extrabold text-[var(--text-secondary)] uppercase tracking-wide mb-2">Cấu trúc các cột trong file</p>
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+            <table className="w-full text-xs">
+              <thead className="bg-[var(--bg-surface)]">
+                <tr>
+                  {['Cột','Tên cột','Bắt buộc','Mô tả & Ví dụ'].map(h => (
+                    <th key={h} className="px-3 py-2 text-left font-bold text-[var(--text-muted)] whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {[
+                  ['A', 'Dự án', '✓', 'Tên dự án. Nếu chưa có sẽ tự tạo mới. VD: Marketing Growth System'],
+                  ['B', 'Nhóm việc', '', 'Nhóm phân loại trong dự án. VD: KOL/Affiliate, Content, Finance…'],
+                  ['C', 'Cấp độ', '', 'Milestone hoặc Task (xem giải thích bên dưới). Mặc định: Task'],
+                  ['D', 'Tên đầu việc', '✓', 'Tên ngắn gọn, rõ ràng. VD: Thiết kế hệ thống KOL'],
+                  ['E', 'Mô tả', '', 'Mô tả chi tiết việc cần làm'],
+                  ['F', 'Output / Kết quả mong muốn', '', 'Đầu ra cụ thể. VD: Framework KOL hoàn chỉnh + quy trình chọn KOL'],
+                  ['G', 'Owner', '', 'Tên nhân viên phụ trách. Phải khớp tên trong hệ thống. VD: Đào Hoàng Vũ'],
+                  ['H', 'Deadline', '', 'Định dạng YYYY-MM-DD. VD: 2026-07-15'],
+                  ['I', 'Ghi chú', '', 'Ghi chú nội bộ, lưu ý thêm'],
+                ].map(([col, name, req, desc]) => (
+                  <tr key={col} className="hover:bg-[var(--bg-surface)]/50">
+                    <td className="px-3 py-2 font-bold text-[var(--olive)]">{col}</td>
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap">{name}</td>
+                    <td className="px-3 py-2 text-center">{req ? <span className="text-[var(--danger)] font-bold">{req}</span> : <span className="text-[var(--text-muted)]">—</span>}</td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)] leading-5">{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Milestone vs Task */}
+        <div>
+          <p className="text-xs font-extrabold text-[var(--text-secondary)] uppercase tracking-wide mb-2">Milestone và Task khác nhau thế nào?</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-[var(--olive)]/30 bg-[var(--olive)]/5 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="rounded-full bg-[var(--olive)] px-2.5 py-0.5 text-[11px] font-extrabold text-[var(--ivory)]">Milestone</span>
+                <span className="text-xs text-[var(--text-muted)]">= Đầu việc lớn</span>
+              </div>
+              <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
+                <li>• Là <b>mốc quan trọng</b> hoặc <b>nhóm công việc</b> lớn trong dự án</li>
+                <li>• Thường bao gồm nhiều Task nhỏ hơn bên dưới</li>
+                <li>• VD: <i>Thiết kế hệ thống KOL</i>, <i>Xây chiến lược branding</i></li>
+                <li>• Trong hệ thống sẽ hiển thị là <b>Đầu việc lớn (Workstream)</b></li>
+              </ul>
+            </div>
+            <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)] p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="rounded-full bg-[var(--accent-hover)] px-2.5 py-0.5 text-[11px] font-extrabold text-white">Task</span>
+                <span className="text-xs text-[var(--text-muted)]">= Đầu việc con</span>
+              </div>
+              <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
+                <li>• Là <b>công việc cụ thể</b>, có thể giao cho 1 người thực hiện</li>
+                <li>• Sẽ tự động gắn vào Milestone cùng "Nhóm việc" (cột B) trong dự án</li>
+                <li>• VD: <i>Viết JD tuyển KOL</i>, <i>Thiết lập OKR cho content</i></li>
+                <li>• Trong hệ thống sẽ hiển thị là <b>Đầu việc con (Subtask)</b></li>
+              </ul>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-muted)] rounded-lg bg-[var(--bg-surface)] px-3 py-2">
+            💡 <b>Mẹo:</b> Nếu cột B (Nhóm việc) của Task trùng với Nhóm việc của một Milestone trong cùng dự án, Task đó sẽ tự động trở thành đầu việc con của Milestone đó.
+          </p>
+        </div>
+
+        {/* Lưu ý */}
+        <div className="rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
+          <p className="text-xs font-extrabold text-[var(--warning)] mb-2">⚠ Lưu ý quan trọng</p>
+          <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
+            <li>• <b>Không xóa hoặc đổi tên hàng tiêu đề</b> (hàng 1) trong file mẫu</li>
+            <li>• Tên Owner phải <b>khớp chính xác</b> với tên nhân viên đã có trong hệ thống</li>
+            <li>• Deadline phải theo định dạng <b>YYYY-MM-DD</b> (VD: 2026-07-15). Sai định dạng sẽ bỏ qua deadline</li>
+            <li>• Nếu Dự án chưa tồn tại trong hệ thống, hệ thống sẽ <b>tự tạo dự án mới</b></li>
+            <li>• Nhập nhiều lần cùng file sẽ tạo ra <b>bản sao</b> — không tự dedup</li>
+          </ul>
+        </div>
+      </div>
+
       {/* Preview */}
       {rows.length > 0 && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
