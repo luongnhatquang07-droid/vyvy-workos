@@ -8,11 +8,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const dbUrl = process.env.DATABASE_URL
-  if (!dbUrl) return NextResponse.json({ error: 'No DATABASE_URL' }, { status: 500 })
+  const dbHost = process.env.DB_MIGRATION_HOST
+  const dbPassword = process.env.DB_MIGRATION_PASSWORD
+  if (!dbHost || !dbPassword) {
+    return NextResponse.json({ error: 'Missing DB_MIGRATION_HOST or DB_MIGRATION_PASSWORD' }, { status: 500 })
+  }
 
-  const client = new Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } })
-  await client.connect()
+  const client = new Client({
+    host: dbHost,
+    port: 5432,
+    database: 'postgres',
+    user: 'postgres',
+    password: dbPassword,
+    ssl: { rejectUnauthorized: false },
+  })
+
+  try {
+    await client.connect()
+  } catch (e: unknown) {
+    return NextResponse.json({ error: 'connect failed: ' + (e as Error).message }, { status: 500 })
+  }
 
   const migrations = [
     `alter table task_steps add column if not exists step_deadline_status text not null default 'draft'`,
