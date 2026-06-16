@@ -10627,6 +10627,10 @@ function ImportExcelView(props: {
     XLSX.writeFile(wb, 'mau_nhap_dau_viec_vyvy.xlsx')
   }
 
+  function downloadTemplateFromServer() {
+    window.open('/api/excel-template', '_blank')
+  }
+
   const validRows = rows.filter(r => !r.error)
   const errorRows = rows.filter(r => r.error)
 
@@ -10639,9 +10643,9 @@ function ImportExcelView(props: {
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="text-sm font-extrabold">Tải lên file Excel</h3>
-          <button onClick={downloadTemplate}
-            className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-bold hover:border-[var(--border-strong)]">
-            ↓ Tải file mẫu
+          <button onClick={downloadTemplateFromServer}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--olive)] bg-[var(--olive)] px-3 py-1.5 text-xs font-bold text-[var(--ivory)] hover:opacity-90">
+            ↓ Tải file mẫu (có dropdown)
           </button>
         </div>
         <div
