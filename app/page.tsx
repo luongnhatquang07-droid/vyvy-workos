@@ -3543,35 +3543,32 @@ export default function Home() {
                     <div className="max-h-80 space-y-1 overflow-y-auto">
                       {pendingForMe.map((step) => {
                         const task = tasks.find((item) => item.id === step.task_id)
+                        const isDeadlinePending = (step.step_deadline_status || 'draft') === 'cho_duyet'
                         return (
                           <div key={step.id} className="rounded-lg border border-[var(--border)] p-2">
-                            <button type="button"
-                              onClick={() => {
-                                if (task) setSelectedTask(task)
-                                setInboxOpen(false)
-                              }}
-                              className="block w-full text-left"
-                            >
-                              <p className="truncate text-sm font-bold">{step.step_title}</p>
-                              <p className="truncate text-[11px] text-[var(--text-secondary)]">{task?.title || 'Đầu việc'}</p>
-                            </button>
-                            <div className="mt-1.5 flex gap-1.5">
-                              <button type="button"
-                                onClick={() => approveCurrentStage(step)}
-                                className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--text-primary)]"
-                              >
-                                Duyệt ngay
-                              </button>
-                              <button type="button"
-                                onClick={() => {
-                                  if (task) setSelectedTask(task)
-                                  setInboxOpen(false)
-                                }}
-                                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-bold"
-                              >
-                                Xem chi tiết
-                              </button>
-                            </div>
+                            <p className="truncate text-sm font-bold">{step.step_title}</p>
+                            <p className="truncate text-[11px] text-[var(--text-secondary)]">{task?.title || 'Đầu việc'}</p>
+
+                            {isDeadlinePending ? (
+                              /* ── Duyệt Deadline ── */
+                              <DeadlineInboxCard step={step} currentEmployeeId={currentEmployee?.id || ''} employeeMap={employeeMap} updateStep={updateStep} />
+                            ) : (
+                              /* ── Duyệt kết quả ── */
+                              <div className="mt-1.5 flex gap-1.5">
+                                <button type="button"
+                                  onClick={() => approveCurrentStage(step)}
+                                  className="rounded-lg bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-extrabold text-[var(--text-primary)]"
+                                >
+                                  Duyệt ngay
+                                </button>
+                                <button type="button"
+                                  onClick={() => { if (task) setSelectedTask(task); setInboxOpen(false) }}
+                                  className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-bold"
+                                >
+                                  Xem chi tiết
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
@@ -5129,6 +5126,46 @@ function InlineSubtaskForm(props: {
         >
           Hủy
         </button>
+      </div>
+    </div>
+  )
+}
+
+function DeadlineInboxCard({ step, currentEmployeeId, employeeMap, updateStep }: {
+  step: TaskStep
+  currentEmployeeId: string
+  employeeMap: Map<string, Employee>
+  updateStep: (step: TaskStep, patch: Partial<TaskStep>) => Promise<void>
+}) {
+  const [date, setDate] = useState(step.step_proposed_deadline || step.due_date || '')
+  const proposer = employeeMap.get(step.owner_id || '')
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {step.step_proposed_deadline && (
+        <p className="text-[11px] text-[var(--text-muted)]">
+          {proposer?.full_name || 'Cấp dưới'} đề xuất: <b className="text-[var(--text-primary)]">{step.step_proposed_deadline}</b>
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+          className="h-8 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
+        />
+        <button type="button" disabled={!date}
+          onClick={() => updateStep(step, {
+            step_deadline_status: 'da_duyet',
+            step_proposed_deadline: date,
+            due_date: date,
+            step_deadline_approver_id: currentEmployeeId,
+          } as Partial<TaskStep>)}
+          className="rounded-lg bg-[var(--success)] px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40"
+        >Duyệt</button>
+        <button type="button"
+          onClick={() => {
+            const note = prompt('Lý do trả lại?')
+            if (note) updateStep(step, { step_deadline_status: 'tra_lai', step_deadline_note: note } as Partial<TaskStep>)
+          }}
+          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-bold text-[var(--danger)]"
+        >Trả lại</button>
       </div>
     </div>
   )
