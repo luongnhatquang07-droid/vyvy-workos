@@ -197,53 +197,56 @@ export default function DeadlineApproval({ taskId, taskLevel, currentUser, emplo
         </div>
       )}
 
-      {/* Manager (CEO/COO/Admin): xem đề xuất, điều chỉnh ngày, chốt + thông báo cấp dưới */}
+      {/* Manager (CEO/COO/Admin) */}
       {isManager && status !== 'da_duyet' && (
-        <div className="flex items-end gap-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
-          {status === 'cho_duyet' && data?.proposed_deadline && (
-            <span className="shrink-0 text-xs text-[var(--text-muted)]">
-              Đề xuất: <b className="text-[var(--text-primary)]">{data.proposed_deadline}</b>
-            </span>
-          )}
-          <input
-            type="date"
-            className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none focus:border-[var(--accent-hover)]"
-            value={pickedDeadline}
-            onChange={(e) => setPickedDeadline(e.target.value)}
-          />
-          <button
-            disabled={busy || !pickedDeadline}
-            onClick={async () => {
-              if (!pickedDeadline) return
-              setBusy(true)
-              const nextRound = (round || 0) + 1
-              await supabase.from('tasks').update({
-                due_date: pickedDeadline,
-                deadline_approval_status: 'da_duyet',
-                proposed_deadline: pickedDeadline,
-                deadline_approver_id: currentUser.id,
-                deadline_round: nextRound,
-                deadline_note: null,
-              }).eq('id', taskId)
-              await supabase.from('task_deadline_approval_log').insert({
-                task_id: taskId, round: nextRound,
-                submitter_id: currentUser.id, proposed_deadline: pickedDeadline,
-                approver_id: currentUser.id, decision: 'approve', note: 'Chốt bởi cấp trên',
-              })
-              // Notify cấp dưới
-              if (data?.deadline_submitter_id && data.deadline_submitter_id !== currentUser.id) {
-                await fetch('/api/push-send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ employeeIds: [data.deadline_submitter_id], title: '✅ Deadline đã được chốt', body: `Deadline: ${pickedDeadline}` }) })
-              }
-              setBusy(false)
-              await load()
-              onChanged?.()
-            }}
-            className="shrink-0 rounded-lg bg-[var(--olive)] px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
-          >
-            Chốt & thông báo
-          </button>
-        </div>
+        status === 'draft' ? (
+          <p className="text-xs text-[var(--text-muted)]">
+            Chờ {empName(data?.deadline_submitter_id ?? null) !== '—' ? empName(data?.deadline_submitter_id ?? null) : 'cấp dưới'} đề xuất deadline…
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
+            {data?.proposed_deadline && (
+              <p className="text-xs text-[var(--text-muted)]">
+                Cấp dưới đề xuất: <b className="text-[var(--text-primary)]">{data.proposed_deadline}</b>
+                {data.deadline_submitter_id && <> · {empName(data.deadline_submitter_id)}</>}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none focus:border-[var(--accent-hover)]"
+                value={pickedDeadline}
+                onChange={(e) => setPickedDeadline(e.target.value)}
+              />
+              <button
+                disabled={busy || !pickedDeadline}
+                onClick={async () => {
+                  if (!pickedDeadline) return
+                  setBusy(true)
+                  const nextRound = (round || 0) + 1
+                  await supabase.from('tasks').update({
+                    due_date: pickedDeadline, deadline_approval_status: 'da_duyet',
+                    proposed_deadline: pickedDeadline, deadline_approver_id: currentUser.id,
+                    deadline_round: nextRound, deadline_note: null,
+                  }).eq('id', taskId)
+                  await supabase.from('task_deadline_approval_log').insert({
+                    task_id: taskId, round: nextRound, submitter_id: currentUser.id,
+                    proposed_deadline: pickedDeadline, approver_id: currentUser.id,
+                    decision: 'approve', note: 'Chốt bởi cấp trên',
+                  })
+                  if (data?.deadline_submitter_id && data.deadline_submitter_id !== currentUser.id) {
+                    await fetch('/api/push-send', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ employeeIds: [data.deadline_submitter_id], title: '✅ Deadline đã được chốt', body: `Deadline: ${pickedDeadline}` }) })
+                  }
+                  setBusy(false); await load(); onChanged?.()
+                }}
+                className="shrink-0 rounded-lg bg-[var(--olive)] px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+              >
+                Chốt & thông báo
+              </button>
+            </div>
+          </div>
+        )
       )}
 
       {/* Nhân viên / trưởng phòng: gửi lên sếp duyệt */}
