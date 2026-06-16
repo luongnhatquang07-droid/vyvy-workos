@@ -78,7 +78,10 @@ async function pushNotify(rows: Array<{
   const valid = rows.filter((r) => r.recipient_id)
   if (valid.length === 0) return
   const { error } = await supabase.from('notifications').insert(valid.map((r) => ({ type: 'info', ...r })))
-  if (error) console.warn('pushNotify failed (bảng notifications đã tạo chưa?):', error.message)
+  if (error) {
+    console.error('pushNotify failed:', error.message)
+    toast('Không gửi được thông báo — bảng notifications chưa tạo. Chạy supabase_notifications.sql trong Supabase Dashboard.', 'error')
+  }
 }
 
 type DbMutationError = { message?: string | null; details?: string | null; hint?: string | null; code?: string | null }
@@ -149,6 +152,14 @@ type Department = {
   id: string
   code: string
   name: string
+}
+
+type RolePermission = {
+  id: string
+  role: string
+  resource: string   // 'project' | 'workstream' | 'subtask' | 'step' | 'import' | 'export' | 'admin_panel'
+  action: string     // 'view' | 'create' | 'edit' | 'delete' | 'approve' | 'use'
+  scope: string      // 'all' | 'own_dept' | 'assigned' | 'none'
 }
 
 type Employee = {
@@ -305,7 +316,7 @@ type StepComment = {
 
 type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history' | 'permissions'
 
 type RecurringTask = {
   id: string
@@ -785,6 +796,7 @@ export default function Home() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const [permissions, setPermissions] = useState<RolePermission[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [supporters, setSupporters] = useState<TaskSupporter[]>([])
@@ -1008,6 +1020,11 @@ export default function Home() {
     router.push('/login')
   }
 
+  const fetchPermissions = useCallback(async () => {
+    const { data } = await supabase.from('role_permissions').select('*')
+    if (data) setPermissions(data as RolePermission[])
+  }, [])
+
   const fetchDepartments = useCallback(async () => {
     const { data, error } = await supabase.from('departments').select('id, code, name').order('name')
     if (error) {
@@ -1127,6 +1144,7 @@ export default function Home() {
       fetchSupporters(),
       fetchReports(),
       fetchComments(),
+      fetchPermissions(),
     ])
     if (!options?.silent) {
       setLoading(false)
@@ -1135,6 +1153,7 @@ export default function Home() {
     fetchComments,
     fetchDepartments,
     fetchEmployees,
+    fetchPermissions,
     fetchProjects,
     fetchReports,
     fetchSteps,
@@ -1765,7 +1784,6 @@ export default function Home() {
       department_id: workDepartmentId || employees.find((e) => e.id === (workHeadIds[0] || workHeadId))?.department_id || null,
       assignee_id: workAssigneeId || null,
       head_id: workHeadIds[0] || workHeadId || null,
-      head_ids: workHeadIds.length > 0 ? workHeadIds : (workHeadId ? [workHeadId] : []),
       project_id: workProjectId || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -1818,7 +1836,6 @@ export default function Home() {
       department_id: subtaskForm.departmentId || employees.find((e) => e.id === (subtaskForm.headIds?.[0] || subtaskForm.headId))?.department_id || employees.find((e) => e.id === subtaskForm.assigneeId)?.department_id || null,
       assignee_id: subtaskForm.assigneeId || null,
       head_id: (subtaskForm.headIds?.[0]) || subtaskForm.headId || null,
-      head_ids: subtaskForm.headIds?.length > 0 ? subtaskForm.headIds : (subtaskForm.headId ? [subtaskForm.headId] : []),
       project_id: parent.project_id || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -1895,11 +1912,10 @@ export default function Home() {
   // Chỉ người giao việc (head) / cấp quản lý mới được đánh dấu HOÀN THÀNH.
   // Cấp dưới (assignee) chỉ được cập nhật tiến độ + bấm "Gửi duyệt", không tự hoàn thành.
   function canCompleteTask(task: Task): boolean {
-    if (canManageAll) return true
     if (!currentEmployee?.id) return false
+    if (can('subtask', 'edit', { department_id: task.department_id, head_id: task.head_id })) return true
     if (task.head_id === currentEmployee.id) return true
     if (Array.isArray(task.head_ids) && task.head_ids.includes(currentEmployee.id)) return true
-    if (isDeptHead && task.department_id && task.department_id === currentEmployee.department_id) return true
     return false
   }
 
@@ -1942,12 +1958,10 @@ export default function Home() {
   async function updateTaskHead(taskId: string, headIds: string[]) {
     const headEmp = employees.find((e) => e.id === headIds[0])
     const deptId = headEmp?.department_id ?? null
-    const patch: Record<string, unknown> = { head_ids: headIds, head_id: headIds[0] || null }
+    const patch: Record<string, unknown> = { head_id: headIds[0] || null }
     if (deptId) patch.department_id = deptId
     const result = await supabase.from('tasks').update(patch).eq('id', taskId)
-    const fallback = isSchemaCacheColumnError(result.error, 'tasks')
-      ? await supabase.from('tasks').update({ head_id: headIds[0] || null, ...(deptId ? { department_id: deptId } : {}) }).eq('id', taskId)
-      : result
+    const fallback = result
     const { error } = fallback
     if (error) {
       console.error(error)
@@ -2181,17 +2195,13 @@ export default function Home() {
     return step.department_approver_id || step.approver_id || null
   }
   function canApproveStep(step: TaskStep): boolean {
-    if (canManageAll) return true
     if (!currentEmployee?.id) return false
+    // Named approver always wins
     const appId = stageApproverId(step)
     if (appId && appId === currentEmployee.id) return true
-    const stage = step.approval_stage || 'department'
-    if (stage === 'department' && isDeptHead) {
-      // Trưởng phòng chỉ duyệt bước trong phòng ban của mình
-      const stepTask = tasks.find((t) => t.id === step.task_id)
-      if (stepTask?.department_id === currentEmployee.department_id) return true
-    }
-    return false
+    // Permission-based: check scope against task's dept
+    const stepTask = tasks.find((t) => t.id === step.task_id)
+    return can('step', 'approve', { department_id: stepTask?.department_id })
   }
 
   async function approveCurrentStage(step: TaskStep) {
@@ -3217,55 +3227,61 @@ export default function Home() {
     }
   }, [searchQuery, visibleProjects, visibleTasks])
 
-  // ─── Permission flags ───────────────────────────────────────────────────────
+  // ─── Permission system ──────────────────────────────────────────────────────
   const role = currentEmployee?.role || 'employee'
-  const isTopLevel = role === 'ceo' || role === 'coo' || role === 'admin' // admin đồng quyền top-level (tạm thời)
   const isAdmin = role === 'admin'
   const isDeptHead = role === 'department_head' || Boolean(currentEmployee?.is_department_head)
+  const isTopLevel = role === 'ceo' || role === 'coo' || role === 'admin'
+  // kept for legacy UI guards that haven't been migrated yet
+  const canManageAll = isTopLevel
 
-  const canManageAll = isTopLevel || isAdmin
+  /**
+   * can(resource, action, ctx?) — check quyền từ role_permissions DB.
+   * ctx cho phép check scope own_dept / assigned.
+   */
+  function can(
+    resource: string,
+    action: string,
+    ctx?: { department_id?: string | null; assignee_id?: string | null; head_id?: string | null }
+  ): boolean {
+    const perm = permissions.find(p => p.role === role && p.resource === resource && p.action === action)
+    if (!perm || perm.scope === 'none') return false
+    if (perm.scope === 'all') return true
+    if (!ctx || !currentEmployee) return false
+    if (perm.scope === 'own_dept') return !!ctx.department_id && ctx.department_id === currentEmployee.department_id
+    if (perm.scope === 'assigned') return ctx.assignee_id === currentEmployee.id || ctx.head_id === currentEmployee.id
+    return false
+  }
 
-  const canCreateUsers =
-    canManageAll || Boolean(currentEmployee?.can_manage_users)
+  const canCreateUsers = can('admin_panel', 'use') || Boolean(currentEmployee?.can_manage_users)
+  const canCreateProject = can('project', 'create')
+  const canCreateWorkstream = can('workstream', 'create')
 
-  // Tạo dự án / đầu việc lớn: CEO, COO, Admin
-  const canCreateProject = canManageAll
-  const canCreateWorkstream = canManageAll
-
-  // Tạo đầu việc con: CEO, COO, Admin, Trưởng BP (trong BP mình), hoặc head của workstream
   function canCreateSubtask(task: Task): boolean {
-    if (canManageAll) return true
-    if (isDeptHead && currentEmployee?.department_id && task.department_id === currentEmployee.department_id) return true
-    if (currentEmployee?.id && (task.head_id === currentEmployee.id || (task.head_ids || []).includes(currentEmployee.id))) return true
-    return false
+    return can('subtask', 'create', { department_id: task.department_id, head_id: task.head_id })
   }
 
-  // Xóa task: CEO, COO, Admin
-  const canDeleteTask = canManageAll
+  const canDeleteTask = can('workstream', 'delete') || can('subtask', 'delete')
 
-  // Tạo step: CEO, COO, Admin, Trưởng BP, hoặc người được assign task đó
   function canCreateStep(task: Task): boolean {
-    if (canManageAll || isDeptHead) return true
-    if (currentEmployee?.id && (task.assignee_id === currentEmployee.id || task.head_id === currentEmployee.id || (task.head_ids || []).includes(currentEmployee.id))) return true
-    return false
+    return can('step', 'create', { department_id: task.department_id, assignee_id: task.assignee_id, head_id: task.head_id })
   }
 
-  // Phân công chờ tôi duyệt (task import từ biên bản, chưa chia xuống người làm)
+  // Phân công chờ tôi duyệt
   const assignmentsForMe = useMemo(() => {
     if (!currentEmployee?.id) return []
     return tasks.filter((t) => {
       if (t.status !== 'pending_approval') return false
-      if (canManageAll) return true
-      if (t.head_id === currentEmployee.id || (t.head_ids || []).includes(currentEmployee.id)) return true
-      if (isDeptHead && t.department_id && t.department_id === currentEmployee.department_id) return true
+      if (can('workstream', 'edit', { department_id: t.department_id })) return true
+      if (t.head_id === currentEmployee.id) return true
       return false
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, currentEmployee, canManageAll, isDeptHead])
+  }, [tasks, currentEmployee, permissions])
 
   const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; hide?: boolean }[] = [
     { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
-    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !canManageAll },
+    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !can('workstream','view') },
     { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
     { key: 'assigned', label: 'Việc được giao', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
@@ -3273,10 +3289,11 @@ export default function Home() {
     { key: 'recurring', label: 'Việc định kỳ', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'automation', label: 'Nhắc tự động', icon: <Ico d={IC.zap} size={18}/>, hide: !canManageAll },
     { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
-    { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !canManageAll },
+    { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !can('admin_panel','use') },
     { key: 'feedback', label: 'Góp ý hệ thống', icon: <Ico d={IC.messageSquare} size={18}/> },
-    { key: 'import', label: 'Nhập Excel', icon: <Ico d={IC.clipboard} size={18}/>, hide: !canManageAll && !isDeptHead },
-    { key: 'history', label: 'Lịch sử & Restore', icon: <Ico d={IC.clock} size={18}/>, hide: !canManageAll && !isDeptHead },
+    { key: 'import', label: 'Nhập Excel', icon: <Ico d={IC.clipboard} size={18}/>, hide: !can('import','use') },
+    { key: 'history', label: 'Lịch sử & Restore', icon: <Ico d={IC.clock} size={18}/>, hide: !can('import','use') },
+    { key: 'permissions', label: 'Phân quyền', icon: <Ico d={IC.shield} size={18}/>, hide: !can('admin_panel','use') },
   ]
   const menu = allMenuItems.filter((item) => !item.hide)
   const primaryAction =
@@ -3435,6 +3452,7 @@ export default function Home() {
               {view === 'feedback' && 'Góp ý hệ thống'}
               {view === 'import' && 'Nhập đầu việc từ Excel'}
               {view === 'history' && 'Lịch sử & Restore'}
+              {view === 'permissions' && 'Phân quyền hệ thống'}
             </h2>
             <p className="hidden text-xs text-[var(--text-secondary)] sm:block">
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
@@ -3777,6 +3795,8 @@ export default function Home() {
                   canCreateStep={canCreateStep}
                   canDeleteTask={canDeleteTask}
                   updateTaskSequential={updateTaskSequential}
+                  uploadTaskFile={uploadTaskFile}
+                  deleteTaskReport={deleteTaskReport}
                 />
               )}
 
@@ -3942,12 +3962,19 @@ export default function Home() {
                 />
               )}
 
-              {view === 'history' && (canManageAll || isDeptHead) && (
+              {view === 'history' && can('import','use') && (
                 <HistoryView
                   employees={employees}
                   employeeMap={employeeMap}
                   tasks={tasks}
                   currentEmployee={currentEmployee}
+                />
+              )}
+
+              {view === 'permissions' && can('admin_panel','use') && (
+                <PermissionsView
+                  permissions={permissions}
+                  onRefresh={fetchPermissions}
                 />
               )}
             </>
@@ -4599,6 +4626,37 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
   )
 }
 
+function InlineFilePanel({ task, reports, uploadTaskFile, deleteTaskReport }: {
+  task: Task; reports: TaskReport[]
+  uploadTaskFile: (task: Task, file?: File) => void
+  deleteTaskReport: (report: TaskReport) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [ulding, setUlding] = useState(false)
+  async function handleFile(f: File) { setUlding(true); await uploadTaskFile(task, f); setUlding(false) }
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-base)] px-4 py-2">
+      <input ref={fileRef} type="file" className="sr-only"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleFile(f); e.target.value = '' } }} />
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={ulding}
+        className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--olive)] hover:text-[var(--olive)] disabled:opacity-50">
+        <Ico d={IC.plus} size={11}/>{ulding ? 'Đang up...' : 'Thêm file'}
+      </button>
+      {reports.length === 0
+        ? <span className="text-xs text-[var(--text-muted)]">Chưa có file đính kèm</span>
+        : reports.map((r) => (
+          <div key={r.id} className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] py-1 pl-2.5 pr-1">
+            <a href={r.file_url} target="_blank" rel="noreferrer"
+              className="max-w-[200px] truncate text-xs font-semibold text-[var(--text-primary)] hover:text-[var(--olive)] hover:underline">{r.file_name}</a>
+            <button type="button" onClick={() => deleteTaskReport(r)}
+              className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"><Ico d={IC.x} size={10}/></button>
+          </div>
+        ))
+      }
+    </div>
+  )
+}
+
 function CooBoard(props: {
   projects: Project[]
   workstreams: Task[]
@@ -4667,6 +4725,8 @@ function CooBoard(props: {
   canDeleteTask: boolean
   deleteProject: (project: Project) => void
   updateTaskSequential: (taskId: string, sequential: boolean) => void
+  uploadTaskFile: (task: Task, file?: File) => void
+  deleteTaskReport: (report: TaskReport) => void
 }) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
@@ -4956,6 +5016,14 @@ function CooBoard(props: {
 
                           {isWsExpanded && (
                             <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]">
+                              <div className="pl-11">
+                                <InlineFilePanel
+                                  task={ws}
+                                  reports={props.reportsByTask.get(ws.id) || []}
+                                  uploadTaskFile={props.uploadTaskFile}
+                                  deleteTaskReport={props.deleteTaskReport}
+                                />
+                              </div>
                               {subtasks.length === 0 ? (
                                 <div className="py-3 pl-14 text-xs text-[var(--text-secondary)]">Chưa có đầu việc con.</div>
                               ) : (
@@ -5038,6 +5106,14 @@ function CooBoard(props: {
 
                                       {isSubtaskExpanded && (
                                         <div className="pb-4 pl-14 pr-4 pt-1">
+                                          <div className="-mx-4 mb-3">
+                                            <InlineFilePanel
+                                              task={subtask}
+                                              reports={props.reportsByTask.get(subtask.id) || []}
+                                              uploadTaskFile={props.uploadTaskFile}
+                                              deleteTaskReport={props.deleteTaskReport}
+                                            />
+                                          </div>
                                           <SubtaskCard
                                             task={subtask}
                                             steps={stepsForSubtask}
@@ -6256,12 +6332,16 @@ function ProjectsView(props: {
 
   // 3 ô tự gom (kiểu Cockpit 00·1)
   const today = new Date(); today.setHours(0, 0, 0, 0)
-  const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7)
+  // Tuần lịch thực: Thứ 2 → Chủ nhật (ISO week)
+  const dow = today.getDay() // 0=CN,1=T2..6=T7
+  const toMon = dow === 0 ? -6 : 1 - dow
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() + toMon)
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6); weekEnd.setHours(23, 59, 59, 999)
 
   const dueThisWeek = props.tasks.filter((t) => {
     if (t.status === 'completed' || !t.due_date) return false
     const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
-    return d >= today && d <= weekEnd
+    return d >= weekStart && d <= weekEnd
   })
   const stuck = props.tasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t))
   const pendingSteps = props.steps.filter((s) => !s.is_done && s.approval_status === 'pending')
@@ -10387,11 +10467,12 @@ type ImportRow = {
   rowNum: number
   project: string
   group: string
-  level: string
+  level: string   // 'workstream' | 'subtask' | 'step'
   title: string
   description: string
   output: string
   owner: string
+  approver: string
   deadline: string
   notes: string
   error?: string
@@ -10407,6 +10488,7 @@ function ImportExcelView(props: {
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ ok: number; fail: number } | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const empByName = useMemo(() => {
     const m = new Map<string, string>()
@@ -10425,63 +10507,45 @@ function ImportExcelView(props: {
     return m
   }, [props.projects])
 
-  function parseFile(file: File) {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        // dynamic import xlsx already bundled via page deps — use fetch trick
-        const ab = e.target?.result as ArrayBuffer
-        // parse manually: xlsx is available at runtime via dynamic require
-        // We'll use a simple CSV-like parse for .xlsx via reading as text is not possible
-        // Instead send to a simple inline parser
-        parseXLSXBuffer(ab)
-      } catch {
-        alert('Không đọc được file. Hãy dùng đúng file mẫu .xlsx')
-      }
-    }
-    reader.readAsArrayBuffer(file)
-  }
-
   // Map Vietnamese level labels → internal
   const LEVEL_MAP: Record<string, string> = {
     'đầu việc lớn': 'workstream', 'workstream': 'workstream', 'milestone': 'workstream',
     'đầu việc con': 'subtask', 'subtask': 'subtask', 'task': 'subtask',
+    'bước': 'step', 'step': 'step',
   }
   const STATUS_IMPORT_MAP: Record<string, string> = {
     'chưa bắt đầu': 'not_started', 'đang thực hiện': 'in_progress',
     'đã hoàn thành': 'completed', 'đang chờ': 'pending', 'pending': 'pending',
   }
 
-  function parseXLSXBuffer(ab: ArrayBuffer) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const XLSX = (window as any).XLSX
-    if (!XLSX) { alert('Thư viện Excel chưa sẵn sàng, hãy thử lại.'); return }
-    const wb = XLSX.read(ab, { type: 'array' })
-    // Skip sheet named "Hướng dẫn" or "Danh mục", take first data sheet
-    const dataSheet = wb.SheetNames.find((n: string) => !['Hướng dẫn','Danh mục'].includes(n)) || wb.SheetNames[0]
-    const ws = wb.Sheets[dataSheet]
-    const data: string[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-    // Skip header rows (first 2 rows: title + header)
-    const startRow = data.findIndex(r => String(r[0]).toLowerCase().includes('dự án') || String(r[3]).toLowerCase().includes('tên'))
-    const dataRows = data.slice(startRow + 1).filter(r => r[3]?.toString().trim())
-    const parsed: ImportRow[] = dataRows.map((r, i) => {
-      const [proj, group, level, title, desc, output, owner, deadline, status, notes] = r.map(c => String(c ?? '').trim())
-      const errors: string[] = []
-      if (!title) errors.push('Thiếu tên đầu việc')
-      if (!proj) errors.push('Thiếu dự án')
-      const levelNorm = LEVEL_MAP[level.toLowerCase()] || 'subtask'
-      if (level && !LEVEL_MAP[level.toLowerCase()]) errors.push(`Cấp độ không hợp lệ: "${level}"`)
-      return { rowNum: startRow + i + 2, project: proj, group, level: levelNorm, title, description: desc, output, owner, deadline, notes: [status, notes].filter(Boolean).join(' | '), error: errors.join('; ') || undefined }
-    })
-    setRows(parsed)
-    setResult(null)
+  async function parseFile(file: File) {
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/parse-excel', { method: 'POST', body: form })
+      const json = await res.json()
+      if (!res.ok || json.error) { alert(json.error || 'Lỗi đọc file'); return }
+      const parsed: ImportRow[] = json.rows.map((r: ImportRow) => {
+        const errors: string[] = []
+        if (!r.title) errors.push('Thiếu tên đầu việc')
+        if (!r.project) errors.push('Thiếu dự án')
+        const levelNorm = LEVEL_MAP[r.level.toLowerCase()] || 'subtask'
+        if (r.level && !LEVEL_MAP[r.level.toLowerCase()]) errors.push(`Cấp độ không hợp lệ: "${r.level}"`)
+        return { ...r, level: levelNorm, error: errors.join('; ') || undefined }
+      })
+      setRows(parsed)
+      setResult(null)
+    } catch (err) {
+      console.error('parseFile error:', err)
+      alert('Không đọc được file. Hãy dùng đúng file mẫu .xlsx')
+    }
   }
 
   async function doImport() {
     setImporting(true)
     let ok = 0, fail = 0
-    // Group by project+group to find/create workstreams
-    const msCache = new Map<string, string>()
+    const msCache = new Map<string, string>()                           // project|group → workstream id
+    const subCache = new Map<string, { id: string; order: number }>()  // project|group → last subtask
 
     for (const row of rows) {
       if (row.error) { fail++; continue }
@@ -10495,41 +10559,62 @@ function ImportExcelView(props: {
           projByName.set(row.project.toLowerCase().trim(), projId!)
         }
 
-        // Resolve owner
         const ownerId = empByName.get(row.owner.toLowerCase().trim()) || null
+        const approverId = empByName.get(row.approver.toLowerCase().trim()) || null
 
-        // Resolve deadline
         let dueDate: string | null = null
         if (row.deadline) {
           const d = new Date(row.deadline)
           if (!isNaN(d.getTime())) dueDate = d.toISOString().split('T')[0]
         }
 
-        const isMs = row.level === 'workstream'
         const desc = [row.description, row.output ? `Output: ${row.output}` : ''].filter(Boolean).join(' | ')
-        // notes field contains "status | notes" from parser — extract real notes
-        const noteParts = row.notes.split(' | ')
-        const rawStatus = noteParts[0] || ''
-        const realNotes = noteParts.slice(1).join(' | ') || null
-        const taskStatus = STATUS_IMPORT_MAP[rawStatus.toLowerCase()] || 'not_started'
+        const taskStatus = STATUS_IMPORT_MAP[row.notes.toLowerCase()] || 'not_started'
+        const cacheKey = `${row.project}|${row.group}`
 
-        if (isMs) {
-          const { data } = await supabase.from('tasks').insert({
-            title: row.title, description: desc, project_id: projId,
-            task_level: 'workstream', status: taskStatus, head_id: ownerId, due_date: dueDate,
-            notes: realNotes,
+        const baseTask = {
+          description: desc || null, project_id: projId,
+          status: taskStatus, head_id: ownerId, due_date: dueDate,
+          progress_percent: 0, issue_status: 'normal', approval_status: 'not_submitted',
+          priority: 'medium',
+        }
+
+        if (row.level === 'workstream') {
+          const { data, error: e } = await supabase.from('tasks').insert({
+            ...baseTask, title: row.title, task_level: 'workstream', parent_task_id: null,
           }).select('id').single()
-          if (data) { msCache.set(`${row.project}|${row.group}`, data.id); ok++ }
+          if (e) { console.error('import workstream error:', e.message, row.title); fail++ }
+          else if (data) { msCache.set(cacheKey, data.id); ok++ }
           else fail++
-        } else {
-          const parentId = msCache.get(`${row.project}|${row.group}`) || null
-          const { error } = await supabase.from('tasks').insert({
-            title: row.title, description: desc, project_id: projId,
-            task_level: parentId ? 'subtask' : 'workstream', status: taskStatus,
-            head_id: ownerId, due_date: dueDate, notes: realNotes,
+
+        } else if (row.level === 'subtask') {
+          const parentId = msCache.get(cacheKey) || null
+          const { data, error: e } = await supabase.from('tasks').insert({
+            ...baseTask, title: row.title,
+            task_level: parentId ? 'subtask' : 'workstream',
             parent_task_id: parentId,
+            assignee_id: ownerId,
+          }).select('id').single()
+          if (e) { console.error('import subtask error:', e.message, row.title); fail++ }
+          else if (data) { subCache.set(cacheKey, { id: data.id, order: 0 }); ok++ }
+          else fail++
+
+        } else if (row.level === 'step') {
+          const sub = subCache.get(cacheKey)
+          if (!sub) { fail++; continue }
+          sub.order += 1
+          const { error: e } = await insertTaskStepsCompat({
+            task_id: sub.id, step_title: row.title, step_order: sub.order,
+            owner_id: ownerId, approver_id: approverId || null,
+            department_approver_id: approverId || null,
+            due_date: dueDate, description: desc || null,
+            approval_status: 'not_submitted', department_approval_status: 'not_submitted',
+            coo_approval_status: 'not_required', ceo_approval_status: 'not_required',
+            approval_stage: 'department', requires_coo_approval: false, requires_ceo_approval: false,
+            is_done: false,
           })
-          if (!error) ok++; else fail++
+          if (e) { console.error('import step error:', e.message, row.title); fail++ }
+          else ok++
         }
       } catch { fail++ }
     }
@@ -10636,9 +10721,6 @@ function ImportExcelView(props: {
 
   return (
     <div className="space-y-5">
-      {/* Load XLSX lib from CDN */}
-      <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" />
-
       {/* Upload zone */}
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -10648,12 +10730,19 @@ function ImportExcelView(props: {
             ↓ Tải file mẫu (có dropdown)
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx"
+          className="sr-only"
+          onChange={e => { const f = e.target.files?.[0]; if (f) { parseFile(f); e.target.value = '' } }}
+        />
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f) }}
+          onClick={() => fileInputRef.current?.click()}
           className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed py-10 transition-colors cursor-pointer ${dragOver ? 'border-[var(--olive)] bg-[var(--olive)]/5' : 'border-[var(--border)] hover:border-[var(--border-strong)]'}`}
-          onClick={() => { const inp = document.createElement('input'); inp.type='file'; inp.accept='.xlsx'; inp.onchange=(e)=>{ const f=(e.target as HTMLInputElement).files?.[0]; if(f) parseFile(f) }; inp.click() }}
         >
           <p className="text-sm font-semibold text-[var(--text-secondary)]">Kéo thả file .xlsx vào đây</p>
           <p className="text-xs text-[var(--text-muted)] mt-1">hoặc click để chọn file</p>
@@ -10773,7 +10862,7 @@ function ImportExcelView(props: {
             </h3>
             <button onClick={doImport} disabled={importing || validRows.length === 0}
               className="rounded-lg bg-[var(--olive)] px-5 py-2 text-xs font-bold text-[var(--ivory)] disabled:opacity-40">
-              {importing ? 'Đang nhập…' : `Xác nhận nhập ${validRows.length} đầu việc`}
+              {importing ? 'Đang nhập…' : `Xác nhận nhập ${validRows.length} mục`}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -11113,26 +11202,108 @@ function MyWorkView(props: {
   const myId = props.currentEmployee?.id || ''
   const taskMap = new Map(props.tasks.map((t) => [t.id, t]))
 
+  // Tuần lịch thực (T2–CN)
+  const todayD = new Date(); todayD.setHours(0, 0, 0, 0)
+  const dow = todayD.getDay()
+  const toMon = dow === 0 ? -6 : 1 - dow
+  const wkStart = new Date(todayD); wkStart.setDate(todayD.getDate() + toMon)
+  const wkEnd = new Date(wkStart); wkEnd.setDate(wkStart.getDate() + 6)
+
+  function isDueThisWeek(t: Task) {
+    if (!t.due_date) return false
+    const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
+    return d >= wkStart && d <= wkEnd
+  }
+
   const myTasks = props.tasks.filter((t) => {
     if (t.status === 'completed' || t.status === 'cancelled') return false
     return t.assignee_id === myId || t.head_id === myId || (t.head_ids || []).includes(myId)
   })
 
-  // Bước tôi cần nộp: tôi là owner, chưa submit (not_submitted hoặc revision)
+  // Bước tôi cần nộp (owner, chưa nộp hoặc cần làm lại)
   const myPendingSubmit = props.allSteps.filter((s) =>
-    s.owner_id === myId && (s.approval_status === 'not_submitted' || s.approval_status === 'revision' || !s.approval_status)
+    s.owner_id === myId && (s.approval_status === 'not_submitted' || s.approval_status === 'revision' || !s.approval_status) && !s.is_done
   )
 
-  // Bước chờ tôi duyệt: tôi là approver, đã được submit
+  // Bước chờ tôi duyệt
   const myPendingApprove = props.allSteps.filter((s) =>
     s.approver_id === myId && s.approval_status === 'pending'
   )
 
-  const groups: { label: string; status: string; tasks: Task[] }[] = [
-    { label: 'Đang thực hiện', status: 'in_progress', tasks: myTasks.filter((t) => t.status === 'in_progress') },
-    { label: 'Chưa bắt đầu', status: 'not_started', tasks: myTasks.filter((t) => t.status === 'not_started' || !t.status) },
-    { label: 'Chờ duyệt phân công', status: 'pending_approval', tasks: myTasks.filter((t) => t.status === 'pending_approval') },
+  // Phân nhóm task theo mức cấp bách
+  const activeTasks = myTasks.filter((t) => t.status !== 'pending_approval')
+  const urgent   = activeTasks.filter((t) => isTaskOverdue(t) || myPendingSubmit.some((s) => s.approval_status === 'revision' && taskMap.get(s.task_id)?.id === t.id))
+  const thisWeek = activeTasks.filter((t) => !isTaskOverdue(t) && isDueThisWeek(t))
+  const inProg   = activeTasks.filter((t) => !isTaskOverdue(t) && !isDueThisWeek(t) && t.status === 'in_progress')
+  const notStart = activeTasks.filter((t) => !isTaskOverdue(t) && !isDueThisWeek(t) && (t.status === 'not_started' || !t.status))
+  const pending  = myTasks.filter((t) => t.status === 'pending_approval')
+
+  type TG = { key: string; label: string; accent: string; headerCls: string; tasks: Task[] }
+  const groups: TG[] = [
+    { key: 'urgent',   label: 'Cần xử lý ngay',        accent: 'var(--danger)',  headerCls: 'border-[var(--danger)]/30 bg-[var(--danger-soft)]',   tasks: urgent },
+    { key: 'week',     label: 'Deadline tuần này',      accent: 'var(--warning)', headerCls: 'border-[var(--warning)]/30 bg-[var(--warning-soft)]', tasks: thisWeek },
+    { key: 'progress', label: 'Đang thực hiện',         accent: 'var(--olive)',   headerCls: 'border-[var(--border)] bg-[var(--bg-surface)]',        tasks: inProg },
+    { key: 'new',      label: 'Chưa bắt đầu',           accent: 'var(--text-secondary)', headerCls: 'border-[var(--border)] bg-[var(--bg-surface)]', tasks: notStart },
+    { key: 'pend',     label: 'Chờ phân công duyệt',    accent: 'var(--text-secondary)', headerCls: 'border-[var(--border)] bg-[var(--bg-surface)]', tasks: pending },
   ].filter((g) => g.tasks.length > 0)
+
+  const isEmpty = myTasks.length === 0 && myPendingSubmit.length === 0 && myPendingApprove.length === 0
+
+  function TaskRow({ task }: { task: Task }) {
+    const steps = props.stepsByTask.get(task.id) || []
+    const progress = calculateTaskProgress(task, steps)
+    const myStepsToSubmit = steps.filter((s) => s.owner_id === myId && (s.approval_status === 'not_submitted' || s.approval_status === 'revision' || !s.approval_status) && !s.is_done)
+    const myStepsToApprove = steps.filter((s) => s.approver_id === myId && s.approval_status === 'pending')
+    const headIds = task.head_ids && task.head_ids.length > 0 ? task.head_ids : (task.head_id ? [task.head_id] : [])
+    const headNames = headIds.map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean).join(', ')
+    const assignee = props.employeeMap.get(task.assignee_id || '')
+    const overdue = isTaskOverdue(task)
+    const myRole = task.assignee_id === myId ? 'PHỤ TRÁCH' : 'GIAO VIỆC'
+
+    // Nút hành động ưu tiên
+    let actionLabel = 'Chi tiết'
+    let actionCls = 'border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-base)]'
+    if (myStepsToApprove.length > 0) { actionLabel = `Duyệt ${myStepsToApprove.length} bước`; actionCls = 'border-[var(--warning)]/50 bg-[var(--warning-soft)] text-[var(--warning)] hover:bg-[var(--warning)]/20' }
+    else if (myStepsToSubmit.some((s) => s.approval_status === 'revision')) { actionLabel = 'Làm lại bước'; actionCls = 'border-[var(--danger)]/40 bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[var(--danger)]/20' }
+    else if (myStepsToSubmit.length > 0) { actionLabel = `Nộp bước`; actionCls = 'border-[var(--olive)]/50 bg-[var(--bg-surface)] text-[var(--olive)] hover:border-[var(--olive)]' }
+    else if (task.status === 'not_started' && task.assignee_id === myId) { actionLabel = 'Bắt đầu'; actionCls = 'border-[var(--olive)] text-[var(--olive)] hover:bg-[var(--olive)] hover:text-[var(--ivory)]' }
+
+    return (
+      <div className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg-surface)] transition-colors">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="truncate text-sm font-semibold text-[var(--text-primary)]">{task.title}</span>
+            <IssueBadge issueStatus={task.issue_status} />
+            {task.due_date && (
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${overdue ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : isDueThisWeek(task) ? 'bg-[var(--warning-soft)] text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>
+                {overdue ? 'TRỄ ' : ''}{task.due_date.slice(5)}
+              </span>
+            )}
+            <span className="shrink-0 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-muted)]">{myRole}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
+            {headNames && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {headNames}</span>}
+            {assignee && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
+            <span>{steps.length} bước</span>
+            {steps.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="h-1 w-16 overflow-hidden rounded-full bg-[var(--border)]">
+                  <span className="block h-full rounded-full bg-[var(--olive)]" style={{ width: `${progress}%` }} />
+                </span>
+                <b className="text-[var(--text-primary)]">{progress}%</b>
+              </span>
+            )}
+            {myStepsToApprove.length > 0 && <span className="font-bold text-[var(--warning)]">{myStepsToApprove.length} bước chờ tôi duyệt</span>}
+            {myStepsToSubmit.length > 0 && <span className="font-bold text-[var(--olive)]">{myStepsToSubmit.length} bước chưa nộp</span>}
+          </div>
+        </div>
+        <button type="button" onClick={() => props.setSelectedTask(task)}
+          className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-bold transition-colors ${actionCls}`}>
+          {actionLabel}
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -11140,10 +11311,10 @@ function MyWorkView(props: {
 
       {/* Bước chờ tôi duyệt */}
       {myPendingApprove.length > 0 && (
-        <div className="rounded-2xl border border-[var(--warn)]/40 bg-[var(--bg-card)] overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-[var(--warn)]/30 bg-[var(--warn-soft,#fffbeb)] px-5 py-3">
-            <p className="font-extrabold text-sm text-[var(--warn)]">⏳ Bước chờ tôi duyệt</p>
-            <span className="rounded-full bg-[var(--warn)]/20 px-2 py-0.5 text-xs font-bold text-[var(--warn)]">{myPendingApprove.length}</span>
+        <div className="overflow-hidden rounded-2xl border border-[var(--warning)]/40 bg-[var(--bg-card)]">
+          <div className="flex items-center gap-2 border-b border-[var(--warning)]/30 bg-[var(--warning-soft)] px-5 py-3">
+            <p className="text-sm font-extrabold text-[var(--warning)]">Bước chờ tôi duyệt</p>
+            <span className="rounded-full bg-[var(--warning)]/20 px-2 py-0.5 text-xs font-bold text-[var(--warning)]">{myPendingApprove.length}</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
             {myPendingApprove.map((step) => {
@@ -11155,16 +11326,14 @@ function MyWorkView(props: {
                     <p className="text-sm font-semibold text-[var(--text-primary)]">{step.step_title}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-[var(--text-secondary)]">
                       {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
-                      {owner && <span><span className="font-spec text-[9px]">NGƯỜI NỘP</span> {owner.full_name}</span>}
+                      {owner && <span><span className="font-spec text-[9px]">NỘP BỞI</span> {owner.full_name}</span>}
                       {step.due_date && <span>· Hạn {step.due_date}</span>}
-                      {(step.report_file_url || step.report_link || step.note) && (
-                        <span className="font-bold text-[var(--ok)]">Có báo cáo ✓</span>
-                      )}
+                      {(step.report_file_url || step.report_link || step.note) && <span className="font-bold text-[var(--success)]">Có báo cáo ✓</span>}
                     </div>
                   </div>
                   {task && (
                     <button type="button" onClick={() => props.setSelectedTask(task)}
-                      className="shrink-0 rounded-lg border border-[var(--warn)]/50 bg-[var(--warn)]/10 px-3 py-1.5 text-xs font-bold text-[var(--warn)] hover:bg-[var(--warn)]/20">
+                      className="shrink-0 rounded-lg border border-[var(--warning)]/50 bg-[var(--warning)]/10 px-3 py-1.5 text-xs font-bold text-[var(--warning)] hover:bg-[var(--warning)]/20">
                       Duyệt ngay
                     </button>
                   )}
@@ -11177,9 +11346,9 @@ function MyWorkView(props: {
 
       {/* Bước tôi cần nộp */}
       {myPendingSubmit.length > 0 && (
-        <div className="rounded-2xl border border-[var(--olive)]/30 bg-[var(--bg-card)] overflow-hidden">
+        <div className="overflow-hidden rounded-2xl border border-[var(--olive)]/30 bg-[var(--bg-card)]">
           <div className="flex items-center gap-2 border-b border-[var(--olive)]/20 bg-[var(--bg-surface)] px-5 py-3">
-            <p className="font-extrabold text-sm">📋 Bước tôi cần nộp</p>
+            <p className="text-sm font-extrabold">Bước tôi cần nộp</p>
             <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">{myPendingSubmit.length}</span>
           </div>
           <div className="divide-y divide-[var(--border)]">
@@ -11214,60 +11383,225 @@ function MyWorkView(props: {
         </div>
       )}
 
-      {/* Danh sách task */}
-      {myTasks.length === 0 && myPendingSubmit.length === 0 && myPendingApprove.length === 0 ? (
+      {/* Danh sách task theo nhóm urgency */}
+      {isEmpty ? (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-6 py-12 text-center">
           <p className="font-extrabold text-[var(--text-primary)]">Không có việc đang mở</p>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">Tất cả việc của bạn đã hoàn thành hoặc chưa được giao.</p>
         </div>
       ) : (
         groups.map((group) => (
-          <div key={group.status} className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)] px-5 py-3">
-              <p className="font-extrabold text-sm">{group.label}</p>
-              <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">{group.tasks.length}</span>
+          <div key={group.key} className={`overflow-hidden rounded-2xl border bg-[var(--bg-card)] ${group.key === 'urgent' ? 'border-[var(--danger)]/30' : group.key === 'week' ? 'border-[var(--warning)]/30' : 'border-[var(--border)]'}`}>
+            <div className={`flex items-center gap-2 border-b px-5 py-3 ${group.headerCls}`}>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: group.accent }} />
+              <p className="text-sm font-extrabold" style={{ color: group.key === 'urgent' ? 'var(--danger)' : group.key === 'week' ? 'var(--warning)' : 'var(--text-primary)' }}>{group.label}</p>
+              <span className="rounded-full bg-black/5 px-2 py-0.5 text-xs font-bold">{group.tasks.length}</span>
             </div>
             <div className="divide-y divide-[var(--border)]">
-              {group.tasks.map((task) => {
-                const steps = props.stepsByTask.get(task.id) || []
-                const progress = calculateTaskProgress(task, steps)
-                const pendingSteps = steps.filter((s) => s.approval_status === 'pending')
-                const mySteps = steps.filter((s) => s.owner_id === myId && s.approval_status !== 'approved')
-                const headIds = task.head_ids && task.head_ids.length > 0 ? task.head_ids : (task.head_id ? [task.head_id] : [])
-                const headNames = headIds.map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean).join(', ')
-                const assignee = props.employeeMap.get(task.assignee_id || '')
-
-                return (
-                  <div key={task.id} className="flex items-center gap-3 px-5 py-3 hover:bg-[var(--bg-surface)] transition-colors">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-sm text-[var(--text-primary)] truncate">{task.title}</span>
-                        <IssueBadge issueStatus={task.issue_status} />
-                        {task.due_date && (
-                          <span className={`text-xs ${isTaskOverdue(task) ? 'font-bold text-[var(--danger)]' : 'text-[var(--text-muted)]'}`}>
-                            · {task.due_date}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
-                        {headNames && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {headNames}</span>}
-                        {assignee && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
-                        <span>{steps.length} bước · <b className="text-[var(--text-primary)]">{progress}%</b></span>
-                        {pendingSteps.length > 0 && <span className="font-bold text-[var(--warn)]">{pendingSteps.length} bước chờ duyệt</span>}
-                        {mySteps.length > 0 && <span className="font-bold text-[var(--olive)]">{mySteps.length} bước của tôi chưa nộp</span>}
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => props.setSelectedTask(task)}
-                      className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]">
-                      Chi tiết
-                    </button>
-                  </div>
-                )
-              })}
+              {group.tasks.map((task) => <TaskRow key={task.id} task={task} />)}
             </div>
           </div>
         ))
       )}
+    </div>
+  )
+}
+
+// ─── PermissionsView ────────────────────────────────────────────────────────
+const RESOURCES = ['project', 'workstream', 'subtask', 'step', 'import', 'export', 'admin_panel'] as const
+const ACTIONS   = ['view', 'create', 'edit', 'delete', 'approve', 'use'] as const
+const SCOPES    = ['all', 'own_dept', 'assigned', 'none'] as const
+const ROLES     = ['ceo', 'coo', 'admin', 'department_head', 'employee'] as const
+
+const RESOURCE_LABEL: Record<string, string> = {
+  project: 'Dự án', workstream: 'Đầu việc lớn', subtask: 'Đầu việc con',
+  step: 'Bước', import: 'Import Excel', export: 'Export', admin_panel: 'Quản lý hệ thống',
+}
+const ACTION_LABEL: Record<string, string> = {
+  view: 'Xem', create: 'Tạo', edit: 'Sửa', delete: 'Xóa', approve: 'Duyệt', use: 'Dùng',
+}
+const SCOPE_LABEL: Record<string, string> = {
+  all: 'Tất cả', own_dept: 'Bộ phận mình', assigned: 'Được giao', none: 'Không có',
+}
+const SCOPE_COLOR: Record<string, string> = {
+  all: 'bg-[var(--olive)] text-[var(--ivory)]',
+  own_dept: 'bg-amber-100 text-amber-800',
+  assigned: 'bg-blue-100 text-blue-800',
+  none: 'bg-[var(--bg-surface)] text-[var(--text-muted)]',
+}
+
+function PermissionsView(props: {
+  permissions: RolePermission[]
+  onRefresh: () => void
+}) {
+  const [selectedRole, setSelectedRole] = useState<string>('department_head')
+  const [saving, setSaving] = useState(false)
+  // draft: key = "resource:action", value = scope — only populated when user changes something
+  const [draft, setDraft] = useState<Record<string, string>>({})
+
+  // Reset draft when switching role
+  function selectRole(r: string) { setSelectedRole(r); setDraft({}) }
+
+  const hasDraft = Object.keys(draft).length > 0
+
+  function getSavedScope(resource: string, action: string): string {
+    return props.permissions.find(p => p.role === selectedRole && p.resource === resource && p.action === action)?.scope || 'none'
+  }
+  function getDraftScope(resource: string, action: string): string {
+    return draft[`${resource}:${action}`] ?? getSavedScope(resource, action)
+  }
+
+  function pickScope(resource: string, action: string, scope: string) {
+    const saved = getSavedScope(resource, action)
+    setDraft(prev => {
+      const next = { ...prev }
+      if (scope === saved) {
+        // revert to saved → remove from draft
+        delete next[`${resource}:${action}`]
+      } else {
+        next[`${resource}:${action}`] = scope
+      }
+      return next
+    })
+  }
+
+  async function saveDraft() {
+    if (!hasDraft) return
+    setSaving(true)
+    const upserts = Object.entries(draft).map(([key, scope]) => {
+      const [resource, action] = key.split(':')
+      return { role: selectedRole, resource, action, scope, updated_at: new Date().toISOString() }
+    })
+    await supabase.from('role_permissions').upsert(upserts, { onConflict: 'role,resource,action' })
+    await props.onRefresh()  // eslint-disable-line
+    setDraft({})
+    setSaving(false)
+    toast(`Đã lưu ${upserts.length} thay đổi quyền cho ${selectedRole === 'department_head' ? 'Trưởng phòng' : selectedRole}`)
+  }
+
+  function discardDraft() { setDraft({}) }
+
+  // Actions relevant per resource
+  const relevantActions: Record<string, string[]> = {
+    project:     ['view', 'create', 'edit', 'delete'],
+    workstream:  ['view', 'create', 'edit', 'delete'],
+    subtask:     ['view', 'create', 'edit', 'delete'],
+    step:        ['view', 'create', 'edit', 'delete', 'approve'],
+    import:      ['use'],
+    export:      ['use'],
+    admin_panel: ['use'],
+  }
+
+  const roleLabel = (r: string) => r === 'ceo' ? 'CEO' : r === 'coo' ? 'COO' : r === 'admin' ? 'Admin' : r === 'department_head' ? 'Trưởng phòng' : 'Nhân viên'
+
+  return (
+    <div className="space-y-5">
+      {/* Role tabs */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <h3 className="mb-4 text-sm font-extrabold">Chọn vai trò để chỉnh quyền</h3>
+        <div className="flex flex-wrap gap-2">
+          {ROLES.map(r => (
+            <button key={r} onClick={() => selectRole(r)}
+              className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${selectedRole === r ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--olive)]'}`}>
+              {roleLabel(r)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Matrix */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 className="text-sm font-extrabold">Ma trận quyền — {roleLabel(selectedRole)}</h3>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)]">Chọn phạm vi rồi bấm <strong>Lưu thay đổi</strong> để áp dụng.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {hasDraft && (
+              <>
+                <span className="text-xs text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  {Object.keys(draft).length} thay đổi chưa lưu
+                </span>
+                <button onClick={discardDraft}
+                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]">
+                  Huỷ
+                </button>
+              </>
+            )}
+            <button onClick={saveDraft} disabled={!hasDraft || saving}
+              className="rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-[var(--ivory)] disabled:opacity-40 transition-opacity">
+              {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[var(--border)]">
+                <th className="pb-2 pr-4 text-left font-semibold text-[var(--text-secondary)]">Đối tượng</th>
+                <th className="pb-2 pr-4 text-left font-semibold text-[var(--text-secondary)]">Hành động</th>
+                {SCOPES.map(s => (
+                  <th key={s} className="pb-2 px-2 text-center font-semibold text-[var(--text-secondary)] min-w-[90px]">
+                    {SCOPE_LABEL[s]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {RESOURCES.map(res => {
+                const actions = relevantActions[res] || []
+                return actions.map((act, ai) => {
+                  const draftScope = getDraftScope(res, act)
+                  const savedScope = getSavedScope(res, act)
+                  const isChanged = draftScope !== savedScope
+                  return (
+                    <tr key={`${res}:${act}`} className={`border-b border-[var(--border)] border-opacity-50 ${ai === 0 ? 'border-t border-t-[var(--border)]' : ''} ${isChanged ? 'bg-amber-50' : ''}`}>
+                      {ai === 0 && (
+                        <td rowSpan={actions.length} className="py-2 pr-4 font-bold text-[var(--text-primary)] align-top pt-3">
+                          {RESOURCE_LABEL[res]}
+                        </td>
+                      )}
+                      <td className="py-2 pr-4 text-[var(--text-secondary)]">
+                        {ACTION_LABEL[act]}
+                        {isChanged && <span className="ml-1 text-amber-600">*</span>}
+                      </td>
+                      {SCOPES.map(sc => {
+                        const isActive = draftScope === sc
+                        const isSaved = savedScope === sc
+                        return (
+                          <td key={sc} className="py-2 px-2 text-center">
+                            <button
+                              onClick={() => pickScope(res, act, sc)}
+                              title={isActive && !isSaved ? 'Thay đổi chưa lưu' : ''}
+                              className={`w-full rounded-md py-1 px-2 text-xs font-semibold transition-all
+                                ${isActive
+                                  ? SCOPE_COLOR[sc] + (isSaved ? ' ring-2 ring-offset-1 ring-[var(--olive)]' : ' ring-2 ring-offset-1 ring-amber-400')
+                                  : 'bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-input)] opacity-50 hover:opacity-100'}`}>
+                              {isActive ? (isSaved ? '●' : '◉') : '○'}
+                            </button>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-4 flex flex-wrap gap-3 items-center">
+          {SCOPES.map(s => (
+            <span key={s} className={`rounded-md px-2 py-1 text-xs font-semibold ${SCOPE_COLOR[s]}`}>
+              {SCOPE_LABEL[s]}
+            </span>
+          ))}
+          <span className="text-xs text-[var(--text-muted)] ml-1">— phạm vi áp dụng</span>
+          <span className="text-xs text-amber-600 ml-3">◉ = chưa lưu &nbsp; ● = đã lưu</span>
+        </div>
+      </div>
     </div>
   )
 }
