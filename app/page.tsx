@@ -106,6 +106,10 @@ const TASK_STEP_MATRIX_COLUMNS = [
   'department_approved_at',
   'coo_approved_at',
   'ceo_approved_at',
+  'step_deadline_status',
+  'step_proposed_deadline',
+  'step_deadline_approver_id',
+  'step_deadline_note',
 ]
 
 function toLegacyTaskStepPayload(payload: DbPayload) {
@@ -1869,7 +1873,7 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      toast('Tạo bước bị lỗi.', 'error')
+      toast(`Tạo bước bị lỗi: ${error.message || error.code || 'unknown'}`, 'error')
       return
     }
 
