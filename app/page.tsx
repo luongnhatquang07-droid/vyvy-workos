@@ -5582,31 +5582,31 @@ function StepWorkflowCard(props: {
     ...(props.step.requires_ceo_approval ? [{ role: 'CEO', employee: ceoApprover }] : []),
   ]
 
+  // Mặc định mở nếu cần hành động: cần làm lại, chờ duyệt (có quyền duyệt), chưa gửi
+  const needsAction = status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
+  const [expanded, setExpanded] = useState(needsAction)
+
   return (
-    <div className={`rounded-2xl border bg-[var(--bg-card)] p-4 ${props.locked ? 'opacity-60' : ''}`}>
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-extrabold">
-                {props.step.step_order}. {props.step.step_title}
-              </p>
-              <StepApprovalBadge status={status} />
-              {props.locked && (
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-500">
-                  Khóa đến khi bước trước được duyệt
-                </span>
-              )}
-            </div>
+    <div className={`rounded-2xl border bg-[var(--bg-card)] ${props.locked ? 'opacity-60' : ''} ${status === 'revision' ? 'border-[var(--danger)]/40' : status === 'approved' ? 'border-[var(--success)]/30' : 'border-[var(--border)]'}`}>
+      {/* ── Header (luôn hiện) ── */}
+      <button type="button" onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[var(--bg-surface)] rounded-2xl transition-colors"
+      >
+        <span className="shrink-0 text-xs font-extrabold text-[var(--text-muted)] w-5">{props.step.step_order}.</span>
+        <span className="flex-1 min-w-0 font-semibold text-sm text-[var(--text-primary)] truncate">{props.step.step_title}</span>
+        <StepApprovalBadge status={status} />
+        {props.locked && <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Khóa</span>}
+        <span className="shrink-0 text-xs text-[var(--text-muted)]">{owner?.full_name || '—'}</span>
+        {props.step.due_date && <span className="shrink-0 text-[10px] text-[var(--text-muted)] hidden sm:block">{props.step.due_date}</span>}
+        <span className={`shrink-0 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+      </button>
 
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Phụ trách: <b>{owner?.full_name || 'Chưa gắn'}</b> · Trưởng bộ phận:{' '}
-              <b>{departmentApprover?.full_name || 'Chưa gắn'}</b> · Deadline:{' '}
-              <b>{props.step.due_date || 'Chưa có'}</b>
-            </p>
-          </div>
-        </div>
-
+      {/* ── Body collapse ── */}
+      <div className={`border-t border-[var(--border)] ${expanded ? 'block' : 'hidden'}`}><div className="px-4 pb-4">
+      <div className="pt-3 mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-[var(--text-secondary)]">
+          Phụ trách: <b>{owner?.full_name || 'Chưa gắn'}</b> · Duyệt: <b>{departmentApprover?.full_name || 'Chưa gắn'}</b> · Deadline: <b>{props.step.due_date || 'Chưa có'}</b>
+        </p>
         <button type="button"
           onClick={() => props.deleteStep(props.step)}
           className="rounded-lg bg-[var(--danger-soft)] px-3 py-1 text-xs font-bold text-[var(--danger)]"
@@ -5921,6 +5921,8 @@ function StepWorkflowCard(props: {
         )}
       </div>
     </div>
+  </div>
+  </div>
   )
 }
 
