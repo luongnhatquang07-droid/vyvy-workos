@@ -192,6 +192,7 @@ type ProjectHealth = {
   supportRequests: number
   missingReports: number
   overdueSteps: number
+  missingDeadlineTasks: number
   totalWarnings: number
 }
 
@@ -304,7 +305,7 @@ type StepComment = {
 
 type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback'
 
 type RecurringTask = {
   id: string
@@ -1025,7 +1026,7 @@ export default function Home() {
   }, [])
 
   const fetchEmployees = useCallback(async () => {
-    const { data, error } = await supabase.from('employees').select('id, full_name, email, position').order('full_name')
+    const { data, error } = await supabase.from('employees').select('id, full_name, email, position, department_id').order('full_name')
     if (error) {
       console.error(error)
       setEmployees([])
@@ -1700,8 +1701,9 @@ export default function Home() {
       fetchSupporters(),
       fetchReports(),
       fetchComments(),
+      fetchEmployees(),
     ])
-  }, [fetchComments, fetchReports, fetchSteps, fetchSupporters, fetchTasks])
+  }, [fetchComments, fetchEmployees, fetchReports, fetchSteps, fetchSupporters, fetchTasks])
 
   async function createProject() {
     if (!projectName.trim()) {
@@ -3123,7 +3125,7 @@ export default function Home() {
   })
 
   const urgentTasks = tasks
-    .filter((task) => isTaskOverdue(task) || isTaskProblem(task) || isTaskSlow(task, stepsByTask.get(task.id) || []))
+    .filter((task) => isTaskOverdue(task) || isTaskProblem(task) || isTaskSlow(task, stepsByTask.get(task.id) || []) || (!task.due_date && task.status !== 'completed'))
     .slice(0, 20)
 
   const visibleTasks = useMemo(
@@ -3272,6 +3274,7 @@ export default function Home() {
     { key: 'automation', label: 'Nhắc tự động', icon: <Ico d={IC.zap} size={18}/>, hide: !canManageAll },
     { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
     { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !canManageAll },
+    { key: 'feedback', label: 'Góp ý hệ thống', icon: <Ico d={IC.messageSquare} size={18}/> },
   ]
   const menu = allMenuItems.filter((item) => !item.hide)
   const primaryAction =
@@ -3427,6 +3430,7 @@ export default function Home() {
               {view === 'automation' && 'Nhắc tự động'}
               {view === 'assistant' && 'COO Assistant'}
               {view === 'admin' && 'Quản lý nhân sự'}
+              {view === 'feedback' && 'Góp ý hệ thống'}
             </h2>
             <p className="hidden text-xs text-[var(--text-secondary)] sm:block">
               Dự án → Đầu việc lớn → Đầu việc con → Bước duyệt → File báo cáo.
@@ -3915,6 +3919,14 @@ export default function Home() {
                     onRefresh={fetchAll}
                   />
                 </div>
+              )}
+
+              {view === 'feedback' && (
+                <FeedbackView
+                  currentEmployee={currentEmployee}
+                  canManageAll={canManageAll}
+                  employeeMap={employeeMap}
+                />
               )}
             </>
           )}
@@ -4436,6 +4448,7 @@ function DashboardView(props: {
                   attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0)} việc trễ`,
                   attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0)} bước chờ duyệt`,
                   attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0)} bước làm lại`,
+                  attentionProjects.reduce((s, p) => s + (p.health?.missingDeadlineTasks || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.missingDeadlineTasks || 0), 0)} việc chưa có deadline`,
                 ].filter(Boolean).join(' · ') || 'Nhấn để xem chi tiết'}
               </p>
             )}
@@ -5252,7 +5265,7 @@ function SubtaskCard(props: {
   updateTaskSequential: (taskId: string, sequential: boolean) => void
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
-  const department = props.departmentMap.get(props.task.department_id || '')
+  const department = props.departmentMap.get(head?.department_id || props.task.department_id || '')
   const headHasNoDept = !!head && !head.department_id
   const progress = calculateTaskProgress(props.task, props.steps)
   const slow = isTaskSlow(props.task, props.steps)
@@ -5705,6 +5718,7 @@ function StepWorkflowCard(props: {
   // Mặc định mở nếu cần hành động
   const needsAction = !deadlineApproved || status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
   const [expanded, setExpanded] = useState(needsAction)
+  const [noteDraft, setNoteDraft] = useState(props.step.note || '')
 
   return (
     <div className={`rounded-2xl border bg-[var(--bg-card)] ${props.locked ? 'opacity-60' : ''} ${status === 'revision' ? 'border-[var(--danger)]/40' : status === 'approved' ? 'border-[var(--success)]/30' : 'border-[var(--border)]'}`}>
@@ -6165,8 +6179,9 @@ function StepWorkflowCard(props: {
           rows={2}
           className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs outline-none focus:border-[var(--border-strong)] disabled:opacity-50"
           placeholder="Mô tả ngắn kết quả đã làm được..."
-          value={props.step.note || ''}
-          onChange={(e) => props.updateStep(props.step, { note: e.target.value } as Partial<TaskStep>)}
+          value={noteDraft}
+          onChange={(e) => setNoteDraft(e.target.value)}
+          onBlur={() => { if (noteDraft !== (props.step.note || '')) props.updateStep(props.step, { note: noteDraft } as Partial<TaskStep>) }}
         />
       </div>
 
@@ -8639,7 +8654,7 @@ function TaskDetailDrawer(props: {
 }) {
   const head = props.employeeMap.get(props.task.head_id || '')
   const assignee = props.employeeMap.get(props.task.assignee_id || '')
-  const department = props.departmentMap.get(props.task.department_id || '')
+  const department = props.departmentMap.get(head?.department_id || assignee?.department_id || props.task.department_id || '')
   const project = props.projectMap.get(props.task.project_id || '')
   const progress = calculateTaskProgress(props.task, props.steps)
 
@@ -9120,6 +9135,7 @@ function calculateProjectHealth(
   const pendingTasks = projectTasks.filter((task) => task.status === 'pending').length
   const problemTasks = projectTasks.filter((task) => task.issue_status === 'problem').length
   const slowTasks = projectTasks.filter((task) => isTaskSlow(task, stepsByTask.get(task.id) || [])).length
+  const missingDeadlineTasks = projectTasks.filter((task) => !task.due_date && task.status !== 'completed').length
   const pendingSteps = getPendingApprovalSteps(projectSteps).length
   const revisionSteps = getRevisionSteps(projectSteps).length
   const supportRequests = projectSteps.filter((step) => Boolean(step.support_request?.trim())).length
@@ -9127,7 +9143,7 @@ function calculateProjectHealth(
   const overdueSteps = projectSteps.filter((step) => isStepOverdue(step)).length
 
   const problemWarnings = overdueTasks + pendingTasks + problemTasks + revisionSteps + overdueSteps
-  const watchWarnings = slowTasks + pendingSteps + supportRequests + missingReports
+  const watchWarnings = slowTasks + pendingSteps + supportRequests + missingReports + missingDeadlineTasks
   const level = problemWarnings > 0 ? 'problem' : watchWarnings > 0 ? 'watch' : 'normal'
   const label =
     level === 'problem' ? 'Có vấn đề' : level === 'watch' ? 'Cần theo dõi' : 'Đang ổn'
@@ -9144,6 +9160,7 @@ function calculateProjectHealth(
     supportRequests,
     missingReports,
     overdueSteps,
+    missingDeadlineTasks,
     totalWarnings: problemWarnings + watchWarnings,
   }
 }
@@ -9499,6 +9516,7 @@ function getUrgentReason(task: Task) {
   if (task.issue_status === 'problem') return 'Có vấn đề'
   if (task.issue_status === 'slow') return 'Đang chậm'
   if (task.status === 'pending') return 'Pending'
+  if (!task.due_date) return 'Chưa có deadline'
   return 'Cần theo dõi'
 }
 
@@ -10155,6 +10173,192 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
 }
 
 // ─── AdminDepartmentsSection ──────────────────────────────────────────────────
+
+// ─── Góp ý hệ thống ────────────────────────────────────────────────────────
+type FeedbackRow = {
+  id: string
+  employee_id: string | null
+  title: string
+  content: string
+  type: string
+  anonymous: boolean
+  status: string
+  admin_note: string | null
+  created_at: string
+}
+
+const FEEDBACK_TYPE_LABEL: Record<string, string> = {
+  improvement: 'Cải tiến quy trình',
+  bug: 'Báo lỗi',
+  other: 'Ý kiến khác',
+}
+const FEEDBACK_STATUS_LABEL: Record<string, string> = {
+  new: 'Mới',
+  reviewing: 'Đang xem xét',
+  done: 'Đã xử lý',
+}
+const FEEDBACK_STATUS_COLOR: Record<string, string> = {
+  new: 'bg-[var(--accent-soft)] text-[var(--accent)]',
+  reviewing: 'bg-[var(--warning-soft)] text-[var(--warning)]',
+  done: 'bg-[var(--success-soft)] text-[var(--success)]',
+}
+
+function FeedbackView(props: {
+  currentEmployee: Employee | null
+  canManageAll: boolean
+  employeeMap: Map<string, Employee>
+}) {
+  const [list, setList] = useState<FeedbackRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [type, setType] = useState('improvement')
+  const [anonymous, setAnonymous] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [adminNotes, setAdminNotes] = useState<Record<string, string>>({})
+
+  async function load() {
+    setLoading(true)
+    const { data } = await supabase.from('feedback').select('*').order('created_at', { ascending: false })
+    setList((data || []) as FeedbackRow[])
+    setLoading(false)
+  }
+
+  useEffect(() => { void load() }, [])
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!title.trim() || !content.trim()) return
+    setSaving(true)
+    await supabase.from('feedback').insert({
+      employee_id: anonymous ? null : props.currentEmployee?.id ?? null,
+      title: title.trim(),
+      content: content.trim(),
+      type,
+      anonymous,
+    })
+    setTitle(''); setContent(''); setType('improvement'); setAnonymous(false)
+    setSaving(false)
+    await load()
+  }
+
+  async function updateStatus(id: string, status: string) {
+    await supabase.from('feedback').update({ status }).eq('id', id)
+    await load()
+  }
+
+  async function saveAdminNote(id: string) {
+    await supabase.from('feedback').update({ admin_note: adminNotes[id] ?? '' }).eq('id', id)
+    await load()
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Form gửi góp ý */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <h3 className="mb-4 text-sm font-extrabold">Gửi góp ý mới</h3>
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <input
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2 text-sm outline-none focus:border-[var(--border-strong)]"
+            placeholder="Tiêu đề góp ý..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
+          <textarea
+            rows={3}
+            className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2 text-sm outline-none focus:border-[var(--border-strong)]"
+            placeholder="Mô tả chi tiết..."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            required
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg-base)] px-3 py-2 text-sm outline-none"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+            >
+              <option value="improvement">Cải tiến quy trình</option>
+              <option value="bug">Báo lỗi</option>
+              <option value="other">Ý kiến khác</option>
+            </select>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--text-secondary)]">
+              <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} className="accent-[var(--olive)]" />
+              Gửi ẩn danh
+            </label>
+            <button
+              type="submit"
+              disabled={saving || !title.trim() || !content.trim()}
+              className="ml-auto rounded-lg bg-[var(--olive)] px-5 py-2 text-sm font-bold text-[var(--ivory)] disabled:opacity-40"
+            >
+              {saving ? 'Đang gửi…' : 'Gửi góp ý'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Danh sách góp ý */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <h3 className="mb-4 text-sm font-extrabold">Danh sách góp ý {list.length > 0 && <span className="ml-1 text-[var(--text-muted)] font-normal">({list.length})</span>}</h3>
+        {loading ? (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
+        ) : list.length === 0 ? (
+          <p className="text-sm text-[var(--text-muted)]">Chưa có góp ý nào.</p>
+        ) : (
+          <div className="space-y-3">
+            {list.map((row) => {
+              const sender = row.anonymous ? null : props.employeeMap.get(row.employee_id || '')
+              const isOwn = !row.anonymous && row.employee_id === props.currentEmployee?.id
+              return (
+                <div key={row.id} className="rounded-xl border border-[var(--border)] bg-[var(--bg-base)] p-4">
+                  <div className="flex flex-wrap items-start gap-2 mb-2">
+                    <span className="flex-1 font-semibold text-sm">{row.title}</span>
+                    <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${FEEDBACK_STATUS_COLOR[row.status] ?? 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+                      {FEEDBACK_STATUS_LABEL[row.status] ?? row.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)] leading-5 mb-2">{row.content}</p>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--text-muted)]">
+                    <span>{FEEDBACK_TYPE_LABEL[row.type] ?? row.type}</span>
+                    <span>·</span>
+                    <span>{row.anonymous ? 'Ẩn danh' : (sender?.full_name ?? (isOwn ? 'Bạn' : '—'))}</span>
+                    <span>·</span>
+                    <span>{new Date(row.created_at).toLocaleDateString('vi-VN')}</span>
+                  </div>
+                  {row.admin_note && (
+                    <div className="mt-2 rounded-lg border border-[var(--success)]/20 bg-[var(--success-soft)] px-3 py-2 text-xs text-[var(--success)]">
+                      Phản hồi: {row.admin_note}
+                    </div>
+                  )}
+                  {props.canManageAll && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {(['new','reviewing','done'] as const).map((s) => (
+                        <button key={s} onClick={() => updateStatus(row.id, s)}
+                          className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition-colors ${row.status === s ? 'border-[var(--olive)] bg-[var(--olive)] text-[var(--ivory)]' : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'}`}>
+                          {FEEDBACK_STATUS_LABEL[s]}
+                        </button>
+                      ))}
+                      <div className="flex flex-1 min-w-[200px] items-center gap-2 ml-2">
+                        <input
+                          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs outline-none focus:border-[var(--border-strong)]"
+                          placeholder="Ghi chú phản hồi..."
+                          value={adminNotes[row.id] ?? (row.admin_note || '')}
+                          onChange={(e) => setAdminNotes(n => ({ ...n, [row.id]: e.target.value }))}
+                          onBlur={() => saveAdminNote(row.id)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function AdminDepartmentsSection(props: { departments: Department[]; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false)
