@@ -960,11 +960,7 @@ export default function Home() {
     const canManage = isTopLevelRole || isAdminRole
     // Redirect restricted views for non-managers
     if (!canManage && (view === 'coo' || view === 'automation' || view === 'admin')) {
-      setView('dashboard')
-    }
-    // If first load on coo as non-manager, go to tasks
-    if (!canManage && view === 'coo') {
-      setView('tasks')
+      setView('assigned')
     }
   }, [currentEmployee]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3931,7 +3927,7 @@ export default function Home() {
                 />
               )}
 
-              {view === 'admin' && canManageAll && (
+              {view === 'admin' && (can('admin_panel','use') || canManageAll) && (
                 <div className="space-y-6">
                   <AdminUsersView
                     departments={departments}
@@ -10489,6 +10485,10 @@ function ImportExcelView(props: {
   const [result, setResult] = useState<{ ok: number; fail: number } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  type DupeInfo = { rowNum: number; title: string; project: string; level: string; existingId: string }
+  const [dupeWarning, setDupeWarning] = useState<DupeInfo[]>([])
+  const [dupeChecking, setDupeChecking] = useState(false)
+  const [skipDupes, setSkipDupes] = useState<boolean | null>(null) // null = chưa quyết định
 
   const empByName = useMemo(() => {
     const m = new Map<string, string>()
@@ -10535,28 +10535,68 @@ function ImportExcelView(props: {
       })
       setRows(parsed)
       setResult(null)
+      setDupeWarning([])
+      setSkipDupes(null)
+      // Kiểm tra trùng ngay sau khi parse
+      checkDupes(parsed)
     } catch (err) {
       console.error('parseFile error:', err)
       alert('Không đọc được file. Hãy dùng đúng file mẫu .xlsx')
     }
   }
 
+  async function checkDupes(parsed: ImportRow[]) {
+    const validTitles = parsed.filter(r => !r.error && r.title && (r.level === 'workstream' || r.level === 'subtask')).map(r => r.title.trim())
+    if (validTitles.length === 0) return
+    setDupeChecking(true)
+    try {
+      const { data } = await supabase
+        .from('tasks')
+        .select('id, title, task_level')
+        .in('title', validTitles)
+        .in('task_level', ['workstream', 'subtask'])
+      if (!data || data.length === 0) { setDupeChecking(false); return }
+      const existingTitles = new Map<string, { id: string; level: string }>()
+      data.forEach(t => existingTitles.set(t.title.trim().toLowerCase(), { id: t.id, level: t.task_level }))
+      const dupes: DupeInfo[] = parsed
+        .filter(r => !r.error && existingTitles.has(r.title.trim().toLowerCase()))
+        .map(r => {
+          const ex = existingTitles.get(r.title.trim().toLowerCase())!
+          return { rowNum: r.rowNum, title: r.title, project: r.project, level: r.level, existingId: ex.id }
+        })
+      setDupeWarning(dupes)
+    } catch { /* ignore */ }
+    setDupeChecking(false)
+  }
+
   async function doImport() {
+    if (importing) return  // guard double-click
+    // Nếu có trùng mà user chưa quyết định → chặn
+    if (dupeWarning.length > 0 && skipDupes === null) return
     setImporting(true)
     let ok = 0, fail = 0
+    const errors: string[] = []
     const msCache = new Map<string, string>()                           // project|group → workstream id
     const subCache = new Map<string, { id: string; order: number }>()  // project|group → last subtask
 
+    // Tập tên trùng để lọc (nếu user chọn bỏ qua)
+    const dupeSet = new Set(skipDupes === true ? dupeWarning.map(d => d.title.trim().toLowerCase()) : [])
+
     for (const row of rows) {
       if (row.error) { fail++; continue }
+      // Bỏ qua bản trùng nếu user chọn skip (chỉ skip workstream/subtask, không skip step)
+      if (skipDupes === true && (row.level === 'workstream' || row.level === 'subtask') && dupeSet.has(row.title.trim().toLowerCase())) {
+        fail++; continue
+      }
       try {
         // Resolve project
         let projId = projByName.get(row.project.toLowerCase().trim())
         if (!projId) {
-          const { data } = await supabase.from('projects').insert({ name: row.project, status: 'active' }).select('id').single()
-          if (!data) { fail++; continue }
-          projId = data.id
-          projByName.set(row.project.toLowerCase().trim(), projId!)
+          const newProjId = crypto.randomUUID()
+          const { error: projErr } = await supabase.from('projects').insert({ id: newProjId, name: row.project, status: 'active' })
+          if (projErr) { errors.push(`[${row.title}] Tạo dự án lỗi: ${projErr.message}`); fail++; continue }
+          projId = newProjId
+          projByName.set(row.project.toLowerCase().trim(), projId)
         }
 
         const ownerId = empByName.get(row.owner.toLowerCase().trim()) || null
@@ -10570,7 +10610,7 @@ function ImportExcelView(props: {
 
         const desc = [row.description, row.output ? `Output: ${row.output}` : ''].filter(Boolean).join(' | ')
         const taskStatus = STATUS_IMPORT_MAP[row.notes.toLowerCase()] || 'not_started'
-        const cacheKey = `${row.project}|${row.group}`
+        const cacheKey = `${row.project.trim()}|${row.group.trim()}`
 
         const baseTask = {
           description: desc || null, project_id: projId,
@@ -10580,28 +10620,35 @@ function ImportExcelView(props: {
         }
 
         if (row.level === 'workstream') {
-          const { data, error: e } = await supabase.from('tasks').insert({
-            ...baseTask, title: row.title, task_level: 'workstream', parent_task_id: null,
-          }).select('id').single()
-          if (e) { console.error('import workstream error:', e.message, row.title); fail++ }
-          else if (data) { msCache.set(cacheKey, data.id); ok++ }
-          else fail++
+          // Pre-generate ID → không cần RETURNING (tránh RLS block)
+          const wsId = crypto.randomUUID()
+          const { error: e } = await supabase.from('tasks').insert({
+            ...baseTask, id: wsId, title: row.title, task_level: 'workstream', parent_task_id: null,
+          })
+          if (e) { errors.push(`[${row.title}] Đầu việc lớn: ${e.message}`); fail++ }
+          else { msCache.set(cacheKey, wsId); ok++ }
 
         } else if (row.level === 'subtask') {
-          const parentId = msCache.get(cacheKey) || null
-          const { data, error: e } = await supabase.from('tasks').insert({
-            ...baseTask, title: row.title,
-            task_level: parentId ? 'subtask' : 'workstream',
-            parent_task_id: parentId,
+          const parentId = msCache.get(cacheKey)
+          if (!parentId) {
+            errors.push(`[${row.title}] Không tìm được đầu việc lớn cha (nhóm: ${row.group})`)
+            fail++; continue
+          }
+          const subId = crypto.randomUUID()
+          const { error: e } = await supabase.from('tasks').insert({
+            ...baseTask, id: subId, title: row.title,
+            task_level: 'subtask', parent_task_id: parentId,
             assignee_id: ownerId,
-          }).select('id').single()
-          if (e) { console.error('import subtask error:', e.message, row.title); fail++ }
-          else if (data) { subCache.set(cacheKey, { id: data.id, order: 0 }); ok++ }
-          else fail++
+          })
+          if (e) { errors.push(`[${row.title}] Đầu việc con: ${e.message}`); fail++ }
+          else { subCache.set(cacheKey, { id: subId, order: 0 }); ok++ }
 
         } else if (row.level === 'step') {
           const sub = subCache.get(cacheKey)
-          if (!sub) { fail++; continue }
+          if (!sub) {
+            errors.push(`[${row.title}] Không tìm được đầu việc con cha (nhóm: ${row.group})`)
+            fail++; continue
+          }
           sub.order += 1
           const { error: e } = await insertTaskStepsCompat({
             task_id: sub.id, step_title: row.title, step_order: sub.order,
@@ -10613,14 +10660,19 @@ function ImportExcelView(props: {
             approval_stage: 'department', requires_coo_approval: false, requires_ceo_approval: false,
             is_done: false,
           })
-          if (e) { console.error('import step error:', e.message, row.title); fail++ }
+          if (e) { errors.push(`[${row.title}] Bước: ${e.message}`); fail++ }
           else ok++
         }
-      } catch { fail++ }
+      } catch (ex) { errors.push(`[${row.title}] Lỗi không xác định: ${String(ex)}`); fail++ }
     }
+
+    if (errors.length) console.error('Import errors:', errors)
     setResult({ ok, fail })
     setImporting(false)
-    if (ok > 0) props.onDone()
+    if (ok > 0) {
+      setRows([])  // xóa rows sau khi nhập thành công → tránh nhập lại
+      props.onDone()
+    }
   }
 
   function downloadTemplate() {
@@ -10853,6 +10905,57 @@ function ImportExcelView(props: {
         </div>
       </div>
 
+      {/* Duplicate warning */}
+      {rows.length > 0 && (dupeChecking || dupeWarning.length > 0) && (
+        <div className={`rounded-xl border p-4 ${dupeWarning.length > 0 ? 'border-[var(--warning)]/50 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+          {dupeChecking ? (
+            <p className="text-xs text-[var(--text-muted)]">Đang kiểm tra trùng lặp…</p>
+          ) : (
+            <>
+              <p className="text-xs font-extrabold text-[var(--warning)] mb-2">
+                ⚠ Phát hiện {dupeWarning.length} đầu việc có thể trùng với dữ liệu hiện có
+              </p>
+              <div className="overflow-x-auto mb-3">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-[var(--warning)]/20 text-[var(--text-muted)] text-left">
+                      {['#','Tên đầu việc','Dự án','Cấp độ'].map(h => (
+                        <th key={h} className="py-1 pr-4 font-bold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dupeWarning.map(d => (
+                      <tr key={d.rowNum} className="border-b border-[var(--warning)]/10">
+                        <td className="py-1.5 pr-4 text-[var(--text-muted)]">{d.rowNum}</td>
+                        <td className="py-1.5 pr-4 font-semibold text-[var(--warning)]">{d.title}</td>
+                        <td className="py-1.5 pr-4 max-w-[140px] truncate">{d.project}</td>
+                        <td className="py-1.5 pr-4 capitalize">{d.level === 'workstream' ? 'Đầu việc lớn' : 'Đầu việc con'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSkipDupes(true)}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-bold border transition-all ${skipDupes === true ? 'bg-[var(--warning)] text-white border-[var(--warning)]' : 'bg-white border-[var(--warning)]/50 text-[var(--warning)] hover:bg-[var(--warning-soft)]'}`}>
+                  Bỏ qua bản trùng — chỉ nhập mới
+                </button>
+                <button
+                  onClick={() => setSkipDupes(false)}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-bold border transition-all ${skipDupes === false ? 'bg-[var(--olive)] text-[var(--ivory)] border-[var(--olive)]' : 'bg-white border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'}`}>
+                  Nhập tất cả (kể cả trùng)
+                </button>
+              </div>
+              {skipDupes === null && (
+                <p className="mt-2 text-[11px] text-[var(--text-muted)]">Chọn một phương án trên để tiếp tục nhập.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Preview */}
       {rows.length > 0 && (
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
@@ -10860,9 +10963,13 @@ function ImportExcelView(props: {
             <h3 className="text-sm font-extrabold">
               Xem trước <span className="font-normal text-[var(--text-muted)]">({validRows.length} hợp lệ{errorRows.length > 0 ? `, ${errorRows.length} lỗi` : ''})</span>
             </h3>
-            <button onClick={doImport} disabled={importing || validRows.length === 0}
+            <button
+              onClick={doImport}
+              disabled={importing || validRows.length === 0 || (dupeWarning.length > 0 && skipDupes === null)}
               className="rounded-lg bg-[var(--olive)] px-5 py-2 text-xs font-bold text-[var(--ivory)] disabled:opacity-40">
-              {importing ? 'Đang nhập…' : `Xác nhận nhập ${validRows.length} mục`}
+              {importing ? 'Đang nhập…'
+                : dupeWarning.length > 0 && skipDupes === null ? 'Chọn xử lý trùng trước'
+                : `Xác nhận nhập ${validRows.length} mục`}
             </button>
           </div>
           <div className="overflow-x-auto">
