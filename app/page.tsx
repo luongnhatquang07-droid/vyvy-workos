@@ -10490,6 +10490,48 @@ function ImportExcelView(props: {
   const [dupeChecking, setDupeChecking] = useState(false)
   const [skipDupes, setSkipDupes] = useState<boolean | null>(null) // null = chưa quyết định
 
+  // ── Dọn trùng DB ──────────────────────────────────────────────────────────
+  type DbDupeGroup = { title: string; projectName: string; ids: string[]; level: string }
+  const [dbDupes, setDbDupes] = useState<DbDupeGroup[]>([])
+  const [dbDupeScanning, setDbDupeScanning] = useState(false)
+  const [dbDupeDeleting, setDbDupeDeleting] = useState<Set<string>>(new Set())
+  const [dbDupeScanned, setDbDupeScanned] = useState(false)
+
+  async function scanDbDupes() {
+    setDbDupeScanning(true)
+    try {
+      const { data } = await supabase
+        .from('tasks')
+        .select('id, title, task_level, project_id, projects:project_id(name)')
+        .in('task_level', ['workstream', 'subtask'])
+        .order('created_at', { ascending: true })
+      if (!data) { setDbDupeScanning(false); return }
+      // Nhóm theo title + project_id
+      const groups = new Map<string, DbDupeGroup>()
+      for (const t of data) {
+        const projName = (t.projects as { name?: string } | null)?.name || t.project_id || ''
+        const key = `${t.title.trim().toLowerCase()}||${t.project_id}`
+        if (!groups.has(key)) groups.set(key, { title: t.title, projectName: projName, ids: [], level: t.task_level })
+        groups.get(key)!.ids.push(t.id)
+      }
+      const dupes = [...groups.values()].filter(g => g.ids.length > 1)
+      setDbDupes(dupes)
+      setDbDupeScanned(true)
+    } catch (e) { console.error('scanDbDupes', e) }
+    setDbDupeScanning(false)
+  }
+
+  async function deleteDbDupeExtra(group: DbDupeGroup) {
+    // Giữ bản đầu tiên (oldest), xóa các bản sau
+    const toDelete = group.ids.slice(1)
+    setDbDupeDeleting(prev => new Set([...prev, ...toDelete]))
+    for (const id of toDelete) {
+      await supabase.from('tasks').delete().eq('id', id)
+    }
+    setDbDupes(prev => prev.filter(g => !(g.title === group.title && g.projectName === group.projectName)))
+    setDbDupeDeleting(prev => { const s = new Set(prev); toDelete.forEach(id => s.delete(id)); return s })
+  }
+
   const empByName = useMemo(() => {
     const m = new Map<string, string>()
     props.employees.forEach(e => {
@@ -11006,6 +11048,56 @@ function ImportExcelView(props: {
           ✓ Nhập xong: {result.ok} thành công{result.fail > 0 ? `, ${result.fail} lỗi (kiểm tra lại dữ liệu)` : ''}
         </div>
       )}
+
+      {/* Dọn trùng DB */}
+      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-extrabold">Dọn đầu việc trùng</h3>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">Quét DB tìm workstream / đầu việc con có tên trùng nhau trong cùng dự án</p>
+          </div>
+          <button onClick={scanDbDupes} disabled={dbDupeScanning}
+            className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-4 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50">
+            {dbDupeScanning ? 'Đang quét…' : '🔍 Quét trùng'}
+          </button>
+        </div>
+
+        {dbDupeScanned && dbDupes.length === 0 && (
+          <p className="text-xs text-[var(--success)] font-semibold">✓ Không tìm thấy đầu việc trùng nào.</p>
+        )}
+
+        {dbDupes.length > 0 && (
+          <>
+            <p className="text-xs text-[var(--warning)] font-semibold mb-3">
+              ⚠ Phát hiện {dbDupes.length} nhóm trùng. Hệ thống sẽ <b>giữ bản cũ nhất</b>, xóa các bản sau.
+            </p>
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {dbDupes.map((g, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold truncate">{g.title}</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      {g.projectName} · {g.level === 'workstream' ? 'Đầu việc lớn' : 'Đầu việc con'} · <span className="text-[var(--warning)]">{g.ids.length} bản</span> → xóa {g.ids.length - 1} bản thừa
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteDbDupeExtra(g)}
+                    disabled={g.ids.slice(1).some(id => dbDupeDeleting.has(id))}
+                    className="shrink-0 rounded-lg bg-[var(--danger)] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50 hover:opacity-80">
+                    {g.ids.slice(1).some(id => dbDupeDeleting.has(id)) ? 'Đang xóa…' : `Xóa ${g.ids.length - 1} bản thừa`}
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => Promise.all(dbDupes.map(g => deleteDbDupeExtra(g)))}
+              disabled={dbDupeDeleting.size > 0}
+              className="mt-3 rounded-lg bg-[var(--danger)] px-5 py-2 text-xs font-bold text-white disabled:opacity-50 hover:opacity-80">
+              {dbDupeDeleting.size > 0 ? 'Đang xóa…' : `Xóa tất cả ${dbDupes.reduce((s,g)=>s+g.ids.length-1,0)} bản thừa`}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   )
 }
