@@ -24,6 +24,17 @@ import {
   ArrowRight, Loader2,
   MessageSquare, Link2, Flag, Activity,
 } from 'lucide-react'
+import {
+  Bar,
+  BarChart,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 // ─── Module-level toast (no prop drilling needed) ───────────────────────────
 type ToastType = 'success' | 'error' | 'info' | 'warning'
@@ -192,7 +203,7 @@ type Project = {
 }
 
 type ProjectHealth = {
-  level: 'problem' | 'watch' | 'normal'
+  level: 'empty' | 'not_started' | 'normal' | 'watch' | 'problem'
   label: string
   overdueTasks: number
   pendingTasks: number
@@ -214,6 +225,52 @@ type ProjectCard = Project & {
   problem: number
   rate: number
   health: ProjectHealth
+}
+
+type ProjectSpec = {
+  id: string
+  project_id: string
+  title: string | null
+  north_star: string | null
+  objectives: string | null
+  operating_model: string | null
+  data_architecture: string | null
+  kpis: string | null
+  risks: string | null
+  decisions: string | null
+  governance: string | null
+  notes: string | null
+  raw_sections: string | null
+  version: string | null
+  created_at?: string | null
+}
+
+type ExecutionItem = {
+  id: string
+  execution_tracker_id: string
+  workstream: string | null
+  layer: string | null
+  phase: string | null
+  title: string
+  owner: string | null
+  status: string | null
+  note: string | null
+  is_critical_path: boolean
+  order_index: number
+}
+
+type ExecutionTracker = {
+  id: string
+  project_id: string
+  stage: string | null
+  phases: string | null
+  module_readiness: string | null
+  decisions_needed: string | null
+  build_needed: string | null
+  top3_actions: string | null
+  critical_path: string | null
+  created_at?: string | null
+  items?: ExecutionItem[]
 }
 
 type Task = {
@@ -755,6 +812,9 @@ const IC = {
   calendar: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'],
   calendarDot: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M12 16a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
   chevronLeft: 'M15 18l-6-6 6-6',
+  externalLink: ['M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6', 'M15 3h6v6', 'M10 14L21 3'],
+  barChart2: ['M18 20V10', 'M12 20V4', 'M6 20v-6'],
+  fileText: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M16 13H8', 'M16 17H8', 'M10 9H8'],
 }
 
 export default function Home() {
@@ -805,6 +865,8 @@ export default function Home() {
   const [supporters, setSupporters] = useState<TaskSupporter[]>([])
   const [reports, setReports] = useState<TaskReport[]>([])
   const [comments, setComments] = useState<StepComment[]>([])
+  const [projectSpecs, setProjectSpecs] = useState<ProjectSpec[]>([])
+  const [executionTrackers, setExecutionTrackers] = useState<ExecutionTracker[]>([])
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -860,7 +922,14 @@ export default function Home() {
   const [linkDrafts, setLinkDrafts] = useState<Record<string, string>>({})
   const [supportDrafts, setSupportDrafts] = useState<Record<string, string>>({})
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchInput, setSearchInput] = useState('')   // immediate — controls the input
+  const [searchQuery, setSearchQuery] = useState('')   // debounced — drives filtering
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function handleSearchChange(value: string) {
+    setSearchInput(value)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => setSearchQuery(value), 200)
+  }
   const [searchOpen, setSearchOpen] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -960,8 +1029,14 @@ export default function Home() {
     const role = currentEmployee.role
     const isTopLevelRole = role === 'ceo' || role === 'coo'
     const isAdminRole = role === 'admin'
+    const isEmp = role === 'employee'
     const canManage = isTopLevelRole || isAdminRole
-    // Redirect restricted views for non-managers
+    // Employee: redirect away from views they shouldn't access
+    if (isEmp && (view === 'coo' || view === 'automation' || view === 'admin' || view === 'permissions' || view === 'dashboard' || view === 'projects')) {
+      setView('assigned')
+      return
+    }
+    // Department head / other non-managers: redirect away from strictly admin views
     if (!canManage && (view === 'coo' || view === 'automation' || view === 'admin')) {
       setView('assigned')
     }
@@ -1022,6 +1097,24 @@ export default function Home() {
   const fetchPermissions = useCallback(async () => {
     const { data } = await supabase.from('role_permissions').select('*')
     if (data) setPermissions(data as RolePermission[])
+  }, [])
+
+  const fetchProjectSpecs = useCallback(async () => {
+    const { data } = await supabase.from('project_specs').select('*').order('created_at', { ascending: false })
+    if (data) setProjectSpecs(data as ProjectSpec[])
+  }, [])
+
+  const fetchExecutionTrackers = useCallback(async () => {
+    const { data: trackers } = await supabase.from('execution_trackers').select('*').order('created_at', { ascending: false })
+    if (!trackers) return
+    const { data: items } = await supabase.from('execution_items').select('*').order('order_index', { ascending: true })
+    const itemsByTracker = new Map<string, ExecutionItem[]>()
+    for (const item of (items || [])) {
+      const list = itemsByTracker.get(item.execution_tracker_id) || []
+      list.push(item as ExecutionItem)
+      itemsByTracker.set(item.execution_tracker_id, list)
+    }
+    setExecutionTrackers(trackers.map(t => ({ ...t, items: itemsByTracker.get(t.id) || [] })) as ExecutionTracker[])
   }, [])
 
   const fetchDepartments = useCallback(async () => {
@@ -1144,6 +1237,8 @@ export default function Home() {
       fetchReports(),
       fetchComments(),
       fetchPermissions(),
+      fetchProjectSpecs(),
+      fetchExecutionTrackers(),
     ])
     if (!options?.silent) {
       setLoading(false)
@@ -1158,6 +1253,8 @@ export default function Home() {
     fetchSteps,
     fetchSupporters,
     fetchTasks,
+    fetchProjectSpecs,
+    fetchExecutionTrackers,
   ])
 
   useEffect(() => {
@@ -2297,12 +2394,12 @@ export default function Home() {
     toast('CEO đã duyệt — bước hoàn tất.')
   }
 
-  async function requestRevision(step: TaskStep) {
+  async function requestRevision(step: TaskStep, explicitNote?: string) {
     if (!canApproveStep(step)) {
       toast('Bạn không có quyền yêu cầu làm lại — chỉ người duyệt cấp trên mới được.', 'warning')
       return
     }
-    const note = revisionDrafts[step.id]?.trim()
+    const note = (explicitNote ?? revisionDrafts[step.id])?.trim()
 
     if (!note) {
       toast('Nhập lý do cần làm lại trước (bắt buộc ghi rõ chỗ nào sai).', 'warning')
@@ -2338,14 +2435,14 @@ export default function Home() {
     await refreshDataSilent()
   }
 
-  async function saveStepLink(step: TaskStep) {
-    const link = linkDrafts[step.id] ?? step.report_link ?? ''
+  async function saveStepLink(step: TaskStep, explicitLink?: string) {
+    const link = explicitLink ?? linkDrafts[step.id] ?? step.report_link ?? ''
     await updateStep(step, { report_link: link } as Partial<TaskStep>)
     toast('Đã lưu link báo cáo.', 'info')
   }
 
-  async function saveSupportRequest(step: TaskStep) {
-    const request = supportDrafts[step.id] ?? step.support_request ?? ''
+  async function saveSupportRequest(step: TaskStep, explicitRequest?: string) {
+    const request = explicitRequest ?? supportDrafts[step.id] ?? step.support_request ?? ''
 
     const { error } = await supabase.from('task_steps').update({ support_request: request }).eq('id', step.id)
 
@@ -2424,6 +2521,18 @@ export default function Home() {
     }
 
     setSupporterDrafts((current) => ({ ...current, [taskId]: '' }))
+    // BUG-08: notify the newly added supporter
+    const task = tasks.find((t) => t.id === taskId)
+    if (employeeId && employeeId !== currentEmployee?.id) {
+      await pushNotify([{
+        recipient_id: employeeId,
+        actor_id: currentEmployee?.id || null,
+        type: 'task_assigned',
+        title: 'Bạn được thêm làm người hỗ trợ',
+        body: task?.title || '',
+        task_id: taskId,
+      }])
+    }
     await refreshDataSilent()
   }
 
@@ -3243,6 +3352,14 @@ export default function Home() {
     action: string,
     ctx?: { department_id?: string | null; assignee_id?: string | null; head_id?: string | null }
   ): boolean {
+    // Hardcoded fallback: Admin always has full access regardless of DB state
+    if (role === 'admin') return true
+    // CEO/COO: full access to all operational resources, but not admin_panel (user management) by default
+    if (role === 'ceo' || role === 'coo') {
+      if (resource === 'admin_panel') return false
+      return true
+    }
+    // DB-driven permissions for department_head and employee
     const perm = permissions.find(p => p.role === role && p.resource === resource && p.action === action)
     if (!perm || perm.scope === 'none') return false
     if (perm.scope === 'all') return true
@@ -3278,10 +3395,14 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, currentEmployee, permissions])
 
+  const isEmployee = role === 'employee'
   const allMenuItems: { key: ViewKey; label: string; icon: React.ReactNode; hide?: boolean }[] = [
-    { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
-    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !can('workstream','view') },
-    { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
+    // Dashboard: Admin/CEO/COO thấy toàn công ty; Dept Head thấy phòng ban; Employee ẩn
+    { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/>, hide: isEmployee },
+    // COO Board: chỉ CEO/COO/Admin
+    { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !canManageAll },
+    // Dự án: Employee không thấy (họ dùng Việc được giao)
+    { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/>, hide: isEmployee },
     { key: 'calendar', label: 'Lịch công việc', icon: <Ico d={IC.calendar} size={18}/> },
     { key: 'assigned', label: 'Việc được giao', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
@@ -3289,10 +3410,12 @@ export default function Home() {
     { key: 'recurring', label: 'Việc định kỳ', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'automation', label: 'Nhắc tự động', icon: <Ico d={IC.zap} size={18}/>, hide: !canManageAll },
     { key: 'assistant', label: 'COO Assistant', icon: <Ico d={IC.zap} size={18}/>, hide: !isTopLevel },
+    // Quản lý nhân sự: chỉ Admin (CEO/COO có thể xem nhưng không quản lý user)
     { key: 'admin', label: 'Quản lý nhân sự', icon: <Ico d={IC.users} size={18}/>, hide: !can('admin_panel','use') },
     { key: 'feedback', label: 'Góp ý hệ thống', icon: <Ico d={IC.messageSquare} size={18}/> },
     { key: 'import', label: 'Nhập Excel', icon: <Ico d={IC.clipboard} size={18}/>, hide: !can('import','use') },
     { key: 'history', label: 'Lịch sử & Restore', icon: <Ico d={IC.clock} size={18}/>, hide: !can('import','use') },
+    // Phân quyền: chỉ Admin
     { key: 'permissions', label: 'Phân quyền', icon: <Ico d={IC.shield} size={18}/>, hide: !can('admin_panel','use') },
   ]
   const menu = allMenuItems.filter((item) => !item.hide)
@@ -3466,8 +3589,8 @@ export default function Home() {
               ref={searchInputRef}
               className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] pl-9 pr-12 text-sm outline-none focus:border-[var(--char)] focus:bg-[var(--bg-card)]"
               placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
-              value={searchQuery}
-              onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true) }}
+              value={searchInput}
+              onChange={(event) => { handleSearchChange(event.target.value); setSearchOpen(true) }}
               onFocus={() => setSearchOpen(true)}
               onBlur={() => window.setTimeout(() => setSearchOpen(false), 150)}
             />
@@ -3701,7 +3824,8 @@ export default function Home() {
             <DashboardSkeleton />
           ) : (
             <>
-              {view === 'dashboard' && (
+              {view === 'dashboard' && isEmployee && <AccessDenied />}
+              {view === 'dashboard' && !isEmployee && (
                 <DashboardView
                   tasks={visibleTasks}
                   setTaskFilter={setTaskFilter}
@@ -3801,9 +3925,12 @@ export default function Home() {
                 />
               )}
 
-              {view === 'projects' && (
+              {view === 'projects' && isEmployee && <AccessDenied />}
+              {view === 'projects' && !isEmployee && (
                 <ProjectsView
                   currentEmployee={currentEmployee}
+                  projectSpecs={projectSpecs}
+                  executionTrackers={executionTrackers}
                   projectCards={projectCards.filter((p) => visibleProjects.some((vp) => vp.id === p.id))}
                   tasks={visibleTasks}
                   steps={steps}
@@ -4140,7 +4267,7 @@ function DashboardView(props: {
   const doing   = tasks.filter((t) => t.status === 'in_progress' && !isTaskOverdue(t)).length
   const pending = tasks.filter((t) => t.status === 'pending'     && !isTaskOverdue(t)).length
   const notStarted = Math.max(0, total - done - overdue - doing - pending)
-  const attentionProjects = props.projectCards.filter((p) => p.health.level !== 'normal')
+  const attentionProjects = props.projectCards.filter((p) => p.health.level === 'watch' || p.health.level === 'problem')
   const pendingSteps = getPendingApprovalSteps(props.steps)
   const revisionSteps = getRevisionSteps(props.steps)
   const missingReportSteps = getMissingReportSteps(props.steps)
@@ -4352,7 +4479,14 @@ function DashboardView(props: {
                   <div className="mt-3 flex gap-3 text-xs text-[var(--text-muted)]">
                     {project.overdue > 0 && <span className="text-[var(--danger)]">⚠ {project.overdue} trễ</span>}
                     {project.problem > 0 && <span className="text-[var(--warning)]">⚡ {project.problem} vấn đề</span>}
-                    {project.overdue === 0 && project.problem === 0 && <span className="text-[var(--success)]">✓ Đang ổn</span>}
+                    {project.health.level === 'empty' && <span>Chưa có task triển khai</span>}
+                    {project.health.level === 'not_started' && <span>Chưa bắt đầu</span>}
+                    {project.health.level === 'normal' && <span className="text-[var(--success)]">✓ Đang ổn</span>}
+                    {(project.health.level === 'watch' || project.health.level === 'problem') && (
+                      <span className={project.health.level === 'problem' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}>
+                        {project.health.label}
+                      </span>
+                    )}
                   </div>
                 </button>
               ))}
@@ -4610,7 +4744,6 @@ function DashboardDonut({ data, total }: { data: Array<{ name: string; value: nu
   useEffect(() => { setMounted(true) }, [])
   if (!mounted) return <div className="h-56 animate-pulse rounded-xl bg-[var(--bg-surface)]" />
 
-  const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = require('recharts')
   return (
     <div>
       <div className="relative">
@@ -4622,7 +4755,10 @@ function DashboardDonut({ data, total }: { data: Array<{ name: string; value: nu
               ))}
             </Pie>
             <Tooltip
-              formatter={(v: number, name: string) => [`${v} việc (${total > 0 ? Math.round((v/total)*100) : 0}%)`, name]}
+              formatter={(value, name) => {
+                const count = Number(value ?? 0)
+                return [`${count} việc (${total > 0 ? Math.round((count / total) * 100) : 0}%)`, String(name ?? '')]
+              }}
               contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,.08)' }}
             />
           </PieChart>
@@ -4654,12 +4790,12 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
   if (!mounted) return <div className="h-44 skeleton rounded-[var(--radius)]" />
   if (data.length === 0) return <p className="h-44 flex items-center justify-center text-xs text-[var(--text-muted)]">Chưa có dự án nào có đầu việc</p>
 
-  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } = require('recharts')
   const maxVal = Math.max(...data.map(d => d.xong + d.dangLam + d.tre + d.chuaBatDau), 1)
 
-  const tooltipFormatter = (value: number, name: string) => {
+  const tooltipFormatter = (value: unknown, name: unknown) => {
     const labels: Record<string, string> = { xong: 'Xong', dangLam: 'Đang làm', tre: 'Trễ', chuaBatDau: 'Chưa bắt đầu' }
-    return [value, labels[name] || name]
+    const key = String(name ?? '')
+    return [Number(value ?? 0), labels[key] || key]
   }
 
   return (
@@ -5772,16 +5908,16 @@ function StepWorkflowCard(props: {
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
   approveStep: (step: TaskStep) => void
-  requestRevision: (step: TaskStep) => void
+  requestRevision: (step: TaskStep, explicitNote?: string) => void
   canApprove: boolean
   revisionDrafts: Record<string, string>
   setRevisionDrafts: (value: Record<string, string>) => void
   linkDrafts: Record<string, string>
   setLinkDrafts: (value: Record<string, string>) => void
-  saveStepLink: (step: TaskStep) => void
+  saveStepLink: (step: TaskStep, explicitLink?: string) => void
   supportDrafts: Record<string, string>
   setSupportDrafts: (value: Record<string, string>) => void
-  saveSupportRequest: (step: TaskStep) => void
+  saveSupportRequest: (step: TaskStep, explicitRequest?: string) => void
   commentDrafts: Record<string, string>
   setCommentDrafts: (value: Record<string, string>) => void
   addComment: AddStepComment
@@ -5789,6 +5925,12 @@ function StepWorkflowCard(props: {
   deleteStep: (step: TaskStep) => void
   clearStepFile: (step: TaskStep) => void
 }) {
+  // Local draft states — prevents root-level re-render on every keystroke (BUG-01)
+  const [localRevisionDraft, setLocalRevisionDraft] = useState('')
+  const [localCommentDraft, setLocalCommentDraft] = useState('')
+  const [localSupportDraft, setLocalSupportDraft] = useState(props.step.support_request ?? '')
+  const [localLinkDraft, setLocalLinkDraft] = useState(props.step.report_link ?? '')
+
   const owner = props.employeeMap.get(props.step.owner_id || '')
   const departmentApprover = props.employeeMap.get(props.step.department_approver_id || props.step.approver_id || '')
   const defaultCooApproverId = getCooApprover(props.employees)
@@ -5799,8 +5941,8 @@ function StepWorkflowCard(props: {
   const stage = props.step.approval_stage || 'department'
   const approvalRoute = buildApprovalRoute(props.step)
   const approveButtonLabel = getApproveButtonLabel(stage)
-  const commentDraft = props.commentDrafts[props.step.id] || ''
-  const supportDraft = props.supportDrafts[props.step.id] ?? props.step.support_request ?? ''
+  const commentDraft = localCommentDraft
+  const supportDraft = localSupportDraft
   const relatedPeople = useMemo(
     () => getRelatedCommentPeople(props.task, props.step, props.supporters, props.employeeMap),
     [props.task, props.step, props.supporters, props.employeeMap]
@@ -5823,22 +5965,12 @@ function StepWorkflowCard(props: {
         .filter((employee) => normalizeSearchText(employee.full_name).includes(normalizeSearchText(supportMentionQuery)))
         .slice(0, 8)
 
-  function setCommentDraft(value: string) {
-    props.setCommentDrafts({
-      ...props.commentDrafts,
-      [props.step.id]: value,
-    })
-  }
-
-  function setSupportDraft(value: string) {
-    props.setSupportDrafts({
-      ...props.supportDrafts,
-      [props.step.id]: value,
-    })
-  }
+  function setCommentDraft(value: string) { setLocalCommentDraft(value) }
+  function setSupportDraft(value: string) { setLocalSupportDraft(value) }
 
   function sendComment() {
-    props.addComment(props.step.id, undefined, 'comment', getMentionedEmployeeIds(commentDraft, props.employees))
+    props.addComment(props.step.id, localCommentDraft, 'comment', getMentionedEmployeeIds(localCommentDraft, props.employees))
+    setLocalCommentDraft('')
   }
 
   function toggleCooApproval(checked: boolean) {
@@ -6146,17 +6278,11 @@ function StepWorkflowCard(props: {
             <input
               className="h-9 flex-1 rounded-lg border border-[var(--border)] px-3 text-xs outline-none"
               placeholder="Dán link báo cáo... (tự lưu khi rời ô)"
-              value={props.linkDrafts[props.step.id] ?? props.step.report_link ?? ''}
-              onChange={(event) =>
-                props.setLinkDrafts({
-                  ...props.linkDrafts,
-                  [props.step.id]: event.target.value,
-                })
-              }
+              value={localLinkDraft}
+              onChange={(event) => setLocalLinkDraft(event.target.value)}
               onBlur={() => {
-                const draft = props.linkDrafts[props.step.id]
-                if (draft !== undefined && draft !== (props.step.report_link ?? '')) {
-                  props.saveStepLink(props.step)
+                if (localLinkDraft !== (props.step.report_link ?? '')) {
+                  props.saveStepLink(props.step, localLinkDraft)
                 }
               }}
               onKeyDown={(event) => {
@@ -6164,7 +6290,7 @@ function StepWorkflowCard(props: {
               }}
             />
             <button type="button"
-              onClick={() => props.saveStepLink(props.step)}
+              onClick={() => props.saveStepLink(props.step, localLinkDraft)}
               className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
               Lưu
@@ -6207,7 +6333,7 @@ function StepWorkflowCard(props: {
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter') return
                   event.preventDefault()
-                  props.saveSupportRequest(props.step)
+                  props.saveSupportRequest(props.step, localSupportDraft)
                 }}
               />
               {supportMentionOptions.length > 0 && (
@@ -6299,17 +6425,12 @@ function StepWorkflowCard(props: {
           <input
             className="h-9 flex-1 rounded-lg border border-[var(--danger)]/20 px-3 text-xs outline-none"
             placeholder="VD: phần này số liệu sai, cần làm lại..."
-            value={props.revisionDrafts[props.step.id] || ''}
-            onChange={(event) =>
-              props.setRevisionDrafts({
-                ...props.revisionDrafts,
-                [props.step.id]: event.target.value,
-              })
-            }
+            value={localRevisionDraft}
+            onChange={(event) => setLocalRevisionDraft(event.target.value)}
           />
           <button type="button"
             disabled={props.locked}
-            onClick={() => props.requestRevision(props.step)}
+            onClick={() => props.requestRevision(props.step, localRevisionDraft)}
             className="rounded-[var(--radius-sm)] bg-[var(--danger)] px-3 text-xs font-bold text-[var(--paper)] disabled:opacity-40"
           >
             Gửi
@@ -6375,10 +6496,15 @@ function ProjectsView(props: {
   deleteProject: (project: Project) => void
   canDeleteProject: boolean
   currentEmployee: Employee | null
+  projectSpecs: ProjectSpec[]
+  executionTrackers: ExecutionTracker[]
 }) {
   const [focusProject, setFocusProject] = useState<string | null>(null)
   const [boardProject, setBoardProject] = useState<string | null>(null)
   const boardProjectCard = boardProject ? props.projectCards.find((p) => p.id === boardProject) : null
+  type BoardTab = 'overview' | 'wbs' | 'coo' | 'tasks' | 'timeline' | 'kpi' | 'decision' | 'spec' | 'files'
+  const [boardTab, setBoardTab] = useState<BoardTab>('overview')
+  const [wbsExpanded, setWbsExpanded] = useState<Set<string>>(new Set())
 
   // ── Tổng hợp tự động từ data thật ──
   const totalTasks = props.projectCards.reduce((s, p) => s + p.total, 0)
@@ -6531,11 +6657,13 @@ function ProjectsView(props: {
             {props.projectCards.map((project) => {
               const isFocus = focusProject === project.id
               const healthColor =
-                project.health.label === 'Tốt' ? 'bg-[var(--ok)]' :
-                project.health.label === 'Chú ý' ? 'bg-[var(--warn)]' : 'bg-[var(--crit)]'
+                project.health.level === 'normal' ? 'bg-[var(--ok)]' :
+                project.health.level === 'watch' ? 'bg-[var(--warn)]' :
+                project.health.level === 'problem' ? 'bg-[var(--crit)]' : 'bg-[var(--border)]'
               const dotColor =
-                project.health.label === 'Tốt' ? 'bg-[var(--ok)]' :
-                project.health.label === 'Chú ý' ? 'bg-[var(--warn)]' : 'bg-[var(--crit)]'
+                project.health.level === 'normal' ? 'bg-[var(--ok)]' :
+                project.health.level === 'watch' ? 'bg-[var(--warn)]' :
+                project.health.level === 'problem' ? 'bg-[var(--crit)]' : 'bg-[var(--border)]'
 
               return (
                 <button
@@ -6632,8 +6760,8 @@ function ProjectsView(props: {
             <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Màu sức khỏe</p>
             <div className="space-y-1.5">
               {[
-                { color: 'bg-[var(--ok)]', label: 'Tốt — đúng tiến độ' },
-                { color: 'bg-[var(--warn)]', label: 'Chú ý — có rủi ro' },
+                { color: 'bg-[var(--ok)]', label: 'Đang ổn — đúng tiến độ' },
+                { color: 'bg-[var(--warn)]', label: 'Cần chú ý — có rủi ro' },
                 { color: 'bg-[var(--crit)]', label: 'Nghiêm trọng — cần can thiệp' },
               ].map((l) => (
                 <div key={l.label} className="flex items-center gap-2">
@@ -6674,12 +6802,14 @@ function ProjectsView(props: {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {props.projectCards.map((project) => {
           const healthCls =
-            project.health.label === 'Tốt' ? 'bg-[var(--success-soft)] text-[var(--ok)]' :
-            project.health.label === 'Chú ý' ? 'bg-[var(--warning-soft)] text-[var(--warn)]' :
-            'bg-[var(--danger-soft)] text-[var(--crit)]'
+            project.health.level === 'normal' ? 'bg-[var(--success-soft)] text-[var(--ok)]' :
+            project.health.level === 'watch' ? 'bg-[var(--warning-soft)] text-[var(--warn)]' :
+            project.health.level === 'problem' ? 'bg-[var(--danger-soft)] text-[var(--crit)]' :
+            'bg-[var(--bg-surface)] text-[var(--text-muted)]'
           const barColor =
-            project.health.label === 'Tốt' ? 'var(--ok)' :
-            project.health.label === 'Chú ý' ? 'var(--warn)' : 'var(--crit)'
+            project.health.level === 'normal' ? 'var(--ok)' :
+            project.health.level === 'watch' ? 'var(--warn)' :
+            project.health.level === 'problem' ? 'var(--crit)' : 'var(--border)'
           return (
             <button
               key={project.id}
@@ -6695,7 +6825,7 @@ function ProjectsView(props: {
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${healthCls}`}>{project.health.label}</span>
               </div>
               <div className="mb-2 h-2.5 overflow-hidden rounded-full bg-[var(--bg-surface)]">
-                <div className="h-2.5 rounded-full" style={{ width: `${Math.max(project.rate, 1)}%`, background: barColor }} />
+                <div className="h-2.5 rounded-full" style={{ width: `${project.total === 0 ? 0 : Math.max(project.rate, 1)}%`, background: barColor }} />
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="font-bold tabular-nums text-[var(--text-secondary)]">{isNaN(project.rate) ? 0 : project.rate}% · {project.done}/{project.total} việc</span>
@@ -6708,7 +6838,7 @@ function ProjectsView(props: {
         })}
       </div>
 
-      {/* ══ Project board modal ══ */}
+      {/* ══ Project Workspace Modal ══ */}
       {boardProjectCard && (() => {
         const pTasks = props.tasks.filter((t) => t.project_id === boardProjectCard.id)
         const pTaskIds = new Set(pTasks.map((t) => t.id))
@@ -6719,126 +6849,321 @@ function ProjectsView(props: {
         }).length
         const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
         const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
-        const workstreams = props.tasks.filter((t) => t.project_id === boardProjectCard.id && isWorkstream(t))
+        const workstreams = pTasks.filter((t) => isWorkstream(t))
+        const pDone = pTasks.filter((t) => t.status === 'completed').length
+        const pTotal = pTasks.length
+
+        // Spec & tracker linked to this project
+        const spec = props.projectSpecs.find(s => s.project_id === boardProjectCard.id)
+        const tracker = props.executionTrackers.find(t => t.project_id === boardProjectCard.id)
+
+        // Parse JSON fields safely
+        function parseJson<T>(s: string | null | undefined): T | null {
+          if (!s) return null
+          try { return JSON.parse(s) as T } catch { return null }
+        }
+        const specKpis = parseJson<Array<{kpi:string;formula:string;target:string}>>(spec?.kpis)
+        const specRisks = parseJson<Array<{risk:string;severity:string;mitigation:string}>>(spec?.risks)
+        const specDecisions = parseJson<Array<{id:string;decision:string;date:string;by:string}>>(spec?.decisions)
+        const trackerPhases = parseJson<Array<{phase:string;name:string;timeline:string;work:string[];exit_gate:string[];owner:string}>>(tracker?.phases)
+        const trackerModules = parseJson<Array<{id:string;name:string;readiness:string;blocker:string}>>(tracker?.module_readiness)
+        const trackerDecisions = parseJson<Array<{item:string;needs:string;owner:string}>>(tracker?.decisions_needed)
+        const trackerTop3 = parseJson<Array<{rank:number;action:string;why:string;owner:string}>>(tracker?.top3_actions)
+
+        const TABS: { key: BoardTab; label: string; dot?: string }[] = [
+          { key: 'overview', label: 'Tổng quan' },
+          { key: 'spec', label: 'Strategy / Spec', dot: spec ? 'bg-[var(--success)]' : 'bg-[var(--warn)]' },
+          { key: 'wbs', label: 'Execution / WBS', dot: tracker ? 'bg-[var(--success)]' : 'bg-[var(--warn)]' },
+          { key: 'coo', label: 'COO Board' },
+          { key: 'tasks', label: 'Task & Step' },
+          { key: 'timeline', label: 'Timeline' },
+          { key: 'kpi', label: 'KPI & Risk' },
+          { key: 'decision', label: 'Decision Log' },
+          { key: 'files', label: 'Files / Links' },
+        ]
+
+        function stBadge(t: Task) {
+          if (t.status === 'completed') return { dot: 'bg-[var(--success)]', txt: 'Xong', cls: 'text-[var(--success)] bg-[var(--success-soft)]' }
+          if (isTaskOverdue(t)) return { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' }
+          if (t.status === 'in_progress') return { dot: 'bg-[var(--olive)]', txt: 'Đang', cls: 'text-[var(--olive)] bg-[var(--bg-surface)]' }
+          if (t.status === 'pending') return { dot: 'bg-[var(--warn)]', txt: 'Kẹt', cls: 'text-[var(--warn)] bg-[var(--warning-soft)]' }
+          return { dot: 'bg-[var(--border)]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[var(--bg-surface)]' }
+        }
 
         return (
-          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8" onClick={() => setBoardProject(null)}>
-            <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-[var(--bg-card)] shadow-2xl ring-1 ring-black/5" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-2 sm:p-6" onClick={() => setBoardProject(null)}>
+            <div className="w-full max-w-5xl overflow-hidden rounded-2xl bg-[var(--bg-card)] shadow-2xl ring-1 ring-black/10" onClick={(e) => e.stopPropagation()}>
 
-              {/* ── Sticky header ── */}
-              <div className="sticky top-0 z-10 flex items-center gap-3 bg-[var(--bg-card)] px-5 py-3.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]/50 uppercase tracking-widest" style={{fontSize:'10px'}}>
-                    {boardProjectCard.code || 'PROJECT'}
-                  </p>
-                  <p className="truncate text-base font-bold text-[var(--text-primary)] leading-snug">{boardProjectCard.name}</p>
+              {/* ── Header ── */}
+              <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg-card)]">
+                <div className="flex items-center gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[var(--accent)]">{boardProjectCard.code || 'PROJECT'}</p>
+                    <p className="truncate text-lg font-extrabold text-[var(--text-primary)] leading-tight">{boardProjectCard.name}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {/* Health badge */}
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                      boardProjectCard.health.level === 'normal' ? 'bg-[var(--success-soft)] text-[var(--ok)]' :
+                      boardProjectCard.health.level === 'watch' ? 'bg-[var(--warning-soft)] text-[var(--warn)]' :
+                      boardProjectCard.health.level === 'problem' ? 'bg-[var(--danger-soft)] text-[var(--crit)]' :
+                      'bg-[var(--bg-surface)] text-[var(--text-muted)]'
+                    }`}>{boardProjectCard.health.label}</span>
+                    <span className="text-sm font-extrabold tabular-nums text-[var(--text-secondary)]">{boardProjectCard.rate}%</span>
+                    {props.canDeleteProject && (
+                      <button type="button" onClick={() => { setBoardProject(null); props.deleteProject(boardProjectCard) }}
+                        className="rounded-lg border border-[var(--danger)]/30 px-2.5 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)]">
+                        Xóa
+                      </button>
+                    )}
+                    <button type="button" onClick={() => setBoardProject(null)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-surface)]">
+                      <Ico d={IC.x} size={16} />
+                    </button>
+                  </div>
                 </div>
-                <button type="button"
-                  onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo') }}
-                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--accent-hover)] transition-colors">
-                  Mở COO Board
-                </button>
-                {props.canDeleteProject && (
-                  <button type="button"
-                    onClick={() => { setBoardProject(null); props.deleteProject(boardProjectCard) }}
-                    className="shrink-0 rounded-lg border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors">
-                    Xóa dự án
-                  </button>
-                )}
-                <button type="button" onClick={() => setBoardProject(null)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-primary)]/60 hover:bg-[var(--bg-card)]/10 transition-colors">
-                  <Ico d={IC.x} size={16} />
-                </button>
-              </div>
-
-              {/* ── Progress bar ── */}
-              <div className="h-1 w-full bg-[var(--border)]">
-                <div className="h-full bg-[var(--olive)] transition-all" style={{ width: `${boardProjectCard.rate}%` }} />
-              </div>
-
-              <div className="p-5 space-y-6">
-
-                {/* ── Description ── */}
-                {boardProjectCard.description && (
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{boardProjectCard.description}</p>
-                )}
-
-                {/* ── Stats row ── */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {[
-                    { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${boardProjectCard.done}/${boardProjectCard.total} việc`, c: 'text-[var(--text-primary)]' },
-                    { label: 'Xong tuần này', v: pDue, sub: 'việc cần hoàn thành', c: pDue > 0 ? 'text-[var(--success)]' : 'text-[var(--text-muted)]' },
-                    { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]' },
-                    { label: 'Chờ duyệt', v: pPend, sub: 'bước đang pending', c: pPend > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]' },
-                  ].map((x) => (
-                    <div key={x.label} className="rounded-xl bg-[var(--bg-surface)] px-3.5 py-3">
-                      <p className={`text-2xl font-extrabold tabular-nums leading-none ${x.c}`}>{x.v}</p>
-                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{x.label}</p>
-                      <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{x.sub}</p>
-                    </div>
+                {/* Progress bar */}
+                <div className="h-1 w-full bg-[var(--border)]">
+                  <div className="h-full bg-[var(--olive)] transition-all" style={{ width: `${boardProjectCard.total === 0 ? 0 : Math.max(boardProjectCard.rate, 1)}%` }} />
+                </div>
+                {/* Tabs */}
+                <div className="flex overflow-x-auto border-b border-[var(--border)] px-5 gap-0">
+                  {TABS.map((tab) => (
+                    <button key={tab.key} type="button" onClick={() => setBoardTab(tab.key)}
+                      className={`shrink-0 border-b-2 px-3 py-2.5 text-xs font-bold transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                        boardTab === tab.key
+                          ? 'border-[var(--olive)] text-[var(--olive)]'
+                          : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                      }`}>
+                      {tab.label}
+                      {tab.dot && <span className={`h-1.5 w-1.5 rounded-full ${tab.dot}`} />}
+                    </button>
                   ))}
                 </div>
+              </div>
 
-                {/* ── Task workstreams ── */}
-                <div>
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Việc theo mảng</p>
-                    <p className="text-xs text-[var(--text-muted)]">bấm để mở chi tiết</p>
-                  </div>
-                  <div className="space-y-2">
-                    {workstreams.map((ws) => {
-                      const children = props.tasks.filter((t) => t.parent_task_id === ws.id)
-                      const doneCount = children.filter((c) => c.status === 'completed').length
-                      const wsProgress = children.length > 0 ? Math.round((doneCount / children.length) * 100) : 0
-                      return (
-                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
-                          {/* Workstream header */}
-                          <div className="flex items-center gap-3 px-4 py-2.5">
-                            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)]">{ws.title}</p>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
-                                <div className="h-full rounded-full bg-[var(--olive)]" style={{ width: `${wsProgress}%` }} />
+              {/* ── Tab content ── */}
+              <div className="p-5 space-y-5">
+
+                {/* TAB: Tổng quan */}
+                {boardTab === 'overview' && (
+                  <div className="space-y-5">
+                    {boardProjectCard.description && (
+                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{boardProjectCard.description}</p>
+                    )}
+                    {/* Spec + Tracker link status */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Strategy Spec', linked: !!spec, action: () => setBoardTab('spec') },
+                        { label: 'Execution Tracker', linked: !!tracker, action: () => setBoardTab('wbs') },
+                      ].map((s) => (
+                        <button key={s.label} type="button" onClick={s.action}
+                          className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition-colors hover:bg-[var(--bg-surface)] ${s.linked ? 'border-[var(--success)]/30 text-[var(--success)]' : 'border-dashed border-[var(--border)] text-[var(--text-muted)]'}`}>
+                          <span className={`h-2 w-2 rounded-full ${s.linked ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}`} />
+                          {s.label}: {s.linked ? 'Đã liên kết' : 'Chưa có'}
+                          <span className="ml-auto text-[10px]">{s.linked ? 'Xem →' : 'Import'}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {/* North star from spec */}
+                    {spec?.north_star && (
+                      <div className="rounded-xl border border-[var(--olive)]/20 bg-[var(--bg-surface)] px-4 py-3">
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--accent)]">North Star</p>
+                        <p className="text-sm font-bold text-[var(--text-primary)]">{spec.north_star}</p>
+                      </div>
+                    )}
+                    {/* Top 3 actions from tracker */}
+                    {trackerTop3 && trackerTop3.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">3 hành động ưu tiên</p>
+                        <div className="space-y-1.5">
+                          {trackerTop3.map((a) => (
+                            <div key={a.rank} className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2.5">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[9px] font-extrabold text-[var(--text-primary)]">{a.rank}</span>
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-[var(--text-primary)]">{a.action}</p>
+                                <p className="text-[10px] text-[var(--text-muted)]">{a.why} · <span className="font-semibold">{a.owner}</span></p>
                               </div>
-                              <span className="w-10 text-right text-[10px] font-bold tabular-nums text-[var(--text-muted)]">{doneCount}/{children.length}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {[
+                        { label: 'Tiến độ', v: `${boardProjectCard.rate}%`, sub: `${pDone}/${pTotal} task`, c: 'text-[var(--text-primary)]' },
+                        { label: 'Xong tuần này', v: pDue, sub: 'task đến hạn', c: pDue > 0 ? 'text-[var(--success)]' : 'text-[var(--text-muted)]' },
+                        { label: 'Kẹt / trễ', v: pStuck, sub: 'cần xử lý ngay', c: pStuck > 0 ? 'text-[var(--danger)]' : 'text-[var(--text-muted)]' },
+                        { label: 'Chờ duyệt', v: pPend, sub: 'bước pending', c: pPend > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]' },
+                      ].map((x) => (
+                        <div key={x.label} className="rounded-xl bg-[var(--bg-surface)] px-3.5 py-3">
+                          <p className={`text-2xl font-extrabold tabular-nums leading-none ${x.c}`}>{x.v}</p>
+                          <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{x.label}</p>
+                          <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{x.sub}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <ProjectHealthSummary health={boardProjectCard.health} />
+                    {/* Workstream summary */}
+                    <div>
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Workstream ({workstreams.length})</p>
+                      <div className="space-y-2">
+                        {workstreams.length === 0 ? (
+                          <div className="rounded-xl border border-dashed border-[var(--border)] py-8 text-center">
+                            <p className="text-sm font-bold text-[var(--text-muted)]">Dự án chưa có task triển khai.</p>
+                            <p className="mt-1 text-xs text-[var(--text-muted)]">Hãy import Execution Tracker hoặc tạo workstream đầu tiên.</p>
+                          </div>
+                        ) : workstreams.map((ws) => {
+                          const children = pTasks.filter((t) => t.parent_task_id === ws.id)
+                          const wsD = children.filter((c) => c.status === 'completed').length
+                          const wsP = children.length > 0 ? Math.round((wsD / children.length) * 100) : 0
+                          const st = stBadge(ws)
+                          return (
+                            <div key={ws.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-2.5">
+                              <span className={`h-2 w-2 shrink-0 rounded-full ${st.dot}`} />
+                              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)]">{ws.title}</p>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <div className="h-1.5 w-20 overflow-hidden rounded-full bg-[var(--border)]">
+                                  <div className="h-full rounded-full bg-[var(--olive)]" style={{ width: `${wsP}%` }} />
+                                </div>
+                                <span className="text-[10px] font-bold tabular-nums text-[var(--text-muted)]">{wsD}/{children.length}</span>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB: Execution / WBS */}
+                {boardTab === 'wbs' && (
+                  <div className="space-y-4">
+                    {/* Tracker stage + phases */}
+                    {tracker && (
+                      <div className="space-y-3">
+                        {tracker.stage && (
+                          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-2.5">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--accent)]">Stage hiện tại</p>
+                            <p className="mt-0.5 text-sm font-bold text-[var(--text-primary)]">{tracker.stage}</p>
+                          </div>
+                        )}
+                        {trackerPhases && trackerPhases.length > 0 && (
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            {trackerPhases.map((ph) => (
+                              <div key={ph.phase} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[9px] font-extrabold text-[var(--text-primary)]">{ph.phase}</span>
+                                  <p className="font-bold text-sm text-[var(--text-primary)] truncate">{ph.name}</p>
+                                </div>
+                                <p className="text-[10px] text-[var(--text-muted)]">{ph.timeline} · {ph.owner}</p>
+                                {ph.work && ph.work.length > 0 && (
+                                  <ul className="mt-1.5 space-y-0.5">
+                                    {ph.work.slice(0, 3).map((w, i) => (
+                                      <li key={i} className="flex items-center gap-1.5 text-[10px] text-[var(--text-secondary)]">
+                                        <span className="h-1 w-1 rounded-full bg-[var(--border)] shrink-0" />
+                                        {w}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {trackerModules && trackerModules.length > 0 && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Module readiness</p>
+                            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                              {trackerModules.map((m) => (
+                                <div key={m.id} className={`rounded-lg border px-3 py-2 ${m.readiness === 'designed' ? 'border-[var(--success)]/20 bg-[var(--success-soft)]' : m.readiness === 'idea' ? 'border-[var(--warning)]/20 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+                                  <p className="text-[9px] font-mono font-bold text-[var(--text-muted)]">{m.id}</p>
+                                  <p className="text-xs font-semibold text-[var(--text-primary)] leading-tight">{m.name}</p>
+                                  <span className={`inline-block mt-1 rounded-full px-1.5 py-0.5 text-[8px] font-extrabold uppercase ${m.readiness === 'designed' ? 'text-[var(--ok)]' : 'text-[var(--warn)]'}`}>{m.readiness}</span>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                          {/* Child tasks */}
-                          {children.length > 0 && (
-                            <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">
-                              {children.map((t) => {
-                                                                const desc = t.description || ''
+                        )}
+                      </div>
+                    )}
+                    {/* WBS Tree from actual tasks */}
+                    <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Work Breakdown Structure</p>
+                      <button type="button" onClick={() => {
+                        if (wbsExpanded.size === workstreams.length) setWbsExpanded(new Set())
+                        else setWbsExpanded(new Set(workstreams.map((w) => w.id)))
+                      }} className="text-xs font-semibold text-[var(--olive)] hover:underline">
+                        {wbsExpanded.size === workstreams.length ? 'Thu gọn tất cả' : 'Mở rộng tất cả'}
+                      </button>
+                    </div>
+                    {workstreams.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-[var(--border)] py-10 text-center">
+                        <p className="text-sm font-bold text-[var(--text-muted)]">Dự án chưa có workstream nào.</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">Import Execution Tracker hoặc tạo workstream đầu tiên để bắt đầu.</p>
+                      </div>
+                    ) : workstreams.map((ws) => {
+                      const children = pTasks.filter((t) => t.parent_task_id === ws.id)
+                      const wsD = children.filter((c) => c.status === 'completed').length
+                      const wsP = children.length > 0 ? Math.round((wsD / children.length) * 100) : 0
+                      const isOpen = wbsExpanded.has(ws.id)
+                      const st = stBadge(ws)
+                      return (
+                        <div key={ws.id} className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-card)]">
+                          {/* Workstream row */}
+                          <button type="button" onClick={() => {
+                            const next = new Set(wbsExpanded)
+                            isOpen ? next.delete(ws.id) : next.add(ws.id)
+                            setWbsExpanded(next)
+                          }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--bg-surface)]">
+                            <Ico d={IC.chevronRight} size={12} className={`shrink-0 text-[var(--text-muted)] transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${st.dot}`} />
+                            <p className="min-w-0 flex-1 truncate font-bold text-[var(--text-primary)]">{ws.title}</p>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-[var(--border)]">
+                                <div className="h-full rounded-full bg-[var(--olive)]" style={{ width: `${wsP}%` }} />
+                              </div>
+                              <span className="text-[10px] font-bold tabular-nums text-[var(--text-muted)] w-10 text-right">{wsD}/{children.length}</span>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
+                          </button>
+                          {/* Children */}
+                          {isOpen && (
+                            <div className="border-t border-[var(--border)] divide-y divide-[var(--border)] bg-[var(--bg-surface)]">
+                              {children.length === 0 ? (
+                                <p className="px-8 py-3 text-xs text-[var(--text-muted)]">Workstream chưa có subtask.</p>
+                              ) : children.map((t) => {
+                                const desc = t.description || ''
                                 const ownerM = (desc.match(/owner:\s*([^|]+)/) || [])[1]?.trim()
-                                const moduleM = (desc.match(/module:\s*([^|]+)/) || [])[1]?.trim()
                                 const blkRaw = (desc.match(/blocker:\s*(CAN QUYET|CAN SO|CAN BUILD)/) || [])[1]
                                 const blkLabel = blkRaw === 'CAN QUYET' ? 'Cần quyết' : blkRaw === 'CAN SO' ? 'Cần số' : blkRaw === 'CAN BUILD' ? 'Cần build' : ''
                                 const isCrit = /critical-path/.test(desc)
-                                const giaoName = props.employeeMap.get(t.head_id || '')?.full_name || '—'
-                                const who = props.employeeMap.get(t.assignee_id || '')?.full_name
-                                  || (desc.match(/Ai làm: ([^·]+)/) || [])[1]?.trim() || ownerM || 'Chưa gán'
-                                const st =
-                                  t.status === 'completed' ? { dot: 'bg-[var(--success)]', txt: 'Xong', cls: 'text-[var(--success)] bg-[var(--success-soft)]' } :
-                                  isTaskOverdue(t) ? { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' } :
-                                  t.status === 'in_progress' ? { dot: 'bg-[var(--olive)]', txt: 'Đang', cls: 'text-[var(--olive)] bg-[var(--bg-surface)]' } :
-                                  t.status === 'pending' ? { dot: 'bg-[var(--warn)]', txt: 'Kẹt', cls: 'text-[var(--warn)] bg-[var(--warning-soft)]' } :
-                                  { dot: 'bg-[var(--border)]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[var(--bg-surface)]' }
+                                const who = props.employeeMap.get(t.assignee_id || '')?.full_name || ownerM || '—'
+                                const tSt = stBadge(t)
+                                const tSteps = props.steps.filter((s) => s.task_id === t.id)
+                                const tStepD = tSteps.filter((s) => s.is_done).length
                                 return (
-                                  <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                                    className="flex w-full flex-col gap-1 px-4 py-2 text-left hover:bg-[var(--bg-surface)] transition-colors group">
-                                    <span className="flex w-full items-center gap-3">
-                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
+                                  <div key={t.id} className="pl-8">
+                                    <button type="button" onClick={() => props.setSelectedTask(t)}
+                                      className="flex w-full items-center gap-3 py-2 pr-4 text-left hover:bg-[var(--bg-card)] group">
+                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tSt.dot}`} />
                                       <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[var(--olive)]">{t.title}</span>
-                                      <span className="w-20 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
-                                      <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
-                                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.cls}`}>{st.txt}</span>
-                                    </span>
-                                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-4 text-[10px] text-[var(--text-muted)]">
-                                      <span><span className="font-spec text-[8px]">GIAO</span> {giaoName}</span>
-                                      <span><span className="font-spec text-[8px]">PHỤ TRÁCH</span> {who}</span>
-                                      {isCrit && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 font-semibold text-[var(--crit)]">đường găng</span>}
-                                      {blkLabel && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 font-semibold text-[var(--warn)]">{blkLabel}</span>}
-                                      {moduleM && <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 font-medium text-[var(--text-secondary)]">{moduleM}</span>}
-                                    </span>
-                                  </button>
+                                      {tSteps.length > 0 && (
+                                        <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-muted)]">{tStepD}/{tSteps.length} bước</span>
+                                      )}
+                                      <span className="w-16 shrink-0 truncate text-right text-xs text-[var(--text-muted)]">{who}</span>
+                                      <span className="w-11 shrink-0 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
+                                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tSt.cls}`}>{tSt.txt}</span>
+                                    </button>
+                                    {(isCrit || blkLabel) && (
+                                      <div className="flex flex-wrap gap-1 pb-1 pl-4">
+                                        {isCrit && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--crit)]">đường găng</span>}
+                                        {blkLabel && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--warn)]">{blkLabel}</span>}
+                                      </div>
+                                    )}
+                                  </div>
                                 )
                               })}
                             </div>
@@ -6846,11 +7171,328 @@ function ProjectsView(props: {
                         </div>
                       )
                     })}
-                    {workstreams.length === 0 && (
-                      <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có việc trong dự án này.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB: COO Board */}
+                {boardTab === 'coo' && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-[var(--text-secondary)]">COO Board hiển thị toàn bộ workstream và subtask theo luồng duyệt phê duyệt.</p>
+                    <button type="button"
+                      onClick={() => { props.setSelectedProjectId(boardProjectCard.id); props.setView('coo'); setBoardProject(null) }}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] py-4 text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--accent-hover)] transition-colors">
+                      <Ico d={IC.externalLink} size={16} />
+                      Mở COO Board cho dự án này
+                    </button>
+                    {/* Mini stats for COO-relevant items */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: 'Chờ duyệt COO', v: props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending' && s.requires_coo_approval).length, c: 'text-[var(--warning)]' },
+                        { label: 'Chờ duyệt CEO', v: props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending' && s.requires_ceo_approval).length, c: 'text-[var(--danger)]' },
+                        { label: 'Đã duyệt', v: props.steps.filter((s) => pTaskIds.has(s.task_id) && s.approval_status === 'approved').length, c: 'text-[var(--success)]' },
+                        { label: 'Từ chối', v: props.steps.filter((s) => pTaskIds.has(s.task_id) && s.approval_status === 'rejected').length, c: 'text-[var(--crit)]' },
+                      ].map((x) => (
+                        <div key={x.label} className="rounded-xl bg-[var(--bg-surface)] px-4 py-3">
+                          <p className={`text-2xl font-extrabold tabular-nums ${x.c}`}>{x.v}</p>
+                          <p className="mt-1 text-xs text-[var(--text-muted)]">{x.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB: Task & Step */}
+                {boardTab === 'tasks' && (
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Tất cả task ({pTasks.length}) · bấm để mở chi tiết</p>
+                    {pTasks.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có task nào.</p>
+                    ) : pTasks.map((t) => {
+                      const tSteps = props.steps.filter((s) => s.task_id === t.id)
+                      const tStepD = tSteps.filter((s) => s.is_done).length
+                      const who = props.employeeMap.get(t.assignee_id || '')?.full_name || '—'
+                      const tSt = stBadge(t)
+                      const isWs = isWorkstream(t)
+                      return (
+                        <div key={t.id} className={`overflow-hidden rounded-xl border ${isWs ? 'border-[var(--olive)]/30 bg-[var(--bg-surface)]' : 'border-[var(--border)] bg-[var(--bg-card)]'}`}>
+                          <button type="button" onClick={() => props.setSelectedTask(t)}
+                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg-surface)] group">
+                            {isWs && <span className="shrink-0 rounded-sm bg-[var(--olive)]/20 px-1 py-0.5 text-[9px] font-bold text-[var(--olive)]">WS</span>}
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tSt.dot}`} />
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--text-primary)] group-hover:text-[var(--olive)]">{t.title}</span>
+                            {tSteps.length > 0 && (
+                              <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-muted)]">{tStepD}/{tSteps.length}</span>
+                            )}
+                            <span className="shrink-0 text-xs text-[var(--text-muted)]">{who}</span>
+                            <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-muted)]">{t.due_date?.slice(5) || '—'}</span>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tSt.cls}`}>{tSt.txt}</span>
+                          </button>
+                          {tSteps.length > 0 && (
+                            <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]">
+                              {tSteps.map((s) => (
+                                <div key={s.id} className="flex items-center gap-3 px-8 py-1.5">
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.is_done ? 'bg-[var(--success)]' : s.approval_status === 'pending' ? 'bg-[var(--warn)]' : 'bg-[var(--border)]'}`} />
+                                  <span className={`flex-1 truncate text-xs ${s.is_done ? 'text-[var(--text-muted)] line-through' : 'text-[var(--text-secondary)]'}`}>{s.step_title}</span>
+                                  {s.approval_status === 'pending' && !s.is_done && (
+                                    <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[9px] font-bold text-[var(--warn)]">chờ duyệt</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* TAB: Timeline */}
+                {boardTab === 'timeline' && (() => {
+                  const dated = pTasks.filter((t) => t.due_date).sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))
+                  const groups = new Map<string, Task[]>()
+                  for (const t of dated) {
+                    const k = t.due_date!.slice(0, 7) // YYYY-MM
+                    if (!groups.has(k)) groups.set(k, [])
+                    groups.get(k)!.push(t)
+                  }
+                  const monthNames: Record<string, string> = { '01':'Tháng 1','02':'Tháng 2','03':'Tháng 3','04':'Tháng 4','05':'Tháng 5','06':'Tháng 6','07':'Tháng 7','08':'Tháng 8','09':'Tháng 9','10':'Tháng 10','11':'Tháng 11','12':'Tháng 12' }
+                  return (
+                    <div className="space-y-4">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Sắp xếp theo deadline</p>
+                      {groups.size === 0 ? (
+                        <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có task nào có deadline.</p>
+                      ) : Array.from(groups.entries()).map(([ym, ts]) => {
+                        const [y, m] = ym.split('-')
+                        return (
+                          <div key={ym}>
+                            <p className="mb-2 text-xs font-bold text-[var(--text-secondary)]">{monthNames[m] || m} {y}</p>
+                            <div className="space-y-1.5">
+                              {ts.map((t) => {
+                                const tSt = stBadge(t)
+                                const day = t.due_date!.slice(8)
+                                return (
+                                  <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
+                                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-2 text-left hover:bg-[var(--bg-card)] group">
+                                    <span className="w-6 shrink-0 text-center text-sm font-extrabold tabular-nums text-[var(--text-muted)]">{day}</span>
+                                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tSt.dot}`} />
+                                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)] group-hover:text-[var(--olive)]">{t.title}</span>
+                                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${tSt.cls}`}>{tSt.txt}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+
+                {/* TAB: KPI & Risk */}
+                {boardTab === 'kpi' && (
+                  <div className="space-y-5">
+                    {!spec && !specKpis && (
+                      <div className="rounded-xl border border-dashed border-[var(--border)] py-8 text-center">
+                        <p className="text-sm font-bold text-[var(--text-muted)]">Dự án chưa có Strategy Spec</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">Import Rebuild Spec để hiển thị KPI mục tiêu và risk.</p>
+                      </div>
+                    )}
+                    {specKpis && specKpis.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">KPI mục tiêu</p>
+                        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+                          <table className="w-full text-xs">
+                            <thead className="bg-[var(--bg-surface)]">
+                              <tr>
+                                {['KPI', 'Công thức', 'Mục tiêu'].map((h) => (
+                                  <th key={h} className="px-4 py-2 text-left font-bold text-[var(--text-secondary)] uppercase tracking-wide">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--border)]">
+                              {specKpis.map((k, i) => (
+                                <tr key={i} className="hover:bg-[var(--bg-surface)]">
+                                  <td className="px-4 py-2 font-semibold text-[var(--text-primary)]">{k.kpi}</td>
+                                  <td className="px-4 py-2 font-mono text-[var(--text-secondary)]">{k.formula}</td>
+                                  <td className="px-4 py-2 font-bold text-[var(--olive)]">{k.target}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    {specRisks && specRisks.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Risk & Mitigation</p>
+                        <div className="space-y-2">
+                          {specRisks.map((r, i) => (
+                            <div key={i} className={`rounded-xl border px-4 py-3 ${r.severity === 'high' ? 'border-[var(--danger)]/30 bg-[var(--danger-soft)]' : 'border-[var(--warning)]/30 bg-[var(--warning-soft)]'}`}>
+                              <div className="flex items-start gap-3">
+                                <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${r.severity === 'high' ? 'bg-[var(--danger-soft)] text-[var(--crit)]' : 'bg-[var(--warning-soft)] text-[var(--warn)]'}`}>{r.severity}</span>
+                                <div>
+                                  <p className="text-sm font-bold text-[var(--text-primary)]">{r.risk}</p>
+                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)]">→ {r.mitigation}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
+                )}
+
+                {/* TAB: Decision Log */}
+                {boardTab === 'decision' && (
+                  <div className="space-y-4">
+                    {!spec && !specDecisions && (
+                      <div className="rounded-xl border border-dashed border-[var(--border)] py-8 text-center">
+                        <p className="text-sm font-bold text-[var(--text-muted)]">Chưa có Decision Log</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">Import Rebuild Spec để hiển thị quyết định đã chốt.</p>
+                      </div>
+                    )}
+                    {specDecisions && specDecisions.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Quyết định đã chốt ({specDecisions.length})</p>
+                        <div className="space-y-2">
+                          {specDecisions.map((d, i) => (
+                            <div key={i} className="flex items-start gap-3 rounded-xl border border-[var(--success)]/20 bg-[var(--success-soft)] px-4 py-3">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--success)]/20 text-[9px] font-extrabold text-[var(--ok)]">{d.id || i+1}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-[var(--text-primary)]">{d.decision}</p>
+                                <p className="mt-0.5 text-[10px] text-[var(--text-muted)]">{d.date} · {d.by}</p>
+                              </div>
+                              <span className="shrink-0 rounded-full bg-[var(--success)]/20 px-2 py-0.5 text-[9px] font-extrabold text-[var(--ok)]">CHỐT</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {trackerDecisions && trackerDecisions.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Cần quyết định ({trackerDecisions.length})</p>
+                        <div className="space-y-2">
+                          {trackerDecisions.map((d, i) => (
+                            <div key={i} className="flex items-start gap-3 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-4 py-3">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--warning)]/20 text-[9px] font-extrabold text-[var(--warn)]">!</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-[var(--text-primary)]">{d.item}</p>
+                                <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{d.needs}</p>
+                                <p className="mt-0.5 text-[10px] font-bold text-[var(--warn)]">Owner: {d.owner}</p>
+                              </div>
+                              <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[9px] font-extrabold text-[var(--warn)]">CẦN QUYẾT</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB: Strategy / Spec */}
+                {boardTab === 'spec' && (
+                  <div className="space-y-5">
+                    {!spec ? (
+                      <div className="py-10 text-center">
+                        <Ico d={IC.fileText} size={32} className="mx-auto mb-3 text-[var(--text-muted)]" />
+                        <p className="text-sm font-bold text-[var(--text-muted)]">Dự án chưa có Strategy Spec</p>
+                        <p className="mt-1 text-xs text-[var(--text-muted)]">Hãy import Rebuild Spec để hiển thị mục tiêu, mô hình vận hành, KPI và risk.</p>
+                        <p className="mt-3 text-[10px] text-[var(--text-muted)] bg-[var(--bg-surface)] inline-block rounded-full px-3 py-1">Chạy SQL seed: <code>sql/vyvy_loyalty_seed.sql</code></p>
+                      </div>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-lg font-extrabold text-[var(--text-primary)]">{spec.title || boardProjectCard.name}</p>
+                            {spec.version && <p className="text-[10px] font-mono text-[var(--accent)]">{spec.version}</p>}
+                          </div>
+                        </div>
+                        {spec.north_star && (
+                          <div className="rounded-xl border border-[var(--olive)]/30 bg-[var(--bg-surface)] px-5 py-4">
+                            <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--accent)]">North Star</p>
+                            <p className="text-xl font-extrabold text-[var(--olive)]">{spec.north_star}</p>
+                          </div>
+                        )}
+                        {spec.objectives && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Objectives</p>
+                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.objectives}</p>
+                          </div>
+                        )}
+                        {spec.operating_model && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Operating Model</p>
+                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.operating_model}</p>
+                          </div>
+                        )}
+                        {spec.data_architecture && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Data Architecture</p>
+                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.data_architecture}</p>
+                          </div>
+                        )}
+                        {spec.governance && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Governance</p>
+                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.governance}</p>
+                          </div>
+                        )}
+                        {spec.notes && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Notes & Open Items</p>
+                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.notes}</p>
+                          </div>
+                        )}
+                        {specKpis && specKpis.length > 0 && (
+                          <div>
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">KPI mục tiêu</p>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              {specKpis.map((k, i) => (
+                                <div key={i} className="rounded-xl bg-[var(--bg-surface)] px-3 py-2.5">
+                                  <p className="text-lg font-extrabold text-[var(--olive)]">{k.target}</p>
+                                  <p className="text-[10px] font-bold text-[var(--text-muted)]">{k.kpi}</p>
+                                  <p className="text-[10px] font-mono text-[var(--text-muted)]">{k.formula}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB: Files / Links */}
+                {boardTab === 'files' && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {[
+                        { label: 'Rebuild Spec', file: 'VyVy-Loyalty-Rebuild-Spec.html', linked: !!spec, desc: 'Strategy, North Star, KPI, Risk, Decision' },
+                        { label: 'Execution Tracker', file: 'VyVy-Loyalty-Execution-Tracker.html', linked: !!tracker, desc: 'WBS, Task, Owner, Phase, Module readiness' },
+                      ].map((f) => (
+                        <div key={f.label} className={`rounded-xl border p-4 ${f.linked ? 'border-[var(--success)]/20 bg-[var(--success-soft)]' : 'border-dashed border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+                          <div className="flex items-start gap-3">
+                            <Ico d={IC.fileText} size={18} className={f.linked ? 'text-[var(--ok)]' : 'text-[var(--text-muted)]'} />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-[var(--text-primary)]">{f.label}</p>
+                              <p className="text-[10px] text-[var(--text-muted)]">{f.desc}</p>
+                              <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">{f.file}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold ${f.linked ? 'bg-[var(--success)]/20 text-[var(--ok)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+                              {f.linked ? 'Đã seed' : 'Chưa import'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Hướng dẫn import</p>
+                      <p className="text-xs text-[var(--text-secondary)]">Chạy file <code className="rounded bg-[var(--bg-card)] px-1 py-0.5">sql/vyvy_loyalty_seed.sql</code> trong Supabase Dashboard → SQL Editor để seed toàn bộ dữ liệu từ Rebuild Spec và Execution Tracker vào project này.</p>
+                    </div>
+                  </div>
+                )}
 
               </div>
             </div>
@@ -7201,7 +7843,7 @@ function MeetingView(props: {
           </button>
         </div>
         {r.issues.length === 0 ? (
-          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm "+ Thêm vấn đề" để thêm vào.</p>
+          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm &quot;+ Thêm vấn đề&quot; để thêm vào.</p>
         ) : (
           <div className="space-y-3">
             {r.issues.map((iss) => (
@@ -7294,7 +7936,7 @@ function MeetingView(props: {
           </button>
         </div>
         {r.assignments.length === 0 ? (
-          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm "+ Thêm người" để thêm phân công.</p>
+          <p className="py-4 text-center text-sm text-[var(--text-muted)]">Bấm &quot;+ Thêm người&quot; để thêm phân công.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
@@ -9071,7 +9713,9 @@ function ProjectHealthBadge({ health }: { health: ProjectHealth }) {
       ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
       : health.level === 'watch'
         ? 'bg-[var(--warning-soft)] text-[var(--warning)]'
-        : 'bg-[var(--success-soft)] text-[var(--success)]'
+        : health.level === 'normal'
+          ? 'bg-[var(--success-soft)] text-[var(--success)]'
+          : 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
 
   return <span className={`rounded-full px-3 py-1 text-xs font-extrabold ${cls}`}>{health.label}</span>
 }
@@ -9090,6 +9734,12 @@ function ProjectHealthSummary({ health }: { health: ProjectHealth }) {
   ].filter((item) => item.value > 0)
 
   if (items.length === 0) {
+    if (health.level === 'empty') {
+      return <p className="text-sm text-[var(--text-secondary)]">Chưa có task triển khai.</p>
+    }
+    if (health.level === 'not_started') {
+      return <p className="text-sm text-[var(--text-secondary)]">Có task nhưng chưa bắt đầu thực hiện.</p>
+    }
     return <p className="text-sm text-[var(--text-secondary)]">Không có cảnh báo vận hành.</p>
   }
 
@@ -9288,6 +9938,24 @@ function calculateProjectHealth(
   const projectTaskIds = new Set(projectTasks.map((task) => task.id))
   const projectSteps = steps.filter((step) => projectTaskIds.has(step.task_id))
 
+  if (projectTasks.length === 0) {
+    return {
+      level: 'empty',
+      label: 'Chưa khởi tạo',
+      overdueTasks: 0,
+      pendingTasks: 0,
+      problemTasks: 0,
+      slowTasks: 0,
+      pendingSteps: 0,
+      revisionSteps: 0,
+      supportRequests: 0,
+      missingReports: 0,
+      overdueSteps: 0,
+      missingDeadlineTasks: 0,
+      totalWarnings: 0,
+    }
+  }
+
   const overdueTasks = projectTasks.filter((task) => isTaskOverdue(task)).length
   const pendingTasks = projectTasks.filter((task) => task.status === 'pending').length
   const problemTasks = projectTasks.filter((task) => task.issue_status === 'problem').length
@@ -9299,11 +9967,31 @@ function calculateProjectHealth(
   const missingReports = projectSteps.filter(isStepMissingReport).length
   const overdueSteps = projectSteps.filter((step) => isStepOverdue(step)).length
 
-  const problemWarnings = overdueTasks + pendingTasks + problemTasks + revisionSteps + overdueSteps
-  const watchWarnings = slowTasks + pendingSteps + supportRequests + missingReports + missingDeadlineTasks
-  const level = problemWarnings > 0 ? 'problem' : watchWarnings > 0 ? 'watch' : 'normal'
+  const hasActivity = projectTasks.some((task) =>
+    task.status === 'in_progress' ||
+    task.status === 'completed' ||
+    (task.progress_percent || 0) > 0 ||
+    (stepsByTask.get(task.id) || []).some((step) =>
+      step.is_done ||
+      (step.approval_status && step.approval_status !== 'not_submitted') ||
+      Boolean(step.report_file_url || step.report_link || step.note)
+    )
+  )
+  const criticalWarnings = overdueTasks + problemTasks + overdueSteps
+  const watchWarnings = pendingTasks + slowTasks + pendingSteps + revisionSteps + supportRequests + missingReports + (hasActivity ? missingDeadlineTasks : 0)
+  const level: ProjectHealth['level'] =
+    criticalWarnings >= 2 || problemTasks > 0
+      ? 'problem'
+      : criticalWarnings > 0 || watchWarnings > 0
+        ? 'watch'
+        : !hasActivity
+          ? 'not_started'
+          : 'normal'
   const label =
-    level === 'problem' ? 'Có vấn đề' : level === 'watch' ? 'Cần theo dõi' : 'Đang ổn'
+    level === 'problem' ? 'Nguy hiểm' :
+    level === 'watch' ? 'Cần chú ý' :
+    level === 'not_started' ? 'Chưa bắt đầu' :
+    'Đang ổn'
 
   return {
     level,
@@ -9318,7 +10006,7 @@ function calculateProjectHealth(
     missingReports,
     overdueSteps,
     missingDeadlineTasks,
-    totalWarnings: problemWarnings + watchWarnings,
+    totalWarnings: criticalWarnings + watchWarnings,
   }
 }
 
@@ -9708,7 +10396,7 @@ function buildDailyReport(
   const pendingSteps = getPendingApprovalSteps(steps)
   const revisionSteps = getRevisionSteps(steps)
   const missingReportSteps = getMissingReportSteps(steps)
-  const attentionProjects = projectCards.filter((project) => project.health.level !== 'normal')
+  const attentionProjects = projectCards.filter((project) => project.health.level === 'watch' || project.health.level === 'problem')
 
   return `BÁO CÁO COO HÔM NAY
 
@@ -10679,6 +11367,7 @@ function ImportExcelView(props: {
     const errors: string[] = []
     const msCache = new Map<string, string>()                           // project|group → workstream id
     const subCache = new Map<string, { id: string; order: number }>()  // project|group → last subtask
+    const projectIdByName = new Map(projByName)
 
     // Tập tên trùng để lọc (nếu user chọn bỏ qua)
     const dupeSet = new Set(skipDupes === true ? dupeWarning.map(d => d.title.trim().toLowerCase()) : [])
@@ -10691,13 +11380,13 @@ function ImportExcelView(props: {
       }
       try {
         // Resolve project
-        let projId = projByName.get(row.project.toLowerCase().trim())
+        let projId = projectIdByName.get(row.project.toLowerCase().trim())
         if (!projId) {
           const newProjId = crypto.randomUUID()
           const { error: projErr } = await supabase.from('projects').insert({ id: newProjId, name: row.project, status: 'active' })
           if (projErr) { errors.push(`[${row.title}] Tạo dự án lỗi: ${projErr.message}`); fail++; continue }
           projId = newProjId
-          projByName.set(row.project.toLowerCase().trim(), projId)
+          projectIdByName.set(row.project.toLowerCase().trim(), projId)
         }
 
         const ownerId = empByName.get(row.owner.toLowerCase().trim()) || null
@@ -10982,7 +11671,7 @@ function ImportExcelView(props: {
               </div>
               <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
                 <li>• Là <b>công việc cụ thể</b>, có thể giao cho 1 người thực hiện</li>
-                <li>• Sẽ tự động gắn vào Milestone cùng "Nhóm việc" (cột B) trong dự án</li>
+                <li>• Sẽ tự động gắn vào Milestone cùng &quot;Nhóm việc&quot; (cột B) trong dự án</li>
                 <li>• VD: <i>Viết JD tuyển KOL</i>, <i>Thiết lập OKR cho content</i></li>
                 <li>• Trong hệ thống sẽ hiển thị là <b>Đầu việc con (Subtask)</b></li>
               </ul>
@@ -11918,7 +12607,7 @@ function MyWorkView(props: {
                       {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
                       {approver && <span><span className="font-spec text-[9px]">DUYỆT BỞI</span> {approver.full_name}</span>}
                       {step.due_date && <span>· Hạn {step.due_date}</span>}
-                      {isRevision && step.approval_note && <span className="text-[var(--danger)]">"{step.approval_note}"</span>}
+                      {isRevision && step.approval_note && <span className="text-[var(--danger)]">&quot;{step.approval_note}&quot;</span>}
                     </div>
                   </div>
                   {task && (

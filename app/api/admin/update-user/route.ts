@@ -8,8 +8,26 @@ type EmployeeRecord = {
   auth_user_id?: string | null
 }
 
+type AuthUpdatePayload = {
+  email?: string
+  password?: string
+  email_confirm?: boolean
+}
+
+type AuthUpdateResult = {
+  error: { message?: string } | null
+}
+
+type AuthAdminClient = {
+  auth: {
+    admin: {
+      updateUserById: (userId: string, payload: AuthUpdatePayload) => Promise<AuthUpdateResult>
+    }
+  }
+}
+
 async function updateAuthEmail(
-  supabaseAdmin: any,
+  supabaseAdmin: AuthAdminClient,
   userId: string,
   email: string,
   password?: string
