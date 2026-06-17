@@ -4134,10 +4134,12 @@ function DashboardView(props: {
   const [refreshing, setRefreshing] = useState(false)
 
   const total = tasks.length
-  const done = tasks.filter((t) => t.status === 'completed').length
-  const doing = tasks.filter((t) => t.status === 'in_progress').length
-  const pending = tasks.filter((t) => t.status === 'pending').length
+  const done    = tasks.filter((t) => t.status === 'completed').length
   const overdue = tasks.filter((t) => isTaskOverdue(t)).length
+  // Mutually exclusive: subtract overdue from doing/pending to avoid double-count
+  const doing   = tasks.filter((t) => t.status === 'in_progress' && !isTaskOverdue(t)).length
+  const pending = tasks.filter((t) => t.status === 'pending'     && !isTaskOverdue(t)).length
+  const notStarted = Math.max(0, total - done - overdue - doing - pending)
   const attentionProjects = props.projectCards.filter((p) => p.health.level !== 'normal')
   const pendingSteps = getPendingApprovalSteps(props.steps)
   const revisionSteps = getRevisionSteps(props.steps)
@@ -4155,13 +4157,13 @@ function DashboardView(props: {
   })
   const myDoing = myTasks.filter((t) => t.status === 'in_progress')
 
-  // Donut data
+  // Donut — mutually exclusive segments, sum == total
   const donutData = [
-    { name: 'Hoàn thành', value: done, color: '#5B6B2E' },
-    { name: 'Đang làm', value: doing, color: '#8A8047' },
-    { name: 'Pending', value: pending, color: '#4A5A6A' },
-    { name: 'Trễ hạn', value: overdue, color: '#8A3A2E' },
-    { name: 'Chưa bắt đầu', value: Math.max(0, total - done - doing - pending), color: '#A59780' },
+    { name: 'Hoàn thành',    value: done,       color: '#22c55e' },
+    { name: 'Đang làm',      value: doing,       color: '#3b82f6' },
+    { name: 'Pending',        value: pending,     color: '#f59e0b' },
+    { name: 'Trễ hạn',       value: overdue,     color: '#ef4444' },
+    { name: 'Chưa bắt đầu',  value: notStarted,  color: '#94a3b8' },
   ].filter((d) => d.value > 0)
 
   // Workload bar data (top 8)
@@ -4193,17 +4195,28 @@ function DashboardView(props: {
     }
   }
 
+  const completionRate = total > 0 ? Math.round((done / total) * 100) : 0
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      {/* ── Dashboard header ── */}
+      <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Tổng quan vận hành</p>
+          <p className="text-sm text-[var(--text-secondary)]">
+            <span className="font-extrabold text-[var(--text-primary)]">{total}</span> đầu việc ·{' '}
+            <span className="text-[#15803d] font-bold">{completionRate}% hoàn thành</span>
+            {overdue > 0 && <> · <span className="text-[#b91c1c] font-bold">{overdue} trễ deadline</span></>}
+          </p>
+        </div>
         <button
           type="button"
           onClick={refreshDashboard}
           disabled={refreshing}
-          className="inline-flex h-9 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-60 transition-colors"
         >
-          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Đang làm mới' : 'Làm mới số liệu'}
+          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+          {refreshing ? 'Đang làm mới…' : 'Làm mới'}
         </button>
       </div>
 
@@ -4238,19 +4251,29 @@ function DashboardView(props: {
       {/* ── Metric cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {[
-          { label: 'Tổng việc', value: total, icon: <ListTodo size={16}/>, view: 'tasks' as ViewKey, filter: 'all', color: 'text-[var(--info)]', bg: 'bg-[var(--info-soft)]' },
-          { label: 'Hoàn thành', value: done, icon: <CheckCircle2 size={16}/>, view: 'tasks' as ViewKey, filter: 'completed', color: 'text-[var(--success)]', bg: 'bg-[var(--success-soft)]' },
-          { label: 'Đang làm', value: doing, icon: <Activity size={16}/>, view: 'tasks' as ViewKey, filter: 'in_progress', color: 'text-[var(--char)]', bg: 'bg-[var(--bg-surface)]' },
-          { label: 'Pending', value: pending, icon: <Clock size={16}/>, view: 'tasks' as ViewKey, filter: 'pending', color: 'text-[var(--warning)]', bg: 'bg-[var(--warning-soft)]' },
-          { label: 'Trễ hạn', value: overdue, icon: <AlertCircle size={16}/>, view: 'tasks' as ViewKey, filter: 'overdue', color: 'text-[var(--danger)]', bg: 'bg-[var(--danger-soft)]' },
+          { label: 'Tổng việc',    value: total,      icon: <ListTodo size={18}/>,      filter: 'all',        accent: '#6366f1', bg: 'bg-[#eef2ff]',                   num: 'text-[#4338ca]' },
+          { label: 'Hoàn thành',   value: done,       icon: <CheckCircle2 size={18}/>,  filter: 'completed',  accent: '#16a34a', bg: 'bg-[#dcfce7]',                   num: 'text-[#15803d]' },
+          { label: 'Đang làm',     value: doing,      icon: <Activity size={18}/>,      filter: 'in_progress',accent: '#2563eb', bg: 'bg-[#dbeafe]',                   num: 'text-[#1d4ed8]' },
+          { label: 'Pending',      value: pending,    icon: <Clock size={18}/>,          filter: 'pending',    accent: '#d97706', bg: 'bg-[#fef3c7]',                   num: 'text-[#b45309]' },
+          { label: 'Trễ deadline', value: overdue,    icon: <AlertCircle size={18}/>,    filter: 'overdue',    accent: '#dc2626', bg: overdue > 0 ? 'bg-[#fee2e2]' : 'bg-[var(--bg-surface)]', num: overdue > 0 ? 'text-[#b91c1c]' : 'text-[var(--text-muted)]' },
         ].map((m) => (
-          <button key={m.label} type="button" onClick={() => { props.setTaskFilter(m.filter); props.setView(m.view) }}
-            className={`${cardCls} text-left hover:bg-[var(--bg-card-hover)] transition-colors group`}>
-            <div className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] ${m.bg} ${m.color} mb-3`}>
-              {m.icon}
+          <button key={m.label} type="button" onClick={() => { props.setTaskFilter(m.filter); props.setView('tasks') }}
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-sm hover:-translate-y-0.5 transition-all group cursor-pointer">
+            <div className="flex items-start justify-between mb-3">
+              <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${m.bg}`} style={{ color: m.accent }}>
+                {m.icon}
+              </div>
+              {m.filter !== 'all' && total > 0 && (
+                <span className="text-[11px] font-semibold text-[var(--text-muted)] tabular-nums">
+                  {Math.round((m.value / total) * 100)}%
+                </span>
+              )}
             </div>
-            <p className={`text-2xl font-bold ${m.color}`}>{m.value}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-0.5">{m.label}</p>
+            <p className={`text-3xl font-extrabold tabular-nums leading-none ${m.num}`}>{m.value}</p>
+            <p className="text-xs font-medium text-[var(--text-muted)] mt-1.5">{m.label}</p>
+            {m.filter === 'overdue' && overdue > 0 && (
+              <p className="text-[10px] text-[#dc2626] mt-1 font-semibold">Cần xử lý ngay →</p>
+            )}
           </button>
         ))}
       </div>
@@ -4262,23 +4285,29 @@ function DashboardView(props: {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* Donut — tỉ lệ trạng thái */}
             <div className={cardCls}>
-              <p className="text-sm font-semibold text-[var(--text-secondary)] mb-4">Tỉ lệ trạng thái</p>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm font-extrabold text-[var(--text-primary)]">Tỉ lệ trạng thái</p>
+                <span className="text-[11px] text-[var(--text-muted)] font-medium">{total} đầu việc</span>
+              </div>
               {total > 0 ? (
                 <DashboardDonut data={donutData} total={total} />
               ) : (
-                <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dữ liệu</p>
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <ListTodo size={32} className="text-[var(--text-muted)] opacity-30"/>
+                  <p className="text-sm text-[var(--text-muted)]">Chưa có đầu việc nào</p>
+                </div>
               )}
             </div>
 
             {/* Bar — tiến độ dự án */}
             <div className={cardCls}>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">Tiến độ theo dự án</p>
+                <p className="text-sm font-extrabold text-[var(--text-primary)]">Tiến độ theo dự án</p>
                 <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#5B6B2E]"/>Xong</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#8A8047]"/>Đang làm</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#8A3A2E]"/>Trễ</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#D4CFC8]"/>Chưa bắt đầu</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#22c55e]"/>Xong</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#3b82f6]"/>Đang làm</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#ef4444]"/>Trễ</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#cbd5e1]"/>Chưa bắt đầu</span>
                 </div>
               </div>
               {projectChartData.length > 0 ? (
@@ -4292,8 +4321,15 @@ function DashboardView(props: {
           {/* ── Projects ── */}
           <div className={cardCls}>
             <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Tiến độ dự án</p>
-              <span className="text-xs text-[var(--text-muted)]">{props.projectCards.length} dự án</span>
+              <div>
+                <p className="text-sm font-extrabold text-[var(--text-primary)]">Sức khỏe dự án</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5">{props.projectCards.filter(p=>p.total>0).length}/{props.projectCards.length} dự án đang có việc</p>
+              </div>
+              {attentionProjects.length > 0 && (
+                <span className="rounded-full bg-[#fee2e2] px-3 py-1 text-xs font-bold text-[#b91c1c]">
+                  ⚠ {attentionProjects.length} cần chú ý
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {props.projectCards.length === 0 ? (
@@ -4572,33 +4608,40 @@ function DashboardView(props: {
 function DashboardDonut({ data, total }: { data: Array<{ name: string; value: number; color: string }>; total: number }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <div className="h-48 skeleton rounded-[var(--radius)]" />
+  if (!mounted) return <div className="h-56 animate-pulse rounded-xl bg-[var(--bg-surface)]" />
 
-  // Dynamic import via inline lazy rendering
   const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = require('recharts')
   return (
-    <div className="relative">
-      <ResponsiveContainer width="100%" height={160}>
-        <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={2} dataKey="value">
-            {data.map((entry: { name: string; value: number; color: string }, index: number) => (
-              <Cell key={index} fill={entry.color} strokeWidth={0} />
-            ))}
-          </Pie>
-          <Tooltip formatter={(v: number, name: string) => [`${v} việc`, name]}
-            contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-        </PieChart>
-      </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <p className="text-2xl font-bold text-[var(--text-primary)]">{total}</p>
-        <p className="text-xs text-[var(--text-muted)]">tổng việc</p>
+    <div>
+      <div className="relative">
+        <ResponsiveContainer width="100%" height={180}>
+          <PieChart>
+            <Pie data={data} cx="50%" cy="50%" innerRadius={56} outerRadius={80} paddingAngle={3} dataKey="value" strokeWidth={0}>
+              {data.map((entry: { name: string; value: number; color: string }, index: number) => (
+                <Cell key={index} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(v: number, name: string) => [`${v} việc (${total > 0 ? Math.round((v/total)*100) : 0}%)`, name]}
+              contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,.08)' }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <p className="text-3xl font-extrabold text-[var(--text-primary)] leading-none">{total}</p>
+          <p className="text-[11px] font-medium text-[var(--text-muted)] mt-1">đầu việc</p>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 justify-center">
+      <div className="mt-3 space-y-1.5 px-1">
         {data.map((d) => (
-          <span key={d.name} className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-            <span className="h-2 w-2 rounded-full" style={{ background: d.color }}/>
-            {d.name}
-          </span>
+          <div key={d.name} className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: d.color }}/>
+            <span className="flex-1 text-xs text-[var(--text-secondary)] truncate">{d.name}</span>
+            <span className="text-xs font-bold tabular-nums text-[var(--text-primary)]">{d.value}</span>
+            <span className="text-[11px] text-[var(--text-muted)] tabular-nums w-8 text-right">
+              {total > 0 ? Math.round((d.value / total) * 100) : 0}%
+            </span>
+          </div>
         ))}
       </div>
     </div>
@@ -4629,10 +4672,10 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
           contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
           cursor={{ fill: 'rgba(0,0,0,0.04)' }}
         />
-        <Bar dataKey="xong"       name="xong"        fill="#5B6B2E" stackId="a" />
-        <Bar dataKey="dangLam"    name="dangLam"     fill="#8A8047" stackId="a" />
-        <Bar dataKey="tre"        name="tre"         fill="#8A3A2E" stackId="a" />
-        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="#D4CFC8" stackId="a" radius={[3,3,0,0]} />
+        <Bar dataKey="xong"       name="xong"        fill="#22c55e" stackId="a" />
+        <Bar dataKey="dangLam"    name="dangLam"     fill="#3b82f6" stackId="a" />
+        <Bar dataKey="tre"        name="tre"         fill="#ef4444" stackId="a" />
+        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="#cbd5e1" stackId="a" radius={[3,3,0,0]} />
       </BarChart>
     </ResponsiveContainer>
   )
