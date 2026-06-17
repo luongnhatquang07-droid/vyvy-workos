@@ -6810,6 +6810,8 @@ function ProjectsView(props: {
             project.health.level === 'normal' ? 'var(--ok)' :
             project.health.level === 'watch' ? 'var(--warn)' :
             project.health.level === 'problem' ? 'var(--crit)' : 'var(--border)'
+          const hasSpec = props.projectSpecs.some(s => s.project_id === project.id)
+          const hasTracker = props.executionTrackers.some(t => t.project_id === project.id)
           return (
             <button
               key={project.id}
@@ -6833,6 +6835,12 @@ function ProjectsView(props: {
                 {project.problem > 0 && <span className="font-semibold text-[var(--warn)]">{project.problem} vấn đề</span>}
                 <span className="ml-auto font-extrabold text-[var(--text-primary)]">Mở bảng →</span>
               </div>
+              {(hasSpec || hasTracker) && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {hasSpec && <span className="rounded-full bg-[var(--olive)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--olive)]">📋 Strategy Spec</span>}
+                  {hasTracker && <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--accent)]">🗂 Execution Tracker</span>}
+                </div>
+              )}
             </button>
           )
         })}
@@ -7415,12 +7423,23 @@ function ProjectsView(props: {
                             <p className="text-xl font-extrabold text-[var(--olive)]">{spec.north_star}</p>
                           </div>
                         )}
-                        {spec.objectives && (
-                          <div>
-                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Objectives</p>
-                            <p className="whitespace-pre-wrap text-sm text-[var(--text-secondary)] leading-relaxed">{spec.objectives}</p>
-                          </div>
-                        )}
+                        {spec.objectives && (() => {
+                          let objs: string[] = []
+                          try { objs = JSON.parse(spec.objectives!) } catch { objs = [spec.objectives!] }
+                          return (
+                            <div>
+                              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Objectives</p>
+                              <ul className="space-y-1.5">
+                                {objs.map((o, i) => (
+                                  <li key={i} className="flex items-start gap-2 text-sm text-[var(--text-secondary)] leading-relaxed">
+                                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--olive)]" />
+                                    {o}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )
+                        })()}
                         {spec.operating_model && (
                           <div>
                             <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Operating Model</p>
