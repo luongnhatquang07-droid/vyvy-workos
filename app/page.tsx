@@ -316,7 +316,7 @@ type StepComment = {
 
 type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
-type ViewKey = 'dashboard' | 'coo' | 'projects' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history' | 'permissions'
+type ViewKey = 'dashboard' | 'coo' | 'projects' | 'calendar' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history' | 'permissions'
 
 type RecurringTask = {
   id: string
@@ -752,6 +752,9 @@ const IC = {
   logout: ['M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4', 'M16 17l5-5-5-5', 'M21 12H9'],
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   star: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+  calendar: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'],
+  calendarDot: ['M8 2v4', 'M16 2v4', 'M3 10h18', 'M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M12 16a1 1 0 1 0 0-2 1 1 0 0 0 0 2z'],
+  chevronLeft: 'M15 18l-6-6 6-6',
 }
 
 export default function Home() {
@@ -3279,6 +3282,7 @@ export default function Home() {
     { key: 'dashboard', label: 'Thống kê', icon: <Ico d={IC.activity} size={18}/> },
     { key: 'coo', label: 'COO Board', icon: <Ico d={IC.layers} size={18}/>, hide: !can('workstream','view') },
     { key: 'projects', label: 'Dự án', icon: <Ico d={IC.folder} size={18}/> },
+    { key: 'calendar', label: 'Lịch công việc', icon: <Ico d={IC.calendar} size={18}/> },
     { key: 'assigned', label: 'Việc được giao', icon: <Ico d={IC.clock} size={18}/> },
     { key: 'tasks', label: 'Công việc', icon: <Ico d={IC.clipboard} size={18}/> },
     { key: 'meeting', label: 'Biên bản họp', icon: <Ico d={IC.messageSquare} size={18}/> },
@@ -3438,6 +3442,7 @@ export default function Home() {
               {view === 'dashboard' && 'Thống kê vận hành'}
               {view === 'coo' && 'COO Board'}
               {view === 'projects' && 'Tổng dự án'}
+              {view === 'calendar' && 'Lịch công việc'}
               {view === 'assigned' && 'Việc được giao'}
               {view === 'tasks' && 'Quản lý công việc'}
               {view === 'meeting' && 'Nhập biên bản họp'}
@@ -3955,6 +3960,17 @@ export default function Home() {
                   projects={projects}
                   currentEmployee={currentEmployee}
                   onDone={refreshDataSilent}
+                />
+              )}
+
+              {view === 'calendar' && (
+                <CalendarView
+                  tasks={tasks}
+                  projects={projects}
+                  employees={employees}
+                  employeeMap={employeeMap}
+                  currentEmployee={currentEmployee}
+                  onOpenTask={(task) => setSelectedTask(task)}
                 />
               )}
 
@@ -11098,6 +11114,299 @@ function ImportExcelView(props: {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// ─── Calendar View ─────────────────────────────────────────────────────────────
+type CalMode = 'month' | 'week' | 'day'
+
+function CalendarView(props: {
+  tasks: Task[]
+  projects: Project[]
+  employees: Employee[]
+  employeeMap: Map<string, Employee>
+  currentEmployee: Employee | null
+  onOpenTask: (task: Task) => void
+}) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const [mode, setMode] = useState<CalMode>('month')
+  const [cursor, setCursor] = useState(new Date(today))
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null)
+
+  const projMap = useMemo(() => {
+    const m = new Map<string, Project>()
+    props.projects.forEach(p => m.set(p.id, p))
+    return m
+  }, [props.projects])
+
+  // Build map: 'YYYY-MM-DD' → Task[]
+  const tasksByDate = useMemo(() => {
+    const m = new Map<string, Task[]>()
+    props.tasks.forEach(t => {
+      if (!t.due_date) return
+      const key = t.due_date.slice(0, 10)
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(t)
+    })
+    return m
+  }, [props.tasks])
+
+  const STATUS_COLOR: Record<string, string> = {
+    completed:  'bg-[#4ade80] text-[#14532d]',
+    in_progress:'bg-[#60a5fa] text-[#1e3a5f]',
+    pending:    'bg-[#fb923c] text-[#431407]',
+    not_started:'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border)]',
+    overdue:    'bg-[#f87171] text-[#450a0a]',
+  }
+  function taskColor(t: Task) {
+    const isOverdue = t.due_date && new Date(t.due_date) < today && t.status !== 'completed'
+    if (isOverdue) return STATUS_COLOR.overdue
+    return STATUS_COLOR[t.status] || STATUS_COLOR.not_started
+  }
+
+  function fmtKey(d: Date) {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  function isSameDay(a: Date, b: Date) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  }
+  function addMonths(d: Date, n: number) {
+    const r = new Date(d)
+    r.setMonth(r.getMonth() + n)
+    return r
+  }
+  function addDays(d: Date, n: number) {
+    const r = new Date(d)
+    r.setDate(r.getDate() + n)
+    return r
+  }
+  function addWeeks(d: Date, n: number) { return addDays(d, n * 7) }
+
+  // ── Month grid ──────────────────────────────────────────────────────────────
+  function getMonthDays(ref: Date) {
+    const first = new Date(ref.getFullYear(), ref.getMonth(), 1)
+    const last  = new Date(ref.getFullYear(), ref.getMonth() + 1, 0)
+    const dow = first.getDay() // 0=Sun
+    const startOffset = dow === 0 ? 6 : dow - 1 // Monday-first
+    const days: Date[] = []
+    for (let i = startOffset; i > 0; i--) days.push(addDays(first, -i))
+    for (let i = 0; i < last.getDate(); i++) days.push(addDays(first, i))
+    const rem = 42 - days.length
+    for (let i = 1; i <= rem; i++) days.push(addDays(last, i))
+    return days
+  }
+  // ── Week grid ───────────────────────────────────────────────────────────────
+  function getWeekDays(ref: Date) {
+    const dow = ref.getDay()
+    const toMon = dow === 0 ? -6 : 1 - dow
+    const mon = addDays(ref, toMon)
+    return Array.from({ length: 7 }, (_, i) => addDays(mon, i))
+  }
+
+  const DOW_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN']
+  const VI_MONTHS = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6','Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12']
+
+  function navLabel() {
+    if (mode === 'month') return `${VI_MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`
+    if (mode === 'week') {
+      const days = getWeekDays(cursor)
+      return `${days[0].getDate()}/${days[0].getMonth()+1} – ${days[6].getDate()}/${days[6].getMonth()+1}/${days[6].getFullYear()}`
+    }
+    return `${cursor.getDate()}/${cursor.getMonth()+1}/${cursor.getFullYear()}`
+  }
+  function navPrev() {
+    if (mode === 'month') setCursor(addMonths(cursor, -1))
+    else if (mode === 'week') setCursor(addWeeks(cursor, -1))
+    else setCursor(addDays(cursor, -1))
+  }
+  function navNext() {
+    if (mode === 'month') setCursor(addMonths(cursor, 1))
+    else if (mode === 'week') setCursor(addWeeks(cursor, 1))
+    else setCursor(addDays(cursor, 1))
+  }
+
+  const selectedTasks = selectedDay ? (tasksByDate.get(fmtKey(selectedDay)) || []) : null
+
+  function DayCell({ day, inMonth }: { day: Date; inMonth: boolean }) {
+    const key = fmtKey(day)
+    const dayTasks = tasksByDate.get(key) || []
+    const isToday = isSameDay(day, today)
+    const isSel = selectedDay && isSameDay(day, selectedDay)
+    const MAX_SHOW = 2
+    return (
+      <div
+        onClick={() => setSelectedDay(isSel ? null : day)}
+        className={`min-h-[80px] p-1.5 cursor-pointer rounded-lg border transition-all ${isSel ? 'border-[var(--olive)] bg-[var(--olive)]/5' : 'border-transparent hover:border-[var(--border)] hover:bg-[var(--bg-surface)]'}`}>
+        <div className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full mb-1 ${isToday ? 'bg-[var(--olive)] text-[var(--ivory)]' : inMonth ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}>
+          {day.getDate()}
+        </div>
+        <div className="space-y-0.5">
+          {dayTasks.slice(0, MAX_SHOW).map(t => (
+            <div key={t.id} onClick={(e) => { e.stopPropagation(); props.onOpenTask(t) }}
+              className={`truncate rounded px-1 py-0.5 text-[10px] font-medium cursor-pointer ${taskColor(t)}`}>
+              {t.title}
+            </div>
+          ))}
+          {dayTasks.length > MAX_SHOW && (
+            <div className="text-[10px] text-[var(--text-muted)] pl-1">+{dayTasks.length - MAX_SHOW} việc</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const monthDays = mode === 'month' ? getMonthDays(cursor) : []
+  const weekDays  = mode === 'week'  ? getWeekDays(cursor)  : []
+  const dayTasks  = mode === 'day'   ? (tasksByDate.get(fmtKey(cursor)) || []) : []
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-5 py-3">
+        <div className="flex items-center gap-2">
+          <button onClick={navPrev} className="rounded-lg border border-[var(--border)] p-1.5 hover:bg-[var(--bg-surface)]">
+            <Ico d={IC.chevronLeft} size={16}/>
+          </button>
+          <span className="text-sm font-bold min-w-[180px] text-center">{navLabel()}</span>
+          <button onClick={navNext} className="rounded-lg border border-[var(--border)] p-1.5 hover:bg-[var(--bg-surface)]">
+            <Ico d={IC.chevronRight} size={16}/>
+          </button>
+          <button onClick={() => { setCursor(new Date(today)); setSelectedDay(null) }}
+            className="ml-1 rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-semibold hover:bg-[var(--bg-surface)]">
+            Hôm nay
+          </button>
+        </div>
+        <div className="flex rounded-lg border border-[var(--border)] overflow-hidden">
+          {(['month','week','day'] as CalMode[]).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-3 py-1.5 text-xs font-semibold transition-all ${mode === m ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'hover:bg-[var(--bg-surface)]'}`}>
+              {m === 'month' ? 'Tháng' : m === 'week' ? 'Tuần' : 'Ngày'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 px-1 text-[11px] font-medium">
+        {[
+          { label: 'Hoàn thành', cls: 'bg-[#4ade80]' },
+          { label: 'Đang làm', cls: 'bg-[#60a5fa]' },
+          { label: 'Pending', cls: 'bg-[#fb923c]' },
+          { label: 'Chưa bắt đầu', cls: 'bg-[var(--bg-surface)] border border-[var(--border)]' },
+          { label: 'Trễ deadline', cls: 'bg-[#f87171]' },
+        ].map(l => (
+          <div key={l.label} className="flex items-center gap-1.5">
+            <span className={`w-3 h-3 rounded-sm inline-block ${l.cls}`}/>
+            <span className="text-[var(--text-secondary)]">{l.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Month view */}
+      {mode === 'month' && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
+          <div className="grid grid-cols-7 mb-1">
+            {DOW_LABELS.map(d => (
+              <div key={d} className="text-center text-[11px] font-bold text-[var(--text-muted)] py-2">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {monthDays.map((day, i) => (
+              <DayCell key={i} day={day} inMonth={day.getMonth() === cursor.getMonth()} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Week view */}
+      {mode === 'week' && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
+          <div className="grid grid-cols-7 gap-1">
+            {weekDays.map((day, i) => (
+              <div key={i}>
+                <div className={`text-center text-[11px] font-bold py-2 rounded-lg mb-1 ${isSameDay(day, today) ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'text-[var(--text-muted)]'}`}>
+                  {DOW_LABELS[i]}<br/><span className="text-xs">{day.getDate()}/{day.getMonth()+1}</span>
+                </div>
+                <DayCell day={day} inMonth />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Day view */}
+      {mode === 'day' && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <span className={`text-sm font-bold px-3 py-1 rounded-lg ${isSameDay(cursor, today) ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'bg-[var(--bg-surface)]'}`}>
+              {DOW_LABELS[(cursor.getDay() + 6) % 7]} — {cursor.getDate()}/{cursor.getMonth()+1}/{cursor.getFullYear()}
+            </span>
+            <span className="text-xs text-[var(--text-muted)]">{dayTasks.length} đầu việc</span>
+          </div>
+          {dayTasks.length === 0 ? (
+            <p className="text-sm text-[var(--text-muted)] text-center py-8">Không có đầu việc nào hôm này.</p>
+          ) : (
+            <div className="space-y-2">
+              {dayTasks.map(t => (
+                <div key={t.id} onClick={() => props.onOpenTask(t)}
+                  className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 cursor-pointer hover:border-[var(--olive)]/50 hover:bg-[var(--bg-hover)]">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${taskColor(t)}`}>
+                    {t.status === 'completed' ? 'Hoàn thành' : t.status === 'in_progress' ? 'Đang làm' : t.status === 'pending' ? 'Pending' : 'Chưa bắt đầu'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{t.title}</p>
+                    <p className="text-xs text-[var(--text-muted)]">{projMap.get(t.project_id || '')?.name || ''}</p>
+                  </div>
+                  {t.head_id && props.employeeMap.get(t.head_id) && (
+                    <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Selected day task list (month/week only) */}
+      {selectedDay && selectedTasks && (mode === 'month' || mode === 'week') && (
+        <div className="rounded-2xl border border-[var(--olive)]/30 bg-[var(--bg-card)] p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-extrabold">
+              {selectedDay.getDate()}/{selectedDay.getMonth()+1}/{selectedDay.getFullYear()}
+              <span className="font-normal text-[var(--text-muted)] ml-2">— {selectedTasks.length} đầu việc</span>
+            </h3>
+            <button onClick={() => setSelectedDay(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+              <Ico d={IC.x} size={16}/>
+            </button>
+          </div>
+          {selectedTasks.length === 0 ? (
+            <p className="text-sm text-[var(--text-muted)]">Không có đầu việc nào ngày này.</p>
+          ) : (
+            <div className="space-y-2">
+              {selectedTasks.map(t => (
+                <div key={t.id} onClick={() => props.onOpenTask(t)}
+                  className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 cursor-pointer hover:border-[var(--olive)]/50 hover:bg-[var(--bg-hover)]">
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${taskColor(t)}`}>
+                    {t.status === 'completed' ? 'Hoàn thành' : t.status === 'in_progress' ? 'Đang làm' : t.status === 'pending' ? 'Pending' : 'Chưa bắt đầu'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{t.title}</p>
+                    <p className="text-xs text-[var(--text-muted)]">{projMap.get(t.project_id || '')?.name || ''}</p>
+                  </div>
+                  {t.head_id && props.employeeMap.get(t.head_id) && (
+                    <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
