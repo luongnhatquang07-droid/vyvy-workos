@@ -22,14 +22,18 @@ alter table public.notifications enable row level security;
 drop policy if exists "notifications_all" on public.notifications;
 create policy "notifications_all" on public.notifications for all using (true) with check (true);
 
--- 2) Multi-head tasks. Keep legacy head_id as the first head for old screens.
+-- 2) Internal login link between Supabase Auth user and employee profile.
+alter table public.employees add column if not exists auth_user_id uuid;
+create index if not exists employees_auth_user_id_idx on public.employees (auth_user_id);
+
+-- 3) Multi-head tasks. Keep legacy head_id as the first head for old screens.
 alter table public.tasks add column if not exists head_ids uuid[] default '{}';
 update public.tasks
 set head_ids = array[head_id]
 where head_id is not null
   and (head_ids is null or cardinality(head_ids) = 0);
 
--- 3) Multi-level approval and deadline workflow for steps.
+-- 4) Multi-level approval and deadline workflow for steps.
 alter table public.task_steps
 add column if not exists department_approver_id uuid,
 add column if not exists coo_approver_id uuid,
@@ -73,7 +77,7 @@ set department_approval_status = case
 end
 where department_approval_status is null;
 
--- 4) Recurring work/meeting reminders and meeting file archive.
+-- 5) Recurring work/meeting reminders and meeting file archive.
 create table if not exists public.recurring_tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -135,7 +139,16 @@ alter table public.recurring_meeting_files enable row level security;
 drop policy if exists "recurring_meeting_files_all" on public.recurring_meeting_files;
 create policy "recurring_meeting_files_all" on public.recurring_meeting_files for all using (true) with check (true);
 
--- 5) Strategy/Spec and Execution/WBS project workspace.
+insert into public.recurring_tasks (id, title, kind, frequency, weekday, time_of_day, remind_days_before, remind_minutes_before)
+select '7d8c552a-50a5-4ba3-86ac-2e6aa9467710'::uuid, 'Họp Performance', 'meeting', 'weekly', 6, '10:00', 2, 60
+where not exists (
+  select 1
+  from public.recurring_tasks
+  where title = 'Họp Performance'
+     or id = '7d8c552a-50a5-4ba3-86ac-2e6aa9467710'::uuid
+);
+
+-- 6) Strategy/Spec and Execution/WBS project workspace.
 create table if not exists public.project_specs (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects(id) on delete cascade,

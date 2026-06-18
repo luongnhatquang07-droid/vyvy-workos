@@ -1,10 +1,11 @@
 ﻿'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { SOLO_PILOT_MODE } from '@/lib/config'
 import { displayLoginIdentifier } from '@/lib/internal-auth'
-import DeadlineApproval from '@/components/DeadlineApproval'
+import DeadlineBlock from '@/components/DeadlineBlock'
 import CooAssistantPanel from '@/components/CooAssistantPanel'
 import HeadPicker from '@/components/HeadPicker'
 import PersonPicker from '@/components/PersonPicker'
@@ -12,17 +13,19 @@ import MeetingHistory from '@/components/MeetingHistory'
 import MeetingStudio from '@/components/MeetingStudio'
 import MyDeadlineInbox from '@/components/MyDeadlineInbox'
 import {
-  LayoutDashboard, Kanban, FolderKanban, ListTodo, FileText,
-  CalendarClock, Zap, Bot, Users,
-  Plus, Trash2, X, Check, ChevronRight, ChevronDown, ChevronUp,
-  Bell, Search, LogOut, AlertTriangle, Info,
-  Upload, Download, Paperclip,
-  Clock, Calendar, RefreshCw, Play,
-  CheckCircle2, XCircle, AlertCircle,
-  User, Building2, Shield,
-  Edit3, Filter, MoreHorizontal,
-  ArrowRight, Loader2,
-  MessageSquare, Link2, Flag, Activity,
+  ListTodo,
+  ChevronRight,
+  Search,
+  LogOut,
+  AlertTriangle,
+  Download,
+  Clock,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Shield,
+  Flag,
+  Activity,
 } from 'lucide-react'
 import {
   Bar,
@@ -93,6 +96,22 @@ async function pushNotify(rows: Array<{
     console.error('pushNotify failed:', error.message)
     toast('Không gửi được thông báo — bảng notifications chưa tạo. Chạy supabase_notifications.sql trong Supabase Dashboard.', 'error')
   }
+}
+
+// ─── Đánh dấu deadline đã chốt (committed) sau khi tạo/import task ───────────
+// Best-effort: nếu DB chưa migrate (chưa có cột deadline_*), update lỗi nhưng
+// KHÔNG ảnh hưởng việc tạo task (insert đã xong trước đó).
+async function commitDeadlineMeta(
+  taskId: string,
+  dueDate: string | null | undefined,
+  source: 'manual' | 'import' | 'meeting' | 'project_milestone',
+) {
+  if (!taskId) return
+  const patch = dueDate
+    ? { deadline_status: 'committed', deadline_source: source, original_deadline: dueDate, deadline_locked: true }
+    : { deadline_status: 'no_deadline' }
+  const { error } = await supabase.from('tasks').update(patch).eq('id', taskId)
+  if (error) console.warn('commitDeadlineMeta skipped (chưa migrate?):', error.message)
 }
 
 type DbMutationError = { message?: string | null; details?: string | null; hint?: string | null; code?: string | null }
@@ -291,6 +310,18 @@ type Task = {
   issue_status: string | null
   sequential_steps?: boolean | null
   created_at?: string | null
+  // ── Deadline committed + gia hạn (002_deadline_extension.sql) ──
+  deadline_status?: string | null          // committed | extension_requested | extension_approved | extension_rejected | no_deadline
+  deadline_source?: string | null          // meeting | manual | import | project_milestone
+  original_deadline?: string | null
+  requested_deadline?: string | null
+  deadline_change_count?: number | null
+  deadline_locked?: boolean | null
+  deadline_submitter_id?: string | null
+  deadline_approver_id?: string | null
+  deadline_reason?: string | null
+  deadline_decided_by?: string | null
+  deadline_decided_at?: string | null
 }
 
 type TaskStep = {
@@ -374,6 +405,14 @@ type StepComment = {
 type AddStepComment = (stepId: string, content?: string, type?: string, mentionedEmployeeIds?: string[]) => void
 
 type ViewKey = 'dashboard' | 'coo' | 'projects' | 'calendar' | 'assigned' | 'tasks' | 'meeting' | 'recurring' | 'automation' | 'assistant' | 'admin' | 'feedback' | 'import' | 'history' | 'permissions'
+
+// Deep-link target for COO Board — từ alert/notification nhảy đúng item
+type CooTarget = {
+  projectId?: string | null
+  workstreamId?: string | null   // ID của đầu việc lớn (task_level=workstream)
+  taskId?: string | null         // ID của đầu việc con
+  highlightId?: string | null    // ID cần scroll + highlight (thường = taskId || workstreamId)
+}
 
 type RecurringTask = {
   id: string
@@ -501,6 +540,8 @@ const DEFAULT_PERFORMANCE_FILES = `- File recap/biên bản cuộc họp Perform
 const DEFAULT_PERFORMANCE_HISTORY = `- Chưa có lịch sử họp.
 - Sau mỗi buổi họp, ghi ngày họp, nội dung đã chốt, người phụ trách và việc cần follow-up.`
 
+const PERFORMANCE_MEETING_ID = '7d8c552a-50a5-4ba3-86ac-2e6aa9467710'
+
 const PERFORMANCE_MEETING_DESCRIPTION = composeMeetingDescription(
   'Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00.',
   DEFAULT_PERFORMANCE_RECAP,
@@ -548,7 +589,7 @@ function composeMeetingDescription(note: string, recap: string, prepFiles: strin
 
 function defaultPerformanceMeeting(assigneeId?: string | null): RecurringTask {
   return {
-    id: 'default-performance-meeting',
+    id: PERFORMANCE_MEETING_ID,
     title: 'Họp Performance',
     description: PERFORMANCE_MEETING_DESCRIPTION,
     kind: 'meeting',
@@ -752,8 +793,30 @@ type AppNotification = {
   created_at: string
 }
 
+function notificationVisual(n: AppNotification) {
+  const text = `${n.type || ''} ${n.title || ''} ${n.body || ''}`.toLowerCase()
+  if (text.includes('gia hạn') || text.includes('deadline')) {
+    return { label: 'Deadline', cls: 'bg-[var(--warning-soft)] text-[var(--warning)]', dot: 'bg-[var(--warning)]' }
+  }
+  if (text.includes('duyệt') || text.includes('từ chối') || text.includes('trả lại')) {
+    return { label: 'Duyệt', cls: 'bg-[var(--success-soft)] text-[var(--success)]', dot: 'bg-[var(--success)]' }
+  }
+  if (text.includes('tag') || text.includes('@') || text.includes('comment') || text.includes('bình luận')) {
+    return { label: 'Tag', cls: 'bg-[var(--accent-soft)] text-[var(--olive)]', dot: 'bg-[var(--lime)]' }
+  }
+  if (text.includes('trễ') || text.includes('overdue')) {
+    return { label: 'Trễ hạn', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]', dot: 'bg-[var(--danger)]' }
+  }
+  if (text.includes('giao') || text.includes('assignment')) {
+    return { label: 'Giao việc', cls: 'bg-[var(--bg-surface)] text-[var(--olive)]', dot: 'bg-[var(--olive)]' }
+  }
+  if (n.type === 'recurring_reminder') {
+    return { label: 'Định kỳ', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--olive)]' }
+  }
+  return { label: 'Thông báo', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--text-muted)]' }
+}
+
 // ─── SVG Icon Library ─────────────────────────────────────────────────────────
-const S = 'stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"'
 function Ico({ d, size = 16, className = '' }: { d: string | string[]; size?: number; className?: string }) {
   const paths = Array.isArray(d) ? d : [d]
   return (
@@ -875,6 +938,7 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState('all')
   const [selectedWorkstreamId, setSelectedWorkstreamId] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [cooTarget, setCooTarget] = useState<CooTarget | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createTab, setCreateTab] = useState<'project' | 'workstream'>('workstream')
@@ -1147,8 +1211,6 @@ export default function Home() {
 
     if (rows[0]) {
       setProjectOwnerId((v) => v || rows[0].id)
-      setWorkHeadId((v) => v || rows[0].id)
-      setWorkAssigneeId((v) => v || rows[0].id)
     }
   }, [])
 
@@ -1293,6 +1355,11 @@ export default function Home() {
     if (unread.length === 0) return
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })))
     await supabase.from('notifications').update({ is_read: true }).in('id', unread)
+  }
+
+  async function markNotificationRead(id: string) {
+    setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n))
+    await supabase.from('notifications').update({ is_read: true }).eq('id', id)
   }
 
   // ─── Việc định kỳ + đồng hồ thật ────────────────────────────────────────────
@@ -1868,7 +1935,9 @@ export default function Home() {
 
     setSaving(true)
 
+    const newWorkId = crypto.randomUUID()
     const { error } = await supabase.from('tasks').insert({
+      id: newWorkId,
       title: workTitle.trim(),
       description: workDesc.trim() || null,
       parent_task_id: null,
@@ -1877,9 +1946,9 @@ export default function Home() {
       priority: workPriority,
       progress_percent: 0,
       due_date: workDueDate || null,
-      department_id: workDepartmentId || employees.find((e) => e.id === (workHeadIds[0] || workHeadId))?.department_id || null,
-      assignee_id: workAssigneeId || null,
-      head_id: workHeadIds[0] || workHeadId || null,
+      department_id: workDepartmentId || employees.find((e) => e.id === (workHeadIds[0]))?.department_id || null,
+      assignee_id: workAssigneeId || (SOLO_PILOT_MODE ? currentEmployee?.id : null) || null,
+      head_id: workHeadIds[0] || (SOLO_PILOT_MODE ? currentEmployee?.id : null) || null,
       project_id: workProjectId || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -1893,10 +1962,14 @@ export default function Home() {
       return
     }
 
+    // Deadline do cấp trên giao trực tiếp → coi như đã chốt (committed)
+    await commitDeadlineMeta(newWorkId, workDueDate || null, 'manual')
+
     setWorkTitle('')
     setWorkDesc('')
     setWorkDueDate('')
     setWorkHeadIds([])
+    setWorkAssigneeId('')
     await refreshDataSilent()
   }
 
@@ -1920,7 +1993,9 @@ export default function Home() {
       return
     }
 
+    const newSubId = crypto.randomUUID()
     const { error } = await supabase.from('tasks').insert({
+      id: newSubId,
       title: subtaskForm.title.trim(),
       description: subtaskForm.description.trim() || null,
       parent_task_id: parent.id,
@@ -1942,6 +2017,8 @@ export default function Home() {
       toast('Tạo đầu việc con bị lỗi.', 'error')
       return
     }
+
+    await commitDeadlineMeta(newSubId, subtaskForm.dueDate || null, 'manual')
 
     setSubtaskOpenFor('')
     await refreshDataSilent()
@@ -2619,6 +2696,22 @@ export default function Home() {
     await fetchReports()
   }
 
+  // ── Deep-link navigation ──────────────────────────────────────────────────────
+  // Gọi từ alert card / notification để nhảy đúng vào item cần xử lý.
+  function openCooTarget(opts: CooTarget & { task?: Task | null }) {
+    const { task } = opts
+    const projectId = opts.projectId ?? task?.project_id ?? null
+    // workstreamId = parent của task (nếu là subtask) hoặc chính task nếu là workstream
+    const workstreamId = opts.workstreamId ?? (task?.parent_task_id ? task.parent_task_id : (task?.id ?? null))
+    const taskId = opts.taskId ?? (task?.parent_task_id ? task.id : null)
+    const highlightId = opts.highlightId ?? task?.id ?? workstreamId
+
+    if (projectId) setSelectedProjectId(projectId)
+    setView('coo')
+    setCooTarget({ projectId, workstreamId, taskId, highlightId })
+    if (task) setSelectedTask(task)
+  }
+
   async function deleteProject(project: Project) {
     if (!(await confirmDialog(`Xóa dự án "${project.name}" và toàn bộ đầu việc thuộc dự án này?`))) return
 
@@ -3243,7 +3336,7 @@ export default function Home() {
   })
 
   const urgentTasks = tasks
-    .filter((task) => isTaskOverdue(task) || isTaskProblem(task) || isTaskSlow(task, stepsByTask.get(task.id) || []) || (!task.due_date && task.status !== 'completed'))
+    .filter((task) => isTaskOverdue(task) || isTaskProblem(task) || isTaskSlow(task, stepsByTask.get(task.id) || []) || isDeadlineActionNeeded(task) || (!task.due_date && task.status !== 'completed'))
     .slice(0, 20)
 
   const visibleTasks = useMemo(
@@ -3273,7 +3366,6 @@ export default function Home() {
     if (overdueCount > 0) {
       toast(`Có ${overdueCount} đầu việc đang trễ deadline — cần xử lý.`, 'warning')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, authChecked, visibleTasks])
 
   // Các bước đang chờ chính user này duyệt (inbox duyệt nhanh)
@@ -3337,7 +3429,6 @@ export default function Home() {
 
   // ─── Permission system ──────────────────────────────────────────────────────
   const role = currentEmployee?.role || 'employee'
-  const isAdmin = role === 'admin'
   const isDeptHead = role === 'department_head' || Boolean(currentEmployee?.is_department_head)
   const isTopLevel = role === 'ceo' || role === 'coo' || role === 'admin'
   // kept for legacy UI guards that haven't been migrated yet
@@ -3469,7 +3560,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
+    <main className="vyvy-app-shell min-h-screen text-[var(--text-primary)]">
       {mobileNavOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -3479,7 +3570,7 @@ export default function Home() {
 
       <aside
         className={`fixed left-0 top-0 z-50 h-screen transition-all duration-200
-          bg-[var(--olive)] border-r border-[var(--hair-d)] text-[rgba(241,237,228,0.85)]
+          vyvy-sidebar text-[rgba(241,237,228,0.85)]
           ${mobileNavOpen ? 'w-[260px]' : 'w-0 overflow-hidden'}
           md:w-[64px] md:overflow-visible ${collapsed ? 'md:w-[64px]' : 'md:w-[240px]'}`}
       >
@@ -3512,8 +3603,8 @@ export default function Home() {
                 title={item.label}
                 className={`relative flex w-full items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 text-sm font-medium transition-all ${
                   view === item.key
-                    ? 'bg-[rgba(241,237,228,0.08)] text-[var(--lime)]'
-                    : 'text-[rgba(241,237,228,0.55)] hover:bg-[rgba(241,237,228,0.06)] hover:text-[rgba(241,237,228,0.85)]'
+                    ? 'bg-[var(--sidebar-active)] text-[var(--lime)]'
+                    : 'text-[var(--sidebar-text)] hover:bg-[rgba(255,255,255,.06)] hover:text-[var(--sidebar-text-active)]'
                 }`}
               >
                 <span className="shrink-0">{item.icon}</span>
@@ -3550,7 +3641,7 @@ export default function Home() {
       </aside>
 
       <section className={`min-h-screen min-w-0 md:ml-[64px] ${collapsed ? 'md:ml-[64px]' : 'md:ml-[240px]'}`}>
-        <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--ivory)]/95 px-3 py-3 backdrop-blur-md sm:px-6">
+        <header className="vyvy-topbar sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -3587,7 +3678,7 @@ export default function Home() {
           <div className="relative hidden min-w-0 flex-1 max-w-md lg:block">
             <input
               ref={searchInputRef}
-              className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] pl-9 pr-12 text-sm outline-none focus:border-[var(--char)] focus:bg-[var(--bg-card)]"
+              className="vyvy-input h-10 w-full pl-9 pr-12 text-sm outline-none"
               placeholder="Tìm dự án, đầu việc... (Ctrl+K)"
               value={searchInput}
               onChange={(event) => { handleSearchChange(event.target.value); setSearchOpen(true) }}
@@ -3653,12 +3744,7 @@ export default function Home() {
           <div className="flex shrink-0 items-center gap-2">
             <div className="relative">
               <button type="button"
-                onClick={() => {
-                  setInboxOpen((v) => {
-                    if (!v) markNotificationsRead()
-                    return !v
-                  })
-                }}
+                onClick={() => setInboxOpen((v) => !v)}
                 title="Thông báo & chờ duyệt"
                 className="relative rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2.5 hover:bg-[var(--bg-surface)]"
               >
@@ -3671,7 +3757,18 @@ export default function Home() {
               </button>
 
               {inboxOpen && (
-                <div className="absolute right-0 top-12 z-30 w-[min(320px,calc(100vw-1rem))] rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2 shadow-xl">
+                <div className="vyvy-modal-panel absolute right-0 top-12 z-30 w-[min(380px,calc(100vw-1rem))] rounded-[var(--radius-lg)] p-2">
+                  <div className="mb-2 flex items-center justify-between border-b border-[var(--border)] px-2 pb-2">
+                    <div>
+                      <p className="vyvy-label">Notification center</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)]">Thông báo & chờ duyệt</p>
+                    </div>
+                    {unreadCount > 0 && (
+                      <button type="button" onClick={markNotificationsRead} className="text-[11px] font-bold text-[var(--olive)]">
+                        Đánh dấu đã đọc
+                      </button>
+                    )}
+                  </div>
 
                   {/* Phân công chờ duyệt */}
                   {assignmentsForMe.length > 0 && (
@@ -3715,7 +3812,7 @@ export default function Home() {
                     Bước chờ tôi duyệt ({pendingForMe.length})
                   </p>
                   {pendingForMe.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Không có bước nào chờ duyệt. 🎉</p>
+                    <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Không có bước nào chờ duyệt.</p>
                   ) : (
                     <div className="max-h-80 space-y-1 overflow-y-auto">
                       {pendingForMe.map((step) => {
@@ -3739,7 +3836,7 @@ export default function Home() {
                                   Duyệt ngay
                                 </button>
                                 <button type="button"
-                                  onClick={() => { if (task) setSelectedTask(task); setInboxOpen(false) }}
+                                  onClick={() => { if (task) { openCooTarget({ task }); setInboxOpen(false) } }}
                                   className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-[11px] font-bold"
                                 >
                                   Xem chi tiết
@@ -3757,26 +3854,43 @@ export default function Home() {
                     Thông báo
                   </p>
                   {notifications.length === 0 ? (
-                    <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Chưa có thông báo.</p>
+                    <div className="vyvy-empty-state mx-2 my-2 px-4 py-6">
+                      <div className="vyvy-empty-mark" />
+                      <p className="text-sm font-bold text-[var(--text-primary)]">Chưa có thông báo</p>
+                      <p className="mt-1 text-xs text-[var(--text-secondary)]">Các tag, deadline và duyệt việc sẽ xuất hiện tại đây.</p>
+                    </div>
                   ) : (
                     <div className="max-h-64 space-y-1 overflow-y-auto">
                       {notifications.map((n) => {
                         const relTask = n.task_id ? tasks.find((t) => t.id === n.task_id) : null
+                        const visual = notificationVisual(n)
                         return (
                           <button key={n.id} type="button"
-                            onClick={() => {
-                              if (relTask) { setSelectedTask(relTask); setInboxOpen(false) }
+                            onClick={async () => {
+                              if (!n.is_read) await markNotificationRead(n.id)
+                              if (relTask) {
+                                // Deep-link: nhảy đúng vào task trong COO Board
+                                openCooTarget({ task: relTask })
+                                setInboxOpen(false)
+                              }
                               else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
                               else if (n.type === 'daily_digest') { setView('tasks'); setInboxOpen(false) }
                             }}
-                            className={`block w-full rounded-lg p-2 text-left ${n.is_read ? '' : 'bg-[var(--accent-soft)]'} hover:bg-[var(--bg-surface)]`}
+                            className={`flex w-full gap-3 rounded-[var(--radius)] border p-2 text-left transition-colors ${n.is_read ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[var(--lime)]/45 bg-[var(--accent-soft)]'} hover:bg-[var(--bg-surface)]`}
                           >
-                            <p className="truncate text-sm font-bold">{n.title}</p>
-                            {n.body && <p className="truncate text-[11px] text-[var(--text-secondary)]">{n.body}</p>}
-                            <p className="text-[10px] text-[var(--text-muted)]">
-                              {new Date(n.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                              {n.actor_id && employeeMap.get(n.actor_id) ? ` · ${employeeMap.get(n.actor_id)?.full_name}` : ''}
-                            </p>
+                            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${n.is_read ? visual.dot : 'bg-[var(--lime)]'}`} />
+                            <span className="min-w-0 flex-1">
+                              <span className="mb-1 flex items-center gap-2">
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${visual.cls}`}>{visual.label}</span>
+                                {!n.is_read && <span className="text-[10px] font-bold text-[var(--olive)]">Chưa đọc</span>}
+                              </span>
+                              <span className="block truncate text-sm font-bold">{n.title}</span>
+                              {n.body && <span className="mt-0.5 block truncate text-[11px] text-[var(--text-secondary)]">{n.body}</span>}
+                              <span className="mt-1 block text-[10px] text-[var(--text-muted)]">
+                                {new Date(n.created_at).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                {n.actor_id && employeeMap.get(n.actor_id) ? ` · ${employeeMap.get(n.actor_id)?.full_name}` : ''}
+                              </span>
+                            </span>
                           </button>
                         )
                       })}
@@ -3806,6 +3920,16 @@ export default function Home() {
               <span className={`h-1.5 w-1.5 rounded-full ${realtimeStatus === 'live' ? 'animate-pulse bg-[var(--success)]' : realtimeStatus === 'connecting' ? 'bg-[var(--warning)]' : 'bg-[var(--danger)]'}`} />
               {realtimeStatus === 'live' ? 'Live' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Offline'}
             </div>
+            {SOLO_PILOT_MODE && (
+              <div
+                title="Chế độ test nội bộ — chỉ Quang/Admin. Tắt tại lib/config.ts"
+                className="hidden items-center gap-1.5 rounded-full border border-[var(--lime)]/40 bg-[var(--lime)]/12 px-2.5 py-1 text-[11px] font-bold text-[var(--olive)] sm:flex"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--olive)] animate-pulse" />
+                Solo Pilot
+              </div>
+            )}
+
             {primaryAction && (
               <button type="button"
                 onClick={primaryAction.onClick}
@@ -3838,6 +3962,7 @@ export default function Home() {
                   setView={setView}
                   setSelectedProjectId={setSelectedProjectId}
                   setSelectedTask={setSelectedTask}
+                  openCooTarget={openCooTarget}
                   currentEmployee={currentEmployee}
                   onRefresh={() => fetchAll({ silent: true })}
                 />
@@ -3922,6 +4047,8 @@ export default function Home() {
                   updateTaskSequential={updateTaskSequential}
                   uploadTaskFile={uploadTaskFile}
                   deleteTaskReport={deleteTaskReport}
+                  cooTarget={cooTarget}
+                  onCooTargetHandled={() => setCooTarget(null)}
                 />
               )}
 
@@ -4187,6 +4314,11 @@ export default function Home() {
           getStatusLabel={getStatusLabel}
           currentEmployee={currentEmployee}
           employees={employees}
+          refreshTask={async () => {
+            const { data } = await supabase.from('tasks').select('*').eq('id', selectedTask.id).maybeSingle()
+            if (data) setSelectedTask(data as Task)
+            void fetchTasks()
+          }}
         />
       )}
 
@@ -4253,6 +4385,7 @@ function DashboardView(props: {
   setTaskFilter: (f: string) => void
   setSelectedProjectId: (id: string) => void
   setSelectedTask: (task: Task) => void
+  openCooTarget: (opts: CooTarget & { task?: Task | null }) => void
   currentEmployee: Employee | null
   onRefresh: () => Promise<void> | void
 }) {
@@ -4270,7 +4403,6 @@ function DashboardView(props: {
   const attentionProjects = props.projectCards.filter((p) => p.health.level === 'watch' || p.health.level === 'problem')
   const pendingSteps = getPendingApprovalSteps(props.steps)
   const revisionSteps = getRevisionSteps(props.steps)
-  const missingReportSteps = getMissingReportSteps(props.steps)
 
   // My tasks (for employee view)
   const myTasks = currentEmployee?.id
@@ -4286,11 +4418,11 @@ function DashboardView(props: {
 
   // Donut — mutually exclusive segments, sum == total
   const donutData = [
-    { name: 'Hoàn thành',    value: done,       color: '#22c55e' },
-    { name: 'Đang làm',      value: doing,       color: '#3b82f6' },
-    { name: 'Pending',        value: pending,     color: '#f59e0b' },
-    { name: 'Trễ hạn',       value: overdue,     color: '#ef4444' },
-    { name: 'Chưa bắt đầu',  value: notStarted,  color: '#94a3b8' },
+    { name: 'Hoàn thành',    value: done,       color: 'var(--success)' },
+    { name: 'Đang làm',      value: doing,       color: 'var(--olive)' },
+    { name: 'Pending',        value: pending,     color: 'var(--warning)' },
+    { name: 'Trễ hạn',       value: overdue,     color: 'var(--danger)' },
+    { name: 'Chưa bắt đầu',  value: notStarted,  color: 'var(--text-muted)' },
   ].filter((d) => d.value > 0)
 
   // Workload bar data (top 8)
@@ -4310,7 +4442,17 @@ function DashboardView(props: {
     return { name: shortName, xong, dangLam, tre, chuaBatDau }
   })
 
-  const cardCls = 'rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-5'
+  // Liếc 5 giây
+  const today = new Date().toISOString().slice(0, 10)
+  const endOfWeek = (() => {
+    const d = new Date(); d.setDate(d.getDate() + (7 - d.getDay())); return d.toISOString().slice(0, 10)
+  })()
+  const dueThisWeek = tasks.filter((t) => t.status !== 'completed' && t.due_date && t.due_date.slice(0,10) >= today && t.due_date.slice(0,10) <= endOfWeek)
+  const noDeadlineTasks = tasks.filter((t) => t.status !== 'completed' && !t.due_date)
+  const openTasks = tasks.filter((t) => t.status !== 'completed')
+  const extensionPending = tasks.filter((t) => t.deadline_status === 'extension_requested')
+
+  const cardCls = 'vyvy-card p-5'
 
   async function refreshDashboard() {
     setRefreshing(true)
@@ -4326,38 +4468,57 @@ function DashboardView(props: {
 
   return (
     <div className="space-y-6">
-      {/* ── Dashboard header ── */}
-      <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-0.5">Tổng quan vận hành</p>
-          <p className="text-sm text-[var(--text-secondary)]">
-            <span className="font-extrabold text-[var(--text-primary)]">{total}</span> đầu việc ·{' '}
-            <span className="text-[#15803d] font-bold">{completionRate}% hoàn thành</span>
-            {overdue > 0 && <> · <span className="text-[#b91c1c] font-bold">{overdue} trễ deadline</span></>}
-          </p>
+      {/* ── Hero ── */}
+      <div className="vyvy-card overflow-hidden">
+        <div className="flex items-center justify-between gap-4 px-6 py-5">
+          <div className="min-w-0">
+            <p className="vyvy-label mb-1">VyVy WorkOS · Tổng quan vận hành</p>
+            <h2 className="font-display text-2xl text-[var(--vyvy-char)] leading-tight">
+              {overdue > 0 && <span className="text-[var(--danger)]">{overdue} đầu việc trễ — cần xử lý</span>}
+              {overdue === 0 && completionRate === 100 && <span className="text-[var(--success)]">Tất cả hoàn thành ✓</span>}
+              {overdue === 0 && completionRate < 100 && <span>{completionRate}% hoàn thành · <span className="text-[var(--olive)]">{total - done} còn lại</span></span>}
+            </h2>
+            <p className="mt-1 text-sm text-[var(--text-muted)]">
+              {total} đầu việc · {done} xong · {doing} đang làm · {pending} pending
+              {overdue > 0 && <span className="ml-2 font-semibold text-[var(--danger)]">· {overdue} trễ</span>}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="hidden sm:flex flex-col items-end">
+              <span className="text-4xl font-extrabold tabular-nums text-[var(--olive)]">{completionRate}%</span>
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Hoàn thành</span>
+            </div>
+            <button
+              type="button"
+              onClick={refreshDashboard}
+              disabled={refreshing}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-soft)] bg-[var(--bg-surface)] px-3 text-xs font-semibold text-[var(--text-secondary)] hover:border-[var(--border-strong)] disabled:opacity-60 transition-colors"
+            >
+              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Đang làm mới…' : 'Làm mới'}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={refreshDashboard}
-          disabled={refreshing}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-60 transition-colors"
-        >
-          <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
-          {refreshing ? 'Đang làm mới…' : 'Làm mới'}
-        </button>
+        {total > 0 && (
+          <div className="h-[3px] bg-[var(--border-soft)]">
+            <div className="h-full bg-[var(--olive)] transition-all duration-700" style={{ width: `${completionRate}%` }} />
+          </div>
+        )}
       </div>
 
-      {/* ── Employee: Việc của tôi hôm nay ── */}
+      {/* ── Section: Việc của tôi ── */}
       {!isAdmin && currentEmployee && (
-        <div className="rounded-[var(--radius-lg)] border border-[var(--accent)]/20 bg-[var(--accent-soft)] p-5">
-          <p className="font-spec text-[var(--olive)] mb-3">VIỆC CỦA TÔI</p>
+        <div className="vyvy-section-header"><span className="vyvy-section-number">01</span><span className="vyvy-label">Việc của tôi</span></div>
+      )}
+      {!isAdmin && currentEmployee && (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border-soft)] bg-[var(--bg-surface)] p-5">
           <div className="grid grid-cols-3 gap-3 mb-4">
             {[
               { label: 'Đang làm', value: myDoing.length, color: 'text-[var(--char)]' },
               { label: 'Đến hạn hôm nay', value: myDueToday.length, color: 'text-[var(--warning)]' },
               { label: 'Trễ hạn', value: myOverdue.length, color: 'text-[var(--danger)]' },
             ].map((s) => (
-              <div key={s.label} className="rounded-[var(--radius)] bg-[var(--bg-card)]/60 p-3 text-center">
+              <div key={s.label} className="rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border-soft)] p-3 text-center">
                 <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
                 <p className="text-xs text-[var(--text-muted)] mt-0.5">{s.label}</p>
               </div>
@@ -4365,8 +4526,8 @@ function DashboardView(props: {
           </div>
           {[...myOverdue, ...myDueToday, ...myDoing].slice(0, 5).map((t) => (
             <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-              className="w-full text-left flex items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 hover:bg-[var(--bg-card)]/40 transition-colors mb-1">
-              <span className={`h-2 w-2 rounded-full shrink-0 ${isTaskOverdue(t) ? 'bg-[var(--danger)]' : 'bg-[var(--accent)]'}`}/>
+              className="w-full text-left flex items-center gap-3 rounded-[var(--radius)] px-3 py-2.5 hover:bg-[var(--bg-card)] transition-colors mb-1">
+              <span className={`h-2 w-2 rounded-full shrink-0 ${isTaskOverdue(t) ? 'bg-[var(--danger)]' : 'bg-[var(--olive)]'}`}/>
               <span className="text-sm font-medium text-[var(--text-primary)] truncate">{t.title}</span>
               {t.due_date && <span className="text-xs text-[var(--text-muted)] ml-auto shrink-0">{t.due_date.slice(0, 10)}</span>}
             </button>
@@ -4375,364 +4536,278 @@ function DashboardView(props: {
         </div>
       )}
 
-      {/* ── Metric cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* ── Section 01: Liếc 5 giây ── */}
+      <div className="vyvy-section-header">
+        <span className="vyvy-section-number">{!isAdmin && currentEmployee ? '02' : '01'}</span>
+        <span className="vyvy-label">Liếc 5 giây — tình hình tuần này</span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {[
-          { label: 'Tổng việc',    value: total,      icon: <ListTodo size={18}/>,      filter: 'all',        accent: '#6366f1', bg: 'bg-[#eef2ff]',                   num: 'text-[#4338ca]' },
-          { label: 'Hoàn thành',   value: done,       icon: <CheckCircle2 size={18}/>,  filter: 'completed',  accent: '#16a34a', bg: 'bg-[#dcfce7]',                   num: 'text-[#15803d]' },
-          { label: 'Đang làm',     value: doing,      icon: <Activity size={18}/>,      filter: 'in_progress',accent: '#2563eb', bg: 'bg-[#dbeafe]',                   num: 'text-[#1d4ed8]' },
-          { label: 'Pending',      value: pending,    icon: <Clock size={18}/>,          filter: 'pending',    accent: '#d97706', bg: 'bg-[#fef3c7]',                   num: 'text-[#b45309]' },
-          { label: 'Trễ deadline', value: overdue,    icon: <AlertCircle size={18}/>,    filter: 'overdue',    accent: '#dc2626', bg: overdue > 0 ? 'bg-[#fee2e2]' : 'bg-[var(--bg-surface)]', num: overdue > 0 ? 'text-[#b91c1c]' : 'text-[var(--text-muted)]' },
-        ].map((m) => (
-          <button key={m.label} type="button" onClick={() => { props.setTaskFilter(m.filter); props.setView('tasks') }}
-            className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4 text-left hover:shadow-sm hover:-translate-y-0.5 transition-all group cursor-pointer">
-            <div className="flex items-start justify-between mb-3">
-              <div className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${m.bg}`} style={{ color: m.accent }}>
-                {m.icon}
-              </div>
-              {m.filter !== 'all' && total > 0 && (
-                <span className="text-[11px] font-semibold text-[var(--text-muted)] tabular-nums">
-                  {Math.round((m.value / total) * 100)}%
-                </span>
-              )}
-            </div>
-            <p className={`text-3xl font-extrabold tabular-nums leading-none ${m.num}`}>{m.value}</p>
-            <p className="text-xs font-medium text-[var(--text-muted)] mt-1.5">{m.label}</p>
-            {m.filter === 'overdue' && overdue > 0 && (
-              <p className="text-[10px] text-[#dc2626] mt-1 font-semibold">Cần xử lý ngay →</p>
-            )}
+          {
+            title: 'Phải xong tuần này',
+            value: dueThisWeek.length,
+            sub: dueThisWeek.filter(t => isTaskOverdue(t)).length > 0 ? `${dueThisWeek.filter(t => isTaskOverdue(t)).length} đã trễ` : 'trong tuần',
+            accent: dueThisWeek.filter(t => isTaskOverdue(t)).length > 0 ? 'var(--danger)' : 'var(--status-progress)',
+            onClick: () => { props.setTaskFilter('overdue'); props.setView('tasks') },
+          },
+          {
+            title: 'Đang kẹt / quá hạn',
+            value: overdue + extensionPending.length,
+            sub: extensionPending.length > 0 ? `${extensionPending.length} đang xin gia hạn` : overdue > 0 ? 'cần xử lý ngay' : 'ổn',
+            accent: overdue > 0 ? 'var(--danger)' : 'var(--status-neutral)',
+            onClick: () => { props.setTaskFilter('overdue'); props.setView('tasks') },
+          },
+          {
+            title: 'Chờ duyệt',
+            value: pendingSteps.length,
+            sub: revisionSteps.length > 0 ? `${revisionSteps.length} cần làm lại` : 'bước duyệt',
+            accent: pendingSteps.length > 0 ? 'var(--status-warning)' : 'var(--status-neutral)',
+            onClick: () => props.setView('tasks'),
+          },
+          {
+            title: 'Không có deadline',
+            value: noDeadlineTasks.length,
+            sub: 'việc chưa chốt ngày',
+            accent: noDeadlineTasks.length > 0 ? 'var(--status-warning)' : 'var(--status-neutral)',
+            onClick: () => { props.setTaskFilter('all'); props.setView('tasks') },
+          },
+          {
+            title: 'Tổng việc mở',
+            value: openTasks.length,
+            sub: `${total} tổng · ${done} xong`,
+            accent: 'var(--brand-olive, var(--olive))',
+            onClick: () => { props.setTaskFilter('all'); props.setView('tasks') },
+          },
+        ].map((card) => (
+          <button key={card.title} type="button" onClick={card.onClick}
+            className="vyvy-card p-5 text-left hover:-translate-y-0.5 transition-all cursor-pointer group relative overflow-hidden"
+            style={{ '--metric-accent': card.accent } as CSSProperties}>
+            <div className="absolute left-0 inset-y-0 w-[3px] rounded-r" style={{ background: card.accent }} />
+            <p className="text-xs font-semibold text-[var(--text-muted)] mb-3 uppercase tracking-wide">{card.title}</p>
+            <p className="text-4xl font-extrabold tabular-nums leading-none" style={{ color: card.accent }}>{card.value}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-2">{card.sub}</p>
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-6">
+      {/* ── Section 02: Nội dự án / Sức khỏe ── */}
+      <div className="vyvy-section-header">
+        <span className="vyvy-section-number">{!isAdmin && currentEmployee ? '03' : '02'}</span>
+        <span className="vyvy-label">Nội dự án · Sức khỏe</span>
+      </div>
 
-          {/* ── Charts row ── */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {/* Donut — tỉ lệ trạng thái */}
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-sm font-extrabold text-[var(--text-primary)]">Tỉ lệ trạng thái</p>
-                <span className="text-[11px] text-[var(--text-muted)] font-medium">{total} đầu việc</span>
-              </div>
-              {total > 0 ? (
-                <DashboardDonut data={donutData} total={total} />
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 gap-2">
-                  <ListTodo size={32} className="text-[var(--text-muted)] opacity-30"/>
-                  <p className="text-sm text-[var(--text-muted)]">Chưa có đầu việc nào</p>
-                </div>
-              )}
-            </div>
-
-            {/* Bar — tiến độ dự án */}
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-extrabold text-[var(--text-primary)]">Tiến độ theo dự án</p>
-                <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#22c55e]"/>Xong</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#3b82f6]"/>Đang làm</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#ef4444]"/>Trễ</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-[#cbd5e1]"/>Chưa bắt đầu</span>
-                </div>
-              </div>
-              {projectChartData.length > 0 ? (
-                <DashboardProjectBar data={projectChartData} />
-              ) : (
-                <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dữ liệu</p>
-              )}
-            </div>
-          </div>
-
-          {/* ── Projects ── */}
-          <div className={cardCls}>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-sm font-extrabold text-[var(--text-primary)]">Sức khỏe dự án</p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">{props.projectCards.filter(p=>p.total>0).length}/{props.projectCards.length} dự án đang có việc</p>
-              </div>
-              {attentionProjects.length > 0 && (
-                <span className="rounded-full bg-[#fee2e2] px-3 py-1 text-xs font-bold text-[#b91c1c]">
-                  ⚠ {attentionProjects.length} cần chú ý
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {props.projectCards.length === 0 ? (
-                <p className="col-span-2 text-center text-sm text-[var(--text-muted)] py-6">Chưa có dự án nào.</p>
-              ) : props.projectCards.map((project) => (
-                <button type="button" key={project.id}
-                  onClick={() => { props.setSelectedProjectId(project.id); props.setView('coo') }}
-                  className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-left hover:border-[var(--border-strong)] hover:bg-[var(--bg-card-hover)] transition-all">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-[var(--text-primary)] truncate">{project.name}</p>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{project.total} việc</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <ProjectHealthBadge health={project.health} />
-                      <p className="text-xl font-bold text-[var(--olive)] mt-1">{isNaN(project.rate) ? 0 : project.rate}%</p>
-                    </div>
-                  </div>
-                  <ProgressBar value={project.rate} />
-                  <div className="mt-3 flex gap-3 text-xs text-[var(--text-muted)]">
-                    {project.overdue > 0 && <span className="text-[var(--danger)]">⚠ {project.overdue} trễ</span>}
-                    {project.problem > 0 && <span className="text-[var(--warning)]">⚡ {project.problem} vấn đề</span>}
-                    {project.health.level === 'empty' && <span>Chưa có task triển khai</span>}
-                    {project.health.level === 'not_started' && <span>Chưa bắt đầu</span>}
-                    {project.health.level === 'normal' && <span className="text-[var(--success)]">✓ Đang ổn</span>}
-                    {(project.health.level === 'watch' || project.health.level === 'problem') && (
-                      <span className={project.health.level === 'problem' ? 'text-[var(--danger)]' : 'text-[var(--warning)]'}>
-                        {project.health.label}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Bảng 1: Khối lượng thực hiện toàn công ty ── */}
-          {isAdmin && (
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-sm font-extrabold text-[var(--text-primary)]">Khối lượng thực hiện</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Ai đang làm gì — toàn bộ {activePeopleReports.length} nhân sự</p>
-                </div>
-                <div className="flex gap-3 text-xs text-[var(--text-muted)]">
-                  <span className="text-[var(--success)] font-semibold">{activePeopleReports.reduce((s,r)=>s+r.done,0)} xong</span>
-                  <span className="text-[var(--umber)] font-semibold">{activePeopleReports.reduce((s,r)=>s+r.doing,0)} đang làm</span>
-                  {activePeopleReports.reduce((s,r)=>s+r.overdue,0) > 0 &&
-                    <span className="text-[var(--danger)] font-bold">{activePeopleReports.reduce((s,r)=>s+r.overdue,0)} trễ</span>}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[var(--border)]">
-                      {['Nhân sự','Chức vụ','Tổng','Đang làm','Xong','Trễ','Tiến độ'].map(h => (
-                        <th key={h} className="pb-2 text-left text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)] pr-4 last:pr-0">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
-                    {activePeopleReports
-                      .sort((a,b) => b.overdue - a.overdue || b.doing - a.doing || b.total - a.total || a.employee.full_name.localeCompare(b.employee.full_name))
-                      .map((row) => (
-                      <tr key={row.employee.id} className={`transition-colors hover:bg-[var(--bg-surface)] ${row.overdue > 0 ? 'bg-[var(--danger)]/3' : ''}`}>
-                        <td className="py-2.5 pr-4">
-                          <div className="flex items-center gap-2">
-                            <Avatar name={row.employee.full_name} size="sm" />
-                            <span className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{row.employee.full_name}</span>
-                          </div>
-                        </td>
-                        <td className="py-2.5 pr-4 text-xs text-[var(--text-muted)] whitespace-nowrap">{row.employee.position || '—'}</td>
-                        <td className="py-2.5 pr-4 font-bold tabular-nums text-center">{row.total || '—'}</td>
-                        <td className="py-2.5 pr-4 tabular-nums text-center">
-                          {row.doing > 0
-                            ? <span className="font-bold text-[var(--umber)]">{row.doing}</span>
-                            : <span className="text-[var(--text-muted)]">0</span>}
-                        </td>
-                        <td className="py-2.5 pr-4 tabular-nums text-center">
-                          {row.done > 0
-                            ? <span className="font-bold text-[var(--success)]">{row.done}</span>
-                            : <span className="text-[var(--text-muted)]">0</span>}
-                        </td>
-                        <td className="py-2.5 pr-4 tabular-nums text-center">
-                          {row.overdue > 0
-                            ? <span className="font-extrabold text-[var(--danger)]">{row.overdue}</span>
-                            : <span className="text-[var(--text-muted)]">0</span>}
-                        </td>
-                        <td className="py-2.5 min-w-[100px]">
-                          {row.total > 0
-                            ? <ProgressBar value={row.rate} showLabel />
-                            : <span className="text-xs text-[var(--text-muted)]">Chưa có việc</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ── Bảng 2: Tình hình giao việc ── */}
-          {isAdmin && (
-            <div className={cardCls}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <p className="text-sm font-extrabold text-[var(--text-primary)]">Tình hình giao việc</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">Ai giao bao nhiêu — giao cho ai — tỷ lệ hoàn thành</p>
-                </div>
-                <span className="text-xs text-[var(--text-muted)]">{activePeopleReports.filter(r=>r.assigned>0).length} người đang giao việc</span>
-              </div>
-              {activePeopleReports.filter(r=>r.assigned>0).length === 0 ? (
-                <p className="text-center text-sm text-[var(--text-muted)] py-6">Chưa có việc nào được giao.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-[var(--border)]">
-                        {['Người giao','Tổng giao','Đang làm','Xong','Trễ','% HT','Giao cho'].map(h => (
-                          <th key={h} className="pb-2 text-left text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-muted)] pr-4 last:pr-0">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border)]">
-                      {activePeopleReports
-                        .filter(r => r.assigned > 0)
-                        .sort((a,b) => b.assignedOverdue - a.assignedOverdue || b.assigned - a.assigned)
-                        .map((row) => {
-                          const pct = row.assigned === 0 ? 0 : Math.round((row.assignedDone / row.assigned) * 100)
-                          const recipientMap = new Map<string, { name: string; count: number; overdue: number }>()
-                          row.assignedTasks.forEach((task) => {
-                            const aid = task.assignee_id
-                            if (!aid) return
-                            const emp = props.employeeMap.get(aid)
-                            if (!emp) return
-                            const ex = recipientMap.get(aid)
-                            if (ex) { ex.count++; if (isTaskOverdue(task)) ex.overdue++ }
-                            else recipientMap.set(aid, { name: emp.full_name, count: 1, overdue: isTaskOverdue(task) ? 1 : 0 })
-                          })
-                          const recipients = Array.from(recipientMap.values()).sort((a,b) => b.count - a.count)
-                          const unassigned = row.assignedTasks.filter(t => !t.assignee_id).length
-
-                          return (
-                            <tr key={row.employee.id} className={`transition-colors hover:bg-[var(--bg-surface)] ${row.assignedOverdue > 0 ? 'bg-[var(--danger)]/3' : ''}`}>
-                              <td className="py-3 pr-4">
-                                <div className="flex items-center gap-2">
-                                  <Avatar name={row.employee.full_name} size="sm" />
-                                  <div>
-                                    <p className="font-semibold text-[var(--text-primary)] whitespace-nowrap">{row.employee.full_name}</p>
-                                    <p className="text-[10px] text-[var(--text-muted)]">{row.employee.position || ''}</p>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-3 pr-4 font-bold tabular-nums text-center">{row.assigned}</td>
-                              <td className="py-3 pr-4 tabular-nums text-center">
-                                {row.assignedDoing > 0 ? <span className="font-bold text-[var(--umber)]">{row.assignedDoing}</span> : <span className="text-[var(--text-muted)]">0</span>}
-                              </td>
-                              <td className="py-3 pr-4 tabular-nums text-center">
-                                {row.assignedDone > 0 ? <span className="font-bold text-[var(--success)]">{row.assignedDone}</span> : <span className="text-[var(--text-muted)]">0</span>}
-                              </td>
-                              <td className="py-3 pr-4 tabular-nums text-center">
-                                {row.assignedOverdue > 0 ? <span className="font-extrabold text-[var(--danger)]">{row.assignedOverdue}</span> : <span className="text-[var(--text-muted)]">0</span>}
-                              </td>
-                              <td className="py-3 pr-4 text-center">
-                                <span className={`text-base font-extrabold tabular-nums ${pct===100?'text-[var(--success)]':row.assignedOverdue>0?'text-[var(--danger)]':'text-[var(--text-primary)]'}`}>{pct}%</span>
-                              </td>
-                              <td className="py-3">
-                                <div className="flex flex-wrap gap-1">
-                                  {recipients.map((r) => (
-                                    <span key={r.name} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap
-                                      ${r.overdue > 0 ? 'bg-[var(--danger)]/10 text-[var(--danger)]' : 'bg-[var(--bg-base)] text-[var(--text-secondary)]'}`}>
-                                      {r.name.split(' ').slice(-1)[0]} · {r.count}việc
-                                      {r.overdue > 0 && <span> · {r.overdue}trễ</span>}
-                                    </span>
-                                  ))}
-                                  {unassigned > 0 && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warning)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--warning)] whitespace-nowrap">
-                                      Chưa giao · {unassigned}
-                                    </span>
-                                  )}
-                                  {recipients.length === 0 && unassigned === 0 && <span className="text-xs text-[var(--text-muted)]">—</span>}
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                        })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* ── Right column ── */}
-        <div className="space-y-4">
-
-          {/* Dự án cần chú ý — compact 1 dòng, click → COO Board */}
-          <button type="button"
-            onClick={() => attentionProjects.length > 0 ? props.setView('coo') : undefined}
-            className={`${cardCls} w-full text-left group ${attentionProjects.length > 0 ? 'cursor-pointer hover:border-[var(--warning)]/60 hover:bg-[var(--warning)]/5 transition-colors' : 'cursor-default'}`}
-          >
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={15} className={attentionProjects.length > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}/>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Dự án cần chú ý</p>
-              {attentionProjects.length > 0 ? (
-                <>
-                  <span className="ml-auto rounded-full bg-[var(--warning)]/15 px-2.5 py-0.5 text-xs font-extrabold text-[var(--warning)]">
-                    {attentionProjects.length} dự án
-                  </span>
-                  <span className="text-xs font-bold text-[var(--warning)] opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                </>
-              ) : (
-                <span className="ml-auto text-xs text-[var(--text-muted)]">✓ Ổn</span>
-              )}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Project health list */}
+        <div className="vyvy-card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-sm font-extrabold text-[var(--text-primary)]">Tiến độ dự án</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">{props.projectCards.filter(p=>p.total>0).length} dự án đang có việc</p>
             </div>
             {attentionProjects.length > 0 && (
-              <p className="mt-1.5 text-xs text-[var(--text-muted)]">
-                {[
-                  attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.overdueTasks || 0), 0)} việc trễ`,
-                  attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.pendingSteps || 0), 0)} bước chờ duyệt`,
-                  attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.revisionSteps || 0), 0)} bước làm lại`,
-                  attentionProjects.reduce((s, p) => s + (p.health?.missingDeadlineTasks || 0), 0) > 0 && `${attentionProjects.reduce((s, p) => s + (p.health?.missingDeadlineTasks || 0), 0)} việc chưa có deadline`,
-                ].filter(Boolean).join(' · ') || 'Nhấn để xem chi tiết'}
-              </p>
+              <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-bold text-[var(--danger)]">⚠ {attentionProjects.length} cần chú ý</span>
             )}
-          </button>
+          </div>
+          <div className="space-y-2">
+            {props.projectCards.length === 0 ? (
+              <p className="text-center text-sm text-[var(--text-muted)] py-8">Chưa có dự án nào.</p>
+            ) : props.projectCards.slice(0, 8).map((project) => (
+              <button type="button" key={project.id}
+                onClick={() => { props.setSelectedProjectId(project.id); props.setView('coo') }}
+                className="w-full flex items-center gap-4 rounded-[var(--radius)] border border-transparent px-3 py-2.5 text-left hover:border-[var(--border-soft)] hover:bg-[var(--bg-surface)] transition-all group">
+                <div className="shrink-0">
+                  <ProjectHealthBadge health={project.health} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="font-semibold text-sm text-[var(--text-primary)] truncate">{project.name}</p>
+                    <span className="shrink-0 text-xs text-[var(--text-muted)]">{project.total} việc</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 rounded-full bg-[var(--border-soft)] overflow-hidden">
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${isNaN(project.rate) ? 0 : project.rate}%`, background: project.health.level === 'problem' ? 'var(--danger)' : project.health.level === 'watch' ? 'var(--warning)' : 'var(--success)' }} />
+                    </div>
+                    <span className="text-xs font-bold tabular-nums text-[var(--text-primary)] w-8 text-right">{isNaN(project.rate) ? 0 : project.rate}%</span>
+                  </div>
+                </div>
+                {project.overdue > 0 && (
+                  <span className="shrink-0 text-xs font-bold text-[var(--danger)]">{project.overdue} trễ</span>
+                )}
+              </button>
+            ))}
+            {props.projectCards.length > 8 && (
+              <button type="button" onClick={() => props.setView('coo')} className="w-full text-center text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] py-2 transition-colors">
+                Xem tất cả {props.projectCards.length} dự án →
+              </button>
+            )}
+          </div>
+        </div>
 
-          {/* Việc khẩn */}
-          <div className={cardCls}>
+        {/* Right panel: attention + urgent + pending */}
+        <div className="space-y-4">
+          {/* Attention banner */}
+          <div className="vyvy-card p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle size={14} className={attentionProjects.length > 0 ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}/>
+              <p className="text-sm font-semibold text-[var(--text-secondary)]">Dự án cần chú ý</p>
+              {attentionProjects.length > 0
+                ? <span className="ml-auto rounded-full bg-[var(--warning-soft)] px-2.5 py-0.5 text-xs font-extrabold text-[var(--warning)]">{attentionProjects.length}</span>
+                : <span className="ml-auto text-xs text-[var(--text-muted)]">✓ Ổn</span>}
+            </div>
+            {attentionProjects.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)] text-center py-2">Tất cả dự án đang ổn ✓</p>
+            ) : attentionProjects.map((p) => (
+              <button key={p.id} type="button"
+                onClick={() => props.openCooTarget({ projectId: p.id })}
+                className="w-full text-left flex items-center gap-2 rounded-[var(--radius)] border border-[var(--warning)]/15 bg-[var(--warning-soft)] p-2 mb-1.5 hover:border-[var(--warning)]/35 transition-colors">
+                <AlertTriangle size={12} className="text-[var(--warning)] shrink-0"/>
+                <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{p.name}</span>
+                <span className="ml-auto text-[10px] text-[var(--warning)] font-bold shrink-0">{p.health.level === 'problem' ? 'Nghiêm trọng' : 'Cần chú ý'}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Urgent tasks */}
+          <div className="vyvy-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Flag size={15} className="text-[var(--danger)]"/>
+              <Flag size={14} className="text-[var(--danger)]"/>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">Việc cần hối thúc</p>
               {props.urgentTasks.length > 0 && <span className="ml-auto text-xs font-bold text-[var(--danger)]">{props.urgentTasks.length}</span>}
             </div>
             {props.urgentTasks.length === 0 ? (
-              <p className="text-xs text-[var(--text-muted)] text-center py-4">Không có việc khẩn ✓</p>
-            ) : props.urgentTasks.slice(0, 6).map((t) => {
-              const head = props.employeeMap.get(t.head_id || '')
+              <p className="text-xs text-[var(--text-muted)] text-center py-3">Không có việc khẩn ✓</p>
+            ) : props.urgentTasks.slice(0, 4).map((t) => {
               const assignee = props.employeeMap.get(t.assignee_id || '')
               return (
-                <button key={t.id} type="button" onClick={() => props.setSelectedTask(t)}
-                  className="w-full text-left flex items-start gap-3 rounded-[var(--radius)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] p-3 mb-2 hover:border-[var(--danger)]/40 transition-colors">
-                  <AlertCircle size={14} className="text-[var(--danger)] mt-0.5 shrink-0"/>
+                <button key={t.id} type="button"
+                  onClick={() => props.openCooTarget({ task: t })}
+                  className="w-full text-left flex items-start gap-2 rounded-[var(--radius)] border border-[var(--danger)]/15 bg-[var(--danger-soft)] p-2.5 mb-1.5 hover:border-[var(--danger)]/30 transition-colors">
+                  <AlertCircle size={13} className="text-[var(--danger)] mt-0.5 shrink-0"/>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{t.title}</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                      <span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {head?.full_name || '—'} · <span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee?.full_name || 'Chưa gán'}
-                    </p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{getUrgentReason(t)}</p>
+                    <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{t.title}</p>
+                    <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{assignee?.full_name || 'Chưa gán'} · {getUrgentReason(t)}</p>
                   </div>
                 </button>
               )
             })}
           </div>
 
-          {/* Chờ duyệt */}
-          <div className={cardCls}>
+          {/* Pending steps */}
+          <div className="vyvy-card p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Clock size={15} className="text-[var(--info)]"/>
+              <Clock size={14} className="text-[var(--info)]"/>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">Chờ duyệt / Làm lại</p>
               {(pendingSteps.length + revisionSteps.length) > 0 && (
                 <span className="ml-auto text-xs font-bold text-[var(--info)]">{pendingSteps.length + revisionSteps.length}</span>
               )}
             </div>
             <DashboardStepList title="Chờ duyệt" steps={pendingSteps.slice(0, 4)} tasks={tasks}
-              emptyText="Không có bước chờ duyệt." onTaskClick={props.setSelectedTask} />
+              emptyText="Không có bước chờ duyệt." onTaskClick={(task) => props.openCooTarget({ task })} />
             {revisionSteps.length > 0 && (
-              <div className="mt-3">
+              <div className="mt-2">
                 <DashboardStepList title="Cần làm lại" steps={revisionSteps.slice(0, 3)} tasks={tasks}
-                  emptyText="" onTaskClick={props.setSelectedTask} />
+                  emptyText="" onTaskClick={(task) => props.openCooTarget({ task })} />
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* ── Section 03: Tải người (admin only) ── */}
+      {isAdmin && (
+        <>
+          <div className="vyvy-section-header">
+            <span className="vyvy-section-number">03</span>
+            <span className="vyvy-label">Tài nguyên · Ai đang gánh bao nhiêu</span>
+          </div>
+          <div className="vyvy-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-extrabold text-[var(--text-primary)]">Tải nhân sự</p>
+              <div className="flex gap-3 text-xs">
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--success)]"/>Đang ổn</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--warning)]"/>Cần chú ý</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[var(--danger)]"/>Nguy hiểm</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {activePeopleReports
+                .sort((a, b) => b.overdue - a.overdue || b.doing - a.doing || b.total - a.total)
+                .slice(0, 12)
+                .map((row) => {
+                  const maxTotal = Math.max(...activePeopleReports.map(r => r.total), 1)
+                  const statusLevel = row.overdue >= 3 || row.total >= 10 ? 'danger' : row.overdue > 0 || row.total >= 6 ? 'warn' : 'ok'
+                  const statusLabel = statusLevel === 'danger' ? 'Nguy hiểm' : statusLevel === 'warn' ? 'Cần chú ý' : 'Đang ổn'
+                  const statusColor = statusLevel === 'danger' ? 'var(--danger)' : statusLevel === 'warn' ? 'var(--warning)' : 'var(--success)'
+                  const barColor = statusLevel === 'danger' ? 'var(--danger)' : statusLevel === 'warn' ? 'var(--warning)' : 'var(--status-progress)'
+                  return (
+                    <div key={row.employee.id} className="flex items-center gap-4 py-2 border-b border-[var(--border-soft)] last:border-0">
+                      <div className="flex items-center gap-2 w-40 shrink-0">
+                        <Avatar name={row.employee.full_name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{row.employee.full_name}</p>
+                          <p className="text-[10px] text-[var(--text-muted)] truncate">{row.employee.position || row.employee.role || '—'}</p>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="h-2 rounded-full bg-[var(--border-soft)] overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round((row.total / maxTotal) * 100)}%`, background: barColor }} />
+                        </div>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-3">
+                        <span className="text-sm font-bold tabular-nums text-[var(--text-primary)] w-8 text-right">{row.total}</span>
+                        <span className="text-[10px] font-semibold" style={{ color: statusColor }}>
+                          {statusLabel}
+                        </span>
+                        {row.overdue > 0 && <span className="text-xs font-bold text-[var(--danger)]">{row.overdue} trễ</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Section 04: Ô dự án (admin only) ── */}
+      {isAdmin && (
+        <>
+          <div className="vyvy-section-header">
+            <span className="vyvy-section-number">04</span>
+            <span className="vyvy-label">Ô dự án — bấm để mở bảng</span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {props.projectCards.map((project) => (
+              <button type="button" key={project.id}
+                onClick={() => { props.setSelectedProjectId(project.id); props.setView('coo') }}
+                className="vyvy-card p-4 text-left hover:-translate-y-0.5 transition-all group">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <p className="font-semibold text-sm text-[var(--text-primary)] truncate">{project.name}</p>
+                  <ProjectHealthBadge health={project.health} />
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="flex-1 h-1.5 rounded-full bg-[var(--border-soft)] overflow-hidden">
+                    <div className="h-full rounded-full transition-all"
+                      style={{ width: `${isNaN(project.rate) ? 0 : project.rate}%`, background: project.health.level === 'problem' ? 'var(--danger)' : 'var(--success)' }} />
+                  </div>
+                  <span className="text-sm font-extrabold tabular-nums text-[var(--olive)] shrink-0">{isNaN(project.rate) ? 0 : project.rate}%</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                  <span>{project.total} việc</span>
+                  {project.overdue > 0 && <span className="text-[var(--danger)] font-semibold">⚠ {project.overdue} trễ</span>}
+                  {project.problem > 0 && <span className="text-[var(--warning)]">⚡ {project.problem} vấn đề</span>}
+                  {project.health.level === 'normal' && <span className="text-[var(--success)]">✓ Ổn</span>}
+                </div>
+              </button>
+            ))}
+            {props.projectCards.length === 0 && (
+              <p className="col-span-3 text-center text-sm text-[var(--text-muted)] py-8">Chưa có dự án nào.</p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -4808,10 +4883,10 @@ function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: numbe
           contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
           cursor={{ fill: 'rgba(0,0,0,0.04)' }}
         />
-        <Bar dataKey="xong"       name="xong"        fill="#22c55e" stackId="a" />
-        <Bar dataKey="dangLam"    name="dangLam"     fill="#3b82f6" stackId="a" />
-        <Bar dataKey="tre"        name="tre"         fill="#ef4444" stackId="a" />
-        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="#cbd5e1" stackId="a" radius={[3,3,0,0]} />
+        <Bar dataKey="xong"       name="xong"        fill="var(--success)" stackId="a" />
+        <Bar dataKey="dangLam"    name="dangLam"     fill="var(--olive)" stackId="a" />
+        <Bar dataKey="tre"        name="tre"         fill="var(--danger)" stackId="a" />
+        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="var(--text-muted)" stackId="a" radius={[3,3,0,0]} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -4918,6 +4993,8 @@ function CooBoard(props: {
   updateTaskSequential: (taskId: string, sequential: boolean) => void
   uploadTaskFile: (task: Task, file?: File) => void
   deleteTaskReport: (report: TaskReport) => void
+  cooTarget?: CooTarget | null
+  onCooTargetHandled?: () => void
 }) {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
@@ -4942,12 +5019,47 @@ function CooBoard(props: {
     }
     // Scroll về đầu sau một tick
     setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
-  }, [props.selectedProjectId])
+  }, [props.selectedProjectId, props.workstreams])
+
+  // Deep-link: expand đúng workstream + scroll + highlight item
+  useEffect(() => {
+    if (!props.cooTarget) return
+    const { workstreamId, taskId, highlightId } = props.cooTarget
+
+    // Expand workstream cần thiết
+    if (workstreamId) {
+      setExpandedWorkstreams((prev) => { const s = new Set(prev); s.add(workstreamId); return s })
+    }
+    // Nếu task là subtask, expand workstream cha của nó
+    if (taskId) {
+      const parentWs = props.workstreams.find((ws) => ws.id === taskId)
+      if (parentWs?.parent_task_id) {
+        setExpandedWorkstreams((prev) => { const s = new Set(prev); s.add(parentWs.parent_task_id!); return s })
+      }
+    }
+
+    // Scroll + highlight sau khi DOM render
+    const targetId = highlightId || taskId || workstreamId
+    if (targetId) {
+      setTimeout(() => {
+        const el = document.querySelector(`[data-coo-id="${targetId}"]`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.setAttribute('data-coo-highlight', 'true')
+          setTimeout(() => el.removeAttribute('data-coo-highlight'), 2800)
+        }
+      }, 300)
+    }
+
+    props.onCooTargetHandled?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.cooTarget])
 
   function toggleProject(id: string) {
     setExpandedProjects((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -4955,7 +5067,8 @@ function CooBoard(props: {
   function toggleWorkstream(id: string) {
     setExpandedWorkstreams((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -4963,7 +5076,8 @@ function CooBoard(props: {
   function toggleSubtask(id: string) {
     setExpandedSubtasks((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -5114,7 +5228,7 @@ function CooBoard(props: {
                       const isWsExpanded = expandedWorkstreams.has(ws.id)
 
                       return (
-                        <div key={ws.id} className="border-b border-[var(--border)] last:border-b-0">
+                        <div key={ws.id} data-coo-id={ws.id} className="border-b border-[var(--border)] last:border-b-0 data-[coo-highlight]:ring-2 data-[coo-highlight]:ring-[var(--accent)] data-[coo-highlight]:bg-[var(--accent)]/8 transition-all">
                           <div className="flex items-center gap-2 pl-8 pr-3 py-3 hover:bg-[var(--bg-surface)] transition-colors">
                             <button
                               type="button"
@@ -5933,13 +6047,8 @@ function StepWorkflowCard(props: {
 
   const owner = props.employeeMap.get(props.step.owner_id || '')
   const departmentApprover = props.employeeMap.get(props.step.department_approver_id || props.step.approver_id || '')
-  const defaultCooApproverId = getCooApprover(props.employees)
-  const defaultCeoApproverId = getCeoApprover(props.employees)
-  const cooApprover = props.employeeMap.get(props.step.coo_approver_id || defaultCooApproverId || '')
-  const ceoApprover = props.employeeMap.get(props.step.ceo_approver_id || defaultCeoApproverId || '')
   const status = props.step.approval_status || 'not_submitted'
   const stage = props.step.approval_stage || 'department'
-  const approvalRoute = buildApprovalRoute(props.step)
   const approveButtonLabel = getApproveButtonLabel(stage)
   const commentDraft = localCommentDraft
   const supportDraft = localSupportDraft
@@ -5973,32 +6082,9 @@ function StepWorkflowCard(props: {
     setLocalCommentDraft('')
   }
 
-  function toggleCooApproval(checked: boolean) {
-    props.updateStep(props.step, {
-      requires_coo_approval: checked,
-      coo_approver_id: checked ? props.step.coo_approver_id || defaultCooApproverId || null : null,
-      coo_approval_status: checked ? 'not_submitted' : 'not_required',
-    } as Partial<TaskStep>)
-  }
-
-  function toggleCeoApproval(checked: boolean) {
-    props.updateStep(props.step, {
-      requires_ceo_approval: checked,
-      ceo_approver_id: checked ? props.step.ceo_approver_id || defaultCeoApproverId || null : null,
-      ceo_approval_status: checked ? 'not_submitted' : 'not_required',
-    } as Partial<TaskStep>)
-  }
-
-  const approvalPeople = [
-    { role: 'Trưởng bộ phận', employee: departmentApprover },
-    ...(props.step.requires_coo_approval ? [{ role: 'COO', employee: cooApprover }] : []),
-    ...(props.step.requires_ceo_approval ? [{ role: 'CEO', employee: ceoApprover }] : []),
-  ]
-
   const deadlineStatus = props.step.step_deadline_status || 'draft'
   const deadlineApproved = deadlineStatus === 'da_duyet'
   const deadlineApprover = props.employeeMap.get(props.step.step_deadline_approver_id || '')
-  const isDeadlineApprover = !!props.step.step_deadline_approver_id && props.step.step_deadline_approver_id === props.employeeMap.get(props.step.step_deadline_approver_id || '')?.id
 
   // Mặc định mở nếu cần hành động
   const needsAction = !deadlineApproved || status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
@@ -6524,7 +6610,7 @@ function ProjectsView(props: {
     const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
     return d >= weekStart && d <= weekEnd
   })
-  const stuck = props.tasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t))
+  const stuck = props.tasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t) || isDeadlineActionNeeded(t))
   const pendingSteps = props.steps.filter((s) => !s.is_done && s.approval_status === 'pending')
 
   const focusedProject = focusProject ? props.projectCards.find((p) => p.id === focusProject) : null
@@ -6556,10 +6642,12 @@ function ProjectsView(props: {
   // Section header kiểu VYVY-OS: số thứ tự + tiêu đề + mô tả nhỏ
   function Sec({ n, title, desc }: { n: string; title: string; desc?: string }) {
     return (
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-2">
-        <span className="rounded-md bg-[var(--bg-card)] px-2 py-0.5 font-mono text-[11px] font-bold text-[var(--accent)]">{n}</span>
-        <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
-        {desc && <p className="text-xs text-[var(--text-muted)]">{desc}</p>}
+      <div className="vyvy-section-header pt-2">
+        <span className="vyvy-section-number">{n}</span>
+        <div className="min-w-0">
+          <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
+          {desc && <p className="text-xs text-[var(--text-muted)]">{desc}</p>}
+        </div>
       </div>
     )
   }
@@ -6568,7 +6656,7 @@ function ProjectsView(props: {
     <div className="space-y-5">
 
       {/* ══ Hero — đích cuối ══ */}
-      <div className="overflow-hidden rounded-2xl border border-[var(--olive)] bg-[var(--bg-card-hover)] text-[var(--text-primary)]">
+      <div className="vyvy-card overflow-hidden text-[var(--text-primary)]">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
           <div className="shrink-0 sm:w-44">
             <p className="font-spec text-[10px] text-[var(--text-muted)]">Đích cuối</p>
@@ -6652,8 +6740,8 @@ function ProjectsView(props: {
       {/* ══ 00·2 Nối dự án ══ */}
       <Sec n="00·2" title="Nối dự án — sức khỏe từng dự án" desc="bấm dự án → sổ ra chi tiết, vì sao đang màu này" />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
-        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
-          <div className="divide-y divide-[#d9d3c5]">
+        <div className="vyvy-card overflow-hidden">
+          <div className="divide-y divide-[var(--border)]">
             {props.projectCards.map((project) => {
               const isFocus = focusProject === project.id
               const healthColor =
@@ -6701,7 +6789,7 @@ function ProjectsView(props: {
         {/* Panel phải */}
         <div className="flex flex-col gap-4">
           {focusedProject ? (
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
+            <div className="vyvy-card">
               <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3">
                 <p className="truncate text-xs font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">{focusedProject.name}</p>
                 <button type="button"
@@ -6725,7 +6813,7 @@ function ProjectsView(props: {
                   ))}
                 </div>
                 {(() => {
-                  const urg = props.tasks.filter((t) => t.project_id === focusedProject.id && (isTaskOverdue(t) || isTaskProblem(t))).slice(0, 5)
+                  const urg = props.tasks.filter((t) => t.project_id === focusedProject.id && (isTaskOverdue(t) || isTaskProblem(t) || isDeadlineActionNeeded(t))).slice(0, 5)
                   return urg.length > 0 ? (
                     <div>
                       <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Cần chú ý</p>
@@ -6756,7 +6844,7 @@ function ProjectsView(props: {
           )}
 
           {/* Legend */}
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+          <div className="vyvy-card px-4 py-3">
             <p className="mb-2 text-[10px] font-extrabold uppercase tracking-wide text-[var(--text-secondary)]">Màu sức khỏe</p>
             <div className="space-y-1.5">
               {[
@@ -6776,7 +6864,7 @@ function ProjectsView(props: {
 
       {/* ══ 00·3 Tải người ══ */}
       <Sec n="00·3" title="Tải người — ai đang gánh bao nhiêu" desc="tự đếm từ đầu việc đang mở · >5 việc = đỏ" />
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <div className="vyvy-card p-5">
         {workload.length === 0 ? (
           <p className="text-sm text-[var(--text-muted)]">Chưa có việc nào được giao.</p>
         ) : (
@@ -6817,7 +6905,7 @@ function ProjectsView(props: {
               key={project.id}
               type="button"
               onClick={() => setBoardProject(project.id)}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 text-left transition-shadow hover:shadow-md"
+              className="vyvy-card p-5 text-left transition-colors hover:border-[var(--border-strong)]"
             >
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -6855,7 +6943,7 @@ function ProjectsView(props: {
           const d = new Date(t.due_date); d.setHours(0, 0, 0, 0)
           return d >= today && d <= weekEnd
         }).length
-        const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t)).length
+        const pStuck = pTasks.filter((t) => isTaskOverdue(t) || isTaskProblem(t) || isDeadlineActionNeeded(t)).length
         const pPend = props.steps.filter((s) => pTaskIds.has(s.task_id) && !s.is_done && s.approval_status === 'pending').length
         const workstreams = pTasks.filter((t) => isWorkstream(t))
         const pDone = pTasks.filter((t) => t.status === 'completed').length
@@ -6900,7 +6988,7 @@ function ProjectsView(props: {
 
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-2 sm:p-6" onClick={() => setBoardProject(null)}>
-            <div className="w-full max-w-5xl overflow-hidden rounded-2xl bg-[var(--bg-card)] shadow-2xl ring-1 ring-black/10" onClick={(e) => e.stopPropagation()}>
+            <div className="vyvy-modal-panel w-full max-w-5xl overflow-hidden rounded-[var(--radius-lg)]" onClick={(e) => e.stopPropagation()}>
 
               {/* ── Header ── */}
               <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg-card)]">
@@ -7123,7 +7211,8 @@ function ProjectsView(props: {
                           {/* Workstream row */}
                           <button type="button" onClick={() => {
                             const next = new Set(wbsExpanded)
-                            isOpen ? next.delete(ws.id) : next.add(ws.id)
+                            if (isOpen) next.delete(ws.id)
+                            else next.add(ws.id)
                             setWbsExpanded(next)
                           }} className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--bg-surface)]">
                             <Ico d={IC.chevronRight} size={12} className={`shrink-0 text-[var(--text-muted)] transition-transform ${isOpen ? 'rotate-90' : ''}`} />
@@ -8050,7 +8139,7 @@ function MeetingView(props: {
           </button>
           <button type="button" onClick={props.analyzeMeetingWithAI} disabled={props.analyzing}
             className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--on-accent)] disabled:opacity-40 hover:bg-[var(--accent-hover)] transition-colors">
-            {props.analyzing ? 'Đang phân tích...' : '✨ Phân tích bằng AI'}
+            {props.analyzing ? 'Đang phân tích...' : 'Phân tích bằng AI'}
           </button>
           <button type="button" onClick={props.splitNotexRows}
             className="h-10 rounded-xl bg-[var(--bg-card)] px-5 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-card-hover)] transition-colors">
@@ -8067,11 +8156,37 @@ function MeetingView(props: {
       {/* ── Preview table ── */}
       {props.notexRows.length > 0 && (
       <Card>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-extrabold">Preview đầu việc</h3>
             <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{props.notexRows.length} dòng — kiểm tra rồi bấm Import.</p>
+            {props.notexRows.filter((r) => !r.dueDate).length > 0 && (
+              <p className="mt-1 text-xs font-semibold text-[var(--warning)]">
+                ⚠ {props.notexRows.filter((r) => !r.dueDate).length} đầu việc chưa có deadline — hãy bổ sung trước khi import.
+              </p>
+            )}
+            {props.notexRows.filter((r) => !r.headId && !r.assigneeId).length > 0 && (
+              <p className="mt-1 text-xs font-semibold text-[var(--warning)]">
+                ⚠ {props.notexRows.filter((r) => !r.headId && !r.assigneeId).length} đầu việc chưa có owner — dùng nút bên phải để gán nhanh.
+              </p>
+            )}
           </div>
+          {props.currentEmployee && props.notexRows.some((r) => !r.headId || !r.assigneeId) && (
+            <button
+              type="button"
+              onClick={() => {
+                props.setNotexRows(props.notexRows.map((r) => ({
+                  ...r,
+                  headId: r.headId || props.currentEmployee!.id,
+                  assigneeId: r.assigneeId || props.currentEmployee!.id,
+                })))
+              }}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-[var(--lime)]/40 bg-[var(--lime)]/10 px-3 py-2 text-xs font-bold text-[var(--olive)] hover:bg-[var(--lime)]/20 transition-colors"
+              title="Gán tất cả đầu việc thiếu Head / Người phụ trách về tài khoản đang đăng nhập"
+            >
+              ⚡ Gán tất cả item thiếu owner về {props.currentEmployee.full_name}
+            </button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1500px] text-left text-sm">
@@ -8130,8 +8245,11 @@ function MeetingView(props: {
                     </select>
                   </td>
                   <td className="p-3">
-                    <input type="date" className="h-10 w-40 rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
-                      value={row.dueDate} onChange={(e) => updateRow(row.id, { dueDate: e.target.value })} />
+                    <div className="flex flex-col gap-1">
+                      <input type="date" className={`h-10 w-40 rounded-xl border px-3 text-sm outline-none ${!row.dueDate ? 'border-[var(--warning)] bg-[var(--warning-soft)]' : 'border-[var(--border)]'}`}
+                        value={row.dueDate} onChange={(e) => updateRow(row.id, { dueDate: e.target.value })} />
+                      {!row.dueDate && <span className="text-[10px] font-semibold text-[var(--warning)]">Thiếu deadline</span>}
+                    </div>
                   </td>
                   <td className="p-3">
                     <select className="h-10 w-32 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
@@ -8321,7 +8439,7 @@ function RecurringFormPanel(props: {
                       >
                         <input
                           type="checkbox"
-                          className="h-4 w-4 accent-[#191919]"
+                          className="h-4 w-4 accent-[var(--char)]"
                           checked={checked}
                           onChange={(event) => {
                             patchForm({
@@ -8413,9 +8531,9 @@ drop policy if exists "recurring_runs_all" on public.recurring_task_runs;
 create policy "recurring_runs_all" on public.recurring_task_runs for all using (true) with check (true);
 drop policy if exists "notifications_all" on public.notifications;
 create policy "notifications_all" on public.notifications for all using (true) with check (true);
-insert into public.recurring_tasks (title, kind, frequency, weekday, time_of_day, remind_days_before, remind_minutes_before)
-select 'Họp Performance','meeting','weekly',6,'10:00',2,60
-where not exists (select 1 from public.recurring_tasks where title = 'Họp Performance');`)
+insert into public.recurring_tasks (id, title, kind, frequency, weekday, time_of_day, remind_days_before, remind_minutes_before)
+select '${PERFORMANCE_MEETING_ID}'::uuid,'Họp Performance','meeting','weekly',6,'10:00',2,60
+where not exists (select 1 from public.recurring_tasks where title = 'Họp Performance' or id = '${PERFORMANCE_MEETING_ID}'::uuid);`)
   const url = projectRef
     ? `https://supabase.com/dashboard/project/${projectRef}/sql/new?content=${sql}`
     : `https://supabase.com/dashboard`
@@ -8504,8 +8622,6 @@ function RecurringView(props: {
     : DEFAULT_MEETING_FILE_DRAFT
   const selectedMeetingHistory = selectedMeetingParts ? meetingTextLines(selectedMeetingParts.meetingHistory) : []
   const selectedMeetingPrepFiles = selectedMeetingParts ? meetingTextLines(selectedMeetingParts.prepFiles) : []
-
-  const patchForm = (patch: Partial<RecurringTaskForm>) => props.setForm((prev) => ({ ...prev, ...patch }))
 
   return (
     <div className="space-y-4">
@@ -9426,14 +9542,15 @@ function CreatePanel(props: {
               />
             </div>
 
-            <Select value={props.workAssigneeId} onChange={props.setWorkAssigneeId}>
-              <option value="">Chọn người phụ trách</option>
-              {props.employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.full_name}
-                </option>
-              ))}
-            </Select>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người phụ trách</label>
+              <PersonPicker
+                value={props.workAssigneeId || null}
+                employees={props.employees}
+                onSave={(id) => props.setWorkAssigneeId(id || '')}
+                placeholder="Chưa gán người phụ trách"
+              />
+            </div>
 
             <Select value={props.workPriority} onChange={props.setWorkPriority}>
               <option value="low">Ưu tiên thấp</option>
@@ -9469,6 +9586,7 @@ function TaskDetailDrawer(props: {
   getStatusLabel: (status: string) => string
   currentEmployee: Employee | null
   employees: Employee[]
+  refreshTask?: () => void
 }) {
   const head = props.employeeMap.get(props.task.head_id || '')
   const assignee = props.employeeMap.get(props.task.assignee_id || '')
@@ -9477,11 +9595,11 @@ function TaskDetailDrawer(props: {
   const progress = calculateTaskProgress(props.task, props.steps)
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/20">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
       <button type="button" className="flex-1" onClick={props.close} />
-      <div className="h-full w-full max-w-full overflow-y-auto bg-[var(--bg-card)] p-4 shadow-2xl sm:max-w-[560px] sm:p-6">
+      <div className="vyvy-drawer-panel h-full w-full max-w-full overflow-y-auto p-4 sm:max-w-[560px] sm:p-6">
         <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-lg font-extrabold">Chi tiết vận hành</h3>
+          <h3 className="font-display text-lg">Chi tiết vận hành</h3>
           <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]"><Ico d={IC.x} size={16}/>
           </button>
         </div>
@@ -9500,17 +9618,22 @@ function TaskDetailDrawer(props: {
           <InfoRow label="Dự án" value={project?.name || 'Chưa gắn'} />
           <InfoRow label="Phòng ban" value={department?.name || 'Chưa gắn'} />
           <InfoRow label="Người giao việc (Head)" value={head?.full_name || 'Chưa gán'} />
-          <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gán'} />
           <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
 
           {props.currentEmployee && (
-            <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
-              <p className="mb-3 font-extrabold">Duyệt deadline</p>
-              <DeadlineApproval
-                taskId={props.task.id}
-                taskLevel={props.task.task_level}
-                currentUser={{ id: props.currentEmployee.id, role: props.currentEmployee.role }}
+            <div className="vyvy-card-muted p-4">
+              <p className="mb-3 font-extrabold">Deadline &amp; gia hạn</p>
+              <DeadlineBlock
+                task={props.task}
+                currentUser={{ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }}
                 employees={props.employees}
+                deadlineStatus={getDeadlineStatus(props.task)}
+                statusLabel={DEADLINE_STATUS_LABEL[getDeadlineStatus(props.task)]}
+                sourceLabel={props.task.deadline_source ? DEADLINE_SOURCE_LABEL[props.task.deadline_source] : undefined}
+                canManage={canEditDeadlineDirect({ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }, props.task, department?.id)}
+                needsEscalation={deadlineNeedsEscalation(props.task)}
+                soloMode={SOLO_PILOT_MODE}
+                onChanged={props.refreshTask}
               />
             </div>
           )}
@@ -9523,13 +9646,13 @@ function TaskDetailDrawer(props: {
             <ProgressBar value={progress} />
           </div>
 
-          <div className="rounded-2xl bg-[var(--bg-surface)] p-4">
+          <div className="vyvy-card-muted p-4">
             <p className="mb-3 font-extrabold">File báo cáo cấp đầu việc</p>
 
             <input
               type="file"
               onChange={(event) => props.uploadTaskFile(props.task, event.target.files?.[0])}
-              className="block w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm"
+              className="vyvy-input block w-full p-3 text-sm"
             />
 
             {props.uploading && (
@@ -9541,7 +9664,7 @@ function TaskDetailDrawer(props: {
                 <p className="text-sm text-[var(--text-secondary)]">Chưa có file báo cáo.</p>
               ) : (
                 props.reports.map((report) => (
-                  <div key={report.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--bg-card)] p-3">
+                  <div key={report.id} className="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
                     <p className="truncate text-sm font-bold">{report.file_name}</p>
                     <div className="flex shrink-0 gap-2">
                       <a
@@ -9565,7 +9688,7 @@ function TaskDetailDrawer(props: {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[var(--warning-soft)] p-4 text-sm text-[var(--warning)]">
+          <div className="rounded-[var(--radius)] border border-[var(--warning)]/20 bg-[var(--warning-soft)] p-4 text-sm text-[var(--warning)]">
             <b>Gợi ý COO cần hỏi:</b> {buildFollowUpQuestion(props.task, head?.full_name)}
           </div>
         </div>
@@ -9575,7 +9698,7 @@ function TaskDetailDrawer(props: {
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_8px_24px_-12px_rgba(15,23,42,0.08)]">{children}</div>
+  return <div className="vyvy-card p-5">{children}</div>
 }
 
 function MetricCard(props: {
@@ -9593,13 +9716,12 @@ function MetricCard(props: {
   const accentMap = {
     blue:   'before:bg-[var(--bg-card)]',
     green:  'before:bg-[var(--success)]',
-    purple: 'before:bg-[#594e3d]',
+    purple: 'before:bg-[var(--umber)]',
     red:    'before:bg-[var(--danger)]',
   }
 
   return (
-    <div className={`card-hover relative overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[0_1px_3px_rgba(38,34,25,0.05),0_8px_24px_-12px_rgba(38,34,25,0.08)]
-      before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
+    <div className={`vyvy-metric-card p-5 before:absolute before:left-0 before:top-0 before:h-full before:w-1 ${accentMap[props.tone]}`}>
       <div className="flex items-center justify-between">
         <p className="text-[13px] font-bold text-[var(--text-secondary)]">{props.label}</p>
         <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneMap[props.tone]}`}>{props.icon}</span>
@@ -9620,29 +9742,6 @@ function ProgressBar({ value, showLabel }: { value: number; showLabel?: boolean 
         />
       </div>
       {showLabel && <span className="text-xs font-semibold text-[var(--char)] w-8 text-right">{clamped}%</span>}
-    </div>
-  )
-}
-
-function StatusDistributionRow(props: {
-  label: string
-  count: number
-  total: number
-  color: string
-}) {
-  const percent = props.total === 0 ? 0 : Math.round((props.count / props.total) * 100)
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-        <p className="font-bold text-[var(--text-secondary)]">{props.label}</p>
-        <p className="font-extrabold">
-          {props.count} <span className="text-[var(--text-secondary)]">({percent}%)</span>
-        </p>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-[var(--border)]">
-        <div className={`h-full rounded-full ${props.color}`} style={{ width: `${percent}%` }} />
-      </div>
     </div>
   )
 }
@@ -9773,35 +9872,6 @@ function ProjectHealthSummary({ health }: { health: ProjectHealth }) {
   )
 }
 
-function StepApprovalBadge({ status }: { status: string }) {
-  if (status === 'not_required') {
-    return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-500">Không yêu cầu</span>
-  }
-
-  if (status === 'approved') {
-    return <span className="rounded-full bg-[var(--success-soft)] px-3 py-1 text-xs font-extrabold text-[var(--success)]">Đã duyệt</span>
-  }
-
-  if (status === 'pending') {
-    return <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[var(--text-secondary)]">Chờ duyệt</span>
-  }
-
-  if (status === 'revision') {
-    return <span className="rounded-full bg-[var(--danger-soft)] px-3 py-1 text-xs font-extrabold text-[var(--danger)]">Cần làm lại</span>
-  }
-
-  return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-600">Chưa gửi</span>
-}
-
-function ApprovalStatusPill({ label, status }: { label: string; status: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-xl bg-[var(--bg-card)] px-3 py-2">
-      <span className="text-xs font-extrabold text-[var(--text-secondary)]">{label}</span>
-      <StepApprovalBadge status={status} />
-    </div>
-  )
-}
-
 function InfoPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-[var(--bg-surface)] px-3 py-2">
@@ -9862,9 +9932,9 @@ function Select(props: {
 
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-surface)] p-8 text-center">
-      <div className="mb-3 text-3xl">🗂️</div>
-      <p className="font-extrabold">{title}</p>
+    <div className="vyvy-empty-state">
+      <div className="vyvy-empty-mark" />
+      <p className="font-display text-base">{title}</p>
       <p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p>
     </div>
   )
@@ -10048,6 +10118,92 @@ function isTaskOverdue(task: Task) {
   return due < today
 }
 
+// ── Deadline committed + gia hạn ────────────────────────────
+type DeadlineStatus =
+  | 'no_deadline'
+  | 'committed'
+  | 'due_soon'
+  | 'due_today'
+  | 'overdue'
+  | 'extension_requested'
+  | 'extension_approved'
+  | 'extension_rejected'
+
+const DEADLINE_STATUS_LABEL: Record<DeadlineStatus, string> = {
+  no_deadline: 'Chưa có deadline',
+  committed: 'Đã chốt deadline',
+  due_soon: 'Sắp tới hạn',
+  due_today: 'Đến hạn hôm nay',
+  overdue: 'Trễ hạn',
+  extension_requested: 'Đang xin gia hạn',
+  extension_approved: 'Gia hạn được duyệt',
+  extension_rejected: 'Gia hạn bị từ chối',
+}
+
+const DEADLINE_SOURCE_LABEL: Record<string, string> = {
+  meeting: 'Họp',
+  manual: 'Giao trực tiếp',
+  import: 'Import',
+  project_milestone: 'Milestone',
+}
+
+// Trạng thái deadline để hiển thị: kết hợp trạng thái cam kết/gia hạn (lưu DB)
+// với tính toán theo ngày (due_date = currentDeadline).
+function getDeadlineStatus(task: Task): DeadlineStatus {
+  const ds = task.deadline_status || ''
+  // Đang xin gia hạn → ưu tiên hiển thị, trừ khi đã quá hạn nặng
+  if (ds === 'extension_requested') return 'extension_requested'
+
+  if (!task.due_date) return ds === 'no_deadline' || !ds ? 'no_deadline' : 'no_deadline'
+  if (task.status === 'completed') return 'committed'
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const due = new Date(task.due_date); due.setHours(0, 0, 0, 0)
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000)
+
+  if (diffDays < 0) return 'overdue'
+  // Vừa bị từ chối gia hạn nhưng chưa quá hạn → hiển thị trạng thái bị từ chối
+  if (ds === 'extension_rejected') return 'extension_rejected'
+  if (diffDays === 0) return 'due_today'
+  if (diffDays <= 3) return 'due_soon'
+  if (ds === 'extension_approved') return 'extension_approved'
+  return 'committed'
+}
+
+// Ai được sửa deadline trực tiếp / duyệt gia hạn.
+function canEditDeadlineDirect(
+  user: { id: string; role?: string | null; department_id?: string | null } | null,
+  task: Task,
+  taskDeptId?: string | null,
+): boolean {
+  if (!user) return false
+  const role = (user.role || '').toLowerCase()
+  if (['admin', 'ceo', 'coo'].includes(role)) return true
+  if (task.head_id && task.head_id === user.id) return true // người giao việc
+  if (role === 'department_head') {
+    const dept = taskDeptId ?? task.department_id
+    if (dept && user.department_id && dept === user.department_id) return true
+  }
+  return false
+}
+
+// Khuyến nghị escalate lên COO/CEO (chỉ cảnh báo, không hard-block).
+function deadlineNeedsEscalation(task: Task, ownerOverdueCount = 0): boolean {
+  const cnt = task.deadline_change_count || 0
+  const prio = (task.priority || '').toLowerCase()
+  if (cnt >= 2) return true                                   // sắp gia hạn lần 3+
+  if (['high', 'critical', 'urgent', 'cao'].includes(prio)) return true
+  if (task.task_level === 'workstream') return true           // milestone
+  if (ownerOverdueCount >= 3) return true
+  return false
+}
+
+// Task cần COO/quản lý chú ý vì deadline: đang xin gia hạn hoặc gia hạn bị từ chối.
+function isDeadlineActionNeeded(task: Task): boolean {
+  const ds = task.deadline_status || ''
+  return ds === 'extension_requested' || ds === 'extension_rejected'
+}
+
 function isStepOverdue(step: TaskStep) {
   if (!step.due_date) return false
   if (step.approval_status === 'approved') return false
@@ -10220,13 +10376,6 @@ function employeeSelectLabel(employee: Employee) {
 
 function matchesAny(text: string, values: string[]) {
   return values.some((value) => text.includes(normalizeSearchText(value)))
-}
-
-function buildApprovalRoute(step: TaskStep) {
-  const route = ['Trưởng bộ phận']
-  if (step.requires_coo_approval) route.push('COO')
-  if (step.requires_ceo_approval) route.push('CEO')
-  return route.join(' → ')
 }
 
 function getApproveButtonLabel(stage: string) {
@@ -10615,6 +10764,13 @@ const ROLE_OPTIONS = [
   { value: 'ceo', label: 'CEO' },
 ]
 
+function adminRoleTone(role?: string | null) {
+  if (role === 'ceo' || role === 'coo') return 'bg-[var(--olive)] text-[var(--ivory)]'
+  if (role === 'admin') return 'bg-[var(--accent-soft)] text-[var(--olive)]'
+  if (role === 'department_head') return 'bg-[var(--warning-soft)] text-[var(--warning)]'
+  return 'bg-[var(--bg-surface)] text-[var(--text-secondary)]'
+}
+
 function AdminUsersView(props: {
   departments: Department[]
   onRefresh: () => void
@@ -10766,76 +10922,105 @@ function AdminUsersView(props: {
   }
 
   const deptMap = new Map(props.departments.map((d) => [d.id, d.name]))
+  const activeCount = employees.filter((emp) => emp.status === 'active').length
+  const leadershipCount = employees.filter((emp) => ['ceo', 'coo', 'admin', 'department_head'].includes(emp.role || '')).length
+  const unassignedDeptCount = employees.filter((emp) => !emp.department_id).length
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-[var(--text-secondary)]">{employees.length} nhân sự</p>
-        {props.canCreateUsers ? (
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
-          >
-            <Ico d={IC.plus} size={15} />
-            Tạo tài khoản
-          </button>
-        ) : (
-          <span className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">
-            Không có quyền tạo tài khoản
-          </span>
+      <div className="vyvy-card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="vyvy-label">People & Permission</p>
+            <h3 className="mt-1 font-display text-xl text-[var(--text-primary)]">Quản lý nhân sự</h3>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Tài khoản, vai trò, phòng ban và trạng thái truy cập.</p>
+          </div>
+          {props.canCreateUsers ? (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="vyvy-button-primary"
+            >
+              <Ico d={IC.plus} size={15} />
+              Tạo tài khoản
+            </button>
+          ) : (
+            <span className="rounded-[var(--radius)] border border-[var(--border)] px-3 py-2 text-xs font-bold text-[var(--text-muted)]">
+              Không có quyền tạo tài khoản
+            </span>
+          )}
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            { label: 'Tổng nhân sự', value: employees.length },
+            { label: 'Đang hoạt động', value: activeCount },
+            { label: 'Quản trị / duyệt', value: leadershipCount },
+          ].map((item) => (
+            <div key={item.label} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3">
+              <p className="vyvy-label">{item.label}</p>
+              <p className="mt-2 font-display text-3xl tabular-nums text-[var(--text-primary)]">{item.value}</p>
+            </div>
+          ))}
+        </div>
+        {unassignedDeptCount > 0 && (
+          <div className="mt-3 rounded-[var(--radius)] border border-[var(--warning)]/25 bg-[var(--warning-soft)] px-3 py-2 text-xs font-semibold text-[var(--warning)]">
+            {unassignedDeptCount} nhân sự chưa gắn phòng ban.
+          </div>
         )}
       </div>
 
       {showCreate && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6">
-          <h3 className="mb-4 text-base font-extrabold">Tạo tài khoản nhân viên</h3>
+        <div className="vyvy-card p-6">
+          <div className="mb-4">
+            <p className="vyvy-label">New account</p>
+            <h3 className="mt-1 font-display text-lg">Tạo tài khoản nhân viên</h3>
+          </div>
           <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Họ và tên *</label>
+              <label className="vyvy-label mb-1 block">Họ và tên *</label>
               <input required value={createName} onChange={(e) => setCreateName(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nguyễn Văn A" />
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none" placeholder="Nguyễn Văn A" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tài khoản đăng nhập *</label>
+              <label className="vyvy-label mb-1 block">Tài khoản đăng nhập *</label>
               <input required type="text" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="quang / nhung / admin" />
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none" placeholder="quang / nhung / admin" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mật khẩu *</label>
+              <label className="vyvy-label mb-1 block">Mật khẩu *</label>
               <input required type="password" minLength={6} value={createPassword} onChange={(e) => setCreatePassword(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Tối thiểu 6 ký tự" />
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none" placeholder="Tối thiểu 6 ký tự" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chức vụ</label>
+              <label className="vyvy-label mb-1 block">Chức vụ</label>
               <input value={createPosition} onChange={(e) => setCreatePosition(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nhân viên Marketing..." />
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none" placeholder="Nhân viên Marketing..." />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Role</label>
+              <label className="vyvy-label mb-1 block">Role</label>
               <select value={createRole} onChange={(e) => setCreateRole(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none">
                 {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban</label>
+              <label className="vyvy-label mb-1 block">Phòng ban</label>
               <select value={createDept} onChange={(e) => setCreateDept(e.target.value)}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
+                className="vyvy-input h-11 w-full px-3 text-sm outline-none">
                 <option value="">Chọn phòng ban</option>
                 {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </div>
             {createError && (
-              <div className="col-span-2 rounded-xl bg-[var(--danger-soft)] px-4 py-3 text-sm font-bold text-[var(--danger)]">{createError}</div>
+              <div className="col-span-2 rounded-[var(--radius)] border border-[var(--danger)]/20 bg-[var(--danger-soft)] px-4 py-3 text-sm font-bold text-[var(--danger)]">{createError}</div>
             )}
             <div className="col-span-2 flex gap-3">
               <button type="submit" disabled={creating}
-                className="rounded-xl bg-[var(--bg-card)] px-5 py-2.5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-60">
+                className="vyvy-button-primary disabled:opacity-60">
                 {creating ? 'Đang tạo...' : 'Tạo tài khoản'}
               </button>
               <button type="button" onClick={() => { setShowCreate(false); setCreateError('') }}
-                className="rounded-xl border border-[var(--border)] px-5 py-2.5 text-sm font-bold text-[var(--text-secondary)]">
+                className="vyvy-button-secondary">
                 Hủy
               </button>
             </div>
@@ -10844,60 +11029,73 @@ function AdminUsersView(props: {
       )}
 
       {loading ? (
-        <div className="text-sm text-[var(--text-secondary)]">Đang tải...</div>
+        <div className="vyvy-card p-5 text-sm text-[var(--text-secondary)]">Đang tải...</div>
+      ) : employees.length === 0 ? (
+        <EmptyState title="Chưa có nhân sự" description="Tạo tài khoản đầu tiên để bắt đầu phân quyền." />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--bg-card)]">
-          <table className="w-full text-sm">
-            <thead className="border-b border-[var(--border)] bg-[var(--bg-surface)]">
+        <div className="vyvy-card overflow-x-auto">
+          <table className="vyvy-table min-w-[920px]">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Họ tên</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Tài khoản</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Chức vụ</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Phòng ban</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Trạng thái</th>
-                <th className="px-4 py-3 text-left text-xs font-extrabold text-[var(--text-secondary)]">Hành động</th>
+                <th>Họ tên</th>
+                <th>Tài khoản</th>
+                <th>Chức vụ</th>
+                <th>Phòng ban</th>
+                <th>Role</th>
+                <th>Trạng thái</th>
+                <th>Hành động</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#F1F5F9]">
+            <tbody>
               {employees.map((emp) => (
                 <tr key={emp.id} className="hover:bg-[var(--bg-surface)]">
-                  <td className="px-4 py-3 font-bold">{emp.full_name}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{displayLoginIdentifier(emp.email)}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{emp.position || '—'}</td>
-                  <td className="px-4 py-3 text-[var(--text-secondary)]">{deptMap.get(emp.department_id || '') || '—'}</td>
-                  <td className="px-4 py-3">
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-surface)] text-xs font-extrabold text-[var(--olive)]">
+                        {emp.full_name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="font-bold">{emp.full_name}</span>
+                    </div>
+                  </td>
+                  <td className="text-[var(--text-secondary)]">{displayLoginIdentifier(emp.email) || '—'}</td>
+                  <td className="text-[var(--text-secondary)]">{emp.position || '—'}</td>
+                  <td>
+                    <span className="rounded-full bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                      {deptMap.get(emp.department_id || '') || 'Chưa gắn'}
+                    </span>
+                  </td>
+                  <td>
                     <select
                       value={emp.role || 'employee'}
                       disabled={saving === emp.id}
                       onChange={(e) => updateEmployee(emp.id, { role: e.target.value })}
-                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-bold outline-none"
+                      className={`rounded-full border border-transparent px-3 py-1 text-xs font-bold outline-none ${adminRoleTone(emp.role)}`}
                     >
                       {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <button
                       type="button"
                       onClick={() => toggleStatus(emp)}
                       className={`rounded-full px-3 py-1 text-xs font-bold ${
                         emp.status === 'active'
-                          ? 'bg-emerald-100 text-[var(--accent-hover)]'
+                          ? 'bg-[var(--success-soft)] text-[var(--success)]'
                           : 'bg-[var(--danger-soft)] text-[var(--danger)]'
                       }`}
                     >
                       {emp.status === 'active' ? 'Hoạt động' : 'Đã khóa'}
                     </button>
                   </td>
-                  <td className="px-4 py-3">
+                  <td>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button type="button" onClick={() => openEdit(emp)}
-                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-base)]">
+                        className="vyvy-button-secondary min-h-0 px-3 py-1.5">
                         Sửa
                       </button>
                       {emp.email && <ResetPasswordButton authUserId={emp.email} />}
                       <button type="button" disabled={deletingId === emp.id} onClick={() => handleDelete(emp)}
-                        className="rounded-lg border border-[var(--danger)]/30 px-3 py-1.5 text-xs font-bold text-[var(--danger)] hover:bg-[var(--danger-soft)] disabled:opacity-40">
+                        className="vyvy-button-danger min-h-0 px-3 py-1.5 disabled:opacity-40">
                         {deletingId === emp.id ? '...' : 'Xóa'}
                       </button>
                     </div>
@@ -10912,44 +11110,45 @@ function AdminUsersView(props: {
       {/* Edit modal */}
       {editEmp && (
         <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/40 p-4" onClick={() => setEditEmp(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-[var(--bg-card)] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-5 text-base font-extrabold text-[var(--text-primary)]">Sửa thông tin — {editEmp.full_name}</h3>
+          <div className="vyvy-modal-panel w-full max-w-md rounded-[var(--radius-lg)] p-6" onClick={(e) => e.stopPropagation()}>
+            <p className="vyvy-label">Edit account</p>
+            <h3 className="mb-5 mt-1 font-display text-lg text-[var(--text-primary)]">Sửa thông tin — {editEmp.full_name}</h3>
             <form onSubmit={handleEditSave} className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Họ và tên *</label>
+                <label className="vyvy-label mb-1 block">Họ và tên *</label>
                 <input required value={editName} onChange={(e) => setEditName(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" />
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none" />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tài khoản đăng nhập</label>
+                <label className="vyvy-label mb-1 block">Tài khoản đăng nhập</label>
                 <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none"
                   placeholder="quang / nhung / ten@domain.com" />
                 <p className="mt-1 text-[11px] text-[var(--text-muted)]">Đổi tài khoản ở đây sẽ cập nhật luôn tài khoản đăng nhập.</p>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mật khẩu mới</label>
+                <label className="vyvy-label mb-1 block">Mật khẩu mới</label>
                 <input type="password" minLength={6} value={editPassword} onChange={(e) => setEditPassword(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]"
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none"
                   placeholder="Chỉ nhập khi cần đổi/tạo tài khoản" />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chức vụ</label>
+                <label className="vyvy-label mb-1 block">Chức vụ</label>
                 <input value={editPosition} onChange={(e) => setEditPosition(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]" placeholder="Nhân viên Marketing..." />
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none" placeholder="Nhân viên Marketing..." />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban</label>
+                <label className="vyvy-label mb-1 block">Phòng ban</label>
                 <select value={editDept} onChange={(e) => setEditDept(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none">
                   <option value="">Chọn phòng ban</option>
                   {props.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Role</label>
+                <label className="vyvy-label mb-1 block">Role</label>
                 <select value={editRole} onChange={(e) => setEditRole(e.target.value)}
-                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none focus:border-[var(--accent-hover)]">
+                  className="vyvy-input h-11 w-full px-3 text-sm outline-none">
                   {ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
@@ -10960,11 +11159,11 @@ function AdminUsersView(props: {
               )}
               <div className="flex gap-3 pt-2">
                 <button type="submit" disabled={editSaving}
-                  className="rounded-xl bg-[var(--bg-card)] px-5 py-2.5 text-sm font-extrabold text-[var(--text-primary)] disabled:opacity-60">
+                  className="vyvy-button-primary disabled:opacity-60">
                   {editSaving ? 'Đang lưu...' : 'Lưu'}
                 </button>
                 <button type="button" onClick={() => setEditEmp(null)}
-                  className="rounded-xl border border-[var(--border)] px-5 py-2.5 text-sm font-bold text-[var(--text-secondary)]">
+                  className="vyvy-button-secondary">
                   Hủy
                 </button>
               </div>
@@ -11011,7 +11210,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
-        className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)] hover:bg-amber-200">
+        className="rounded-full border border-[var(--warning)]/20 bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)] hover:border-[var(--warning)]/40">
         Đặt lại MK
       </button>
     )
@@ -11028,7 +11227,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
           {loading ? '...' : 'Lưu'}
         </button>
         <button type="button" onClick={() => { setOpen(false); setMsg('') }}
-          className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+          className="rounded border border-[var(--border)] bg-[var(--bg-card)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">
           Hủy
         </button>
       </div>
@@ -11435,7 +11634,7 @@ function ImportExcelView(props: {
             ...baseTask, id: wsId, title: row.title, task_level: 'workstream', parent_task_id: null,
           })
           if (e) { errors.push(`[${row.title}] Đầu việc lớn: ${e.message}`); fail++ }
-          else { msCache.set(cacheKey, wsId); ok++ }
+          else { msCache.set(cacheKey, wsId); ok++; await commitDeadlineMeta(wsId, dueDate, 'import') }
 
         } else if (row.level === 'subtask') {
           const parentId = msCache.get(cacheKey)
@@ -11450,7 +11649,7 @@ function ImportExcelView(props: {
             assignee_id: ownerId,
           })
           if (e) { errors.push(`[${row.title}] Đầu việc con: ${e.message}`); fail++ }
-          else { subCache.set(cacheKey, { id: subId, order: 0 }); ok++ }
+          else { subCache.set(cacheKey, { id: subId, order: 0 }); ok++; await commitDeadlineMeta(subId, dueDate, 'import') }
 
         } else if (row.level === 'step') {
           const sub = subCache.get(cacheKey)
@@ -11484,111 +11683,47 @@ function ImportExcelView(props: {
     }
   }
 
-  function downloadTemplate() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const XLSX = (window as any).XLSX
-    if (!XLSX) { alert('Thư viện chưa sẵn sàng'); return }
-
-    const wb = XLSX.utils.book_new()
-
-    // ── Sheet 1: Đầu việc (data entry) ──
-    const header = [
-      'Dự án *', 'Nhóm việc', 'Cấp độ *', 'Tên đầu việc *',
-      'Mô tả công việc', 'Output / Kết quả mong muốn',
-      'Người phụ trách', 'Deadline (YYYY-MM-DD)', 'Trạng thái', 'Ghi chú',
-    ]
-    const examples = [
-      ['Marketing Growth System', 'KOL/Affiliate', 'Đầu việc lớn', 'Thiết kế hệ thống KOL & Affiliate',
-        'Xây cách vận hành KOL/Affiliate tạo branding và doanh số', 'Framework KOL hoàn chỉnh',
-        'Đào Hoàng Vũ', '2026-07-15', 'Chưa bắt đầu', 'Ưu tiên cao'],
-      ['Marketing Growth System', 'KOL/Affiliate', 'Đầu việc con', 'Tuyển nhân sự chuyên trách KOL',
-        'Tìm người quản lý KOL, micro-app, app 0 đồng', 'JD + quyết định phân công',
-        'Đào Hoàng Vũ', '2026-07-01', 'Chưa bắt đầu', ''],
-      ['Content - Branding System', 'Content', 'Đầu việc lớn', 'Xây chiến lược branding',
-        'Làm rõ thông điệp thương hiệu tăng hiệu quả ads', 'Brand strategy brief',
-        'Nhung', '2026-07-10', 'Đang thực hiện', ''],
-      ['Content - Branding System', 'Content', 'Đầu việc con', 'Thiết lập OKR cho content',
-        'Xây OKR content theo mục tiêu búp kênh và doanh số', 'Bộ OKR content',
-        'Nhung', '2026-07-05', 'Chưa bắt đầu', 'Gắn với target live'],
-    ]
-    const wsData = XLSX.utils.aoa_to_sheet([header, ...examples])
-    wsData['!cols'] = [22,14,16,32,38,32,18,20,18,22].map(w => ({ wch: w }))
-
-    // Data validation: Cột C (Cấp độ) và I (Trạng thái)
-    wsData['!dataValidations'] = [
-      {
-        sqref: 'C2:C1000',
-        type: 'list',
-        formula1: '"Đầu việc lớn,Đầu việc con"',
-        showErrorMessage: true,
-        error: 'Chỉ được chọn: Đầu việc lớn hoặc Đầu việc con',
-        errorTitle: 'Giá trị không hợp lệ',
-      },
-      {
-        sqref: 'I2:I1000',
-        type: 'list',
-        formula1: '"Chưa bắt đầu,Đang thực hiện,Đã hoàn thành,Đang chờ"',
-        showErrorMessage: true,
-        error: 'Chỉ được chọn một trong các trạng thái cho phép',
-        errorTitle: 'Giá trị không hợp lệ',
-      },
-    ]
-    XLSX.utils.book_append_sheet(wb, wsData, 'Đầu việc')
-
-    // ── Sheet 2: Hướng dẫn ──
-    const guide = [
-      ['HƯỚNG DẪN NHẬP ĐẦU VIỆC — VYVY WORKOS'],
-      [''],
-      ['📌 CÁC CỘT BẮT BUỘC (đánh dấu *)'],
-      ['Cột', 'Ý nghĩa', 'Lưu ý'],
-      ['Dự án *', 'Tên dự án trong hệ thống', 'Nếu chưa có sẽ tự tạo mới'],
-      ['Cấp độ *', 'Loại đầu việc', 'Chọn từ dropdown: Đầu việc lớn / Đầu việc con'],
-      ['Tên đầu việc *', 'Tên hiển thị trong hệ thống', 'Bắt buộc, không để trống'],
-      [''],
-      ['📋 CÁC GIÁ TRỊ HỢP LỆ'],
-      ['Cấp độ', '', ''],
-      ['  • Đầu việc lớn', '→ Milestone, mốc lớn trong dự án', ''],
-      ['  • Đầu việc con', '→ Task cụ thể thuộc một nhóm', ''],
-      [''],
-      ['Trạng thái', '', ''],
-      ['  • Chưa bắt đầu', '→ Mặc định khi tạo mới', ''],
-      ['  • Đang thực hiện', '→ Đang trong quá trình làm', ''],
-      ['  • Đã hoàn thành', '→ Đã xong, đã được duyệt', ''],
-      ['  • Đang chờ', '→ Chờ task khác hoặc chờ quyết định', ''],
-      [''],
-      ['📐 QUY TẮC PHÂN CẤP'],
-      ['Đầu việc con sẽ tự gắn vào Đầu việc lớn cùng Nhóm việc trong cùng Dự án.'],
-      ['Ví dụ: Cột "Nhóm việc" = "KOL/Affiliate" → Đầu việc con KOL sẽ nằm dưới Đầu việc lớn KOL.'],
-      [''],
-      ['📅 ĐỊNH DẠNG NGÀY'],
-      ['Deadline phải theo định dạng: YYYY-MM-DD (ví dụ: 2026-07-15)'],
-      [''],
-      ['👤 NGƯỜI PHỤ TRÁCH'],
-      ['Nhập đúng tên nhân viên trong hệ thống. Có thể để trống nếu chưa phân công.'],
-    ]
-    const wsGuide = XLSX.utils.aoa_to_sheet(guide)
-    wsGuide['!cols'] = [{ wch: 30 }, { wch: 40 }, { wch: 30 }]
-    XLSX.utils.book_append_sheet(wb, wsGuide, 'Hướng dẫn')
-
-    XLSX.writeFile(wb, 'mau_nhap_dau_viec_vyvy.xlsx')
-  }
-
   function downloadTemplateFromServer() {
     window.open('/api/excel-template', '_blank')
   }
 
   const validRows = rows.filter(r => !r.error)
   const errorRows = rows.filter(r => r.error)
+  const dupeRows = new Set(dupeWarning.map((d) => d.rowNum))
+  const missingOwner = rows.filter((r) => !r.owner?.trim()).length
+  const missingDeadline = rows.filter((r) => !r.deadline?.trim()).length
+  const workstreamRows = rows.filter((r) => r.level === 'workstream').length
+  const subtaskRows = rows.filter((r) => r.level === 'subtask').length
+  const stepRows = rows.filter((r) => r.level === 'step').length
+
+  function levelLabel(level: string) {
+    if (level === 'workstream') return 'Đầu việc lớn'
+    if (level === 'step') return 'Bước'
+    return 'Đầu việc con'
+  }
+
+  function rowBadges(row: ImportRow) {
+    const badges: Array<{ label: string; cls: string }> = []
+    if (!row.owner?.trim()) badges.push({ label: 'Thiếu owner', cls: 'bg-[var(--warning-soft)] text-[var(--warning)]' })
+    if (!row.deadline?.trim()) badges.push({ label: 'Thiếu deadline', cls: 'bg-[var(--warning-soft)] text-[var(--warning)]' })
+    if (dupeRows.has(row.rowNum)) badges.push({ label: 'Có thể trùng', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]' })
+    if (row.error) badges.push({ label: 'Có lỗi', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]' })
+    return badges
+  }
 
   return (
     <div className="space-y-5">
       {/* Upload zone */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h3 className="text-sm font-extrabold">Tải lên file Excel</h3>
+      <div className="vyvy-card p-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="vyvy-label">Document intake</p>
+            <h3 className="mt-1 font-display text-xl">Nhập đầu việc từ Excel</h3>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">Tải file, kiểm tra cảnh báo, rồi xác nhận import vào COO Board.</p>
+          </div>
           <button onClick={downloadTemplateFromServer}
-            className="flex items-center gap-1.5 rounded-lg border border-[var(--olive)] bg-[var(--olive)] px-3 py-1.5 text-xs font-bold text-[var(--ivory)] hover:opacity-90">
-            ↓ Tải file mẫu (có dropdown)
+            className="vyvy-button-secondary">
+            Tải file mẫu
           </button>
         </div>
         <input
@@ -11603,16 +11738,38 @@ function ImportExcelView(props: {
           onDragLeave={() => setDragOver(false)}
           onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) parseFile(f) }}
           onClick={() => fileInputRef.current?.click()}
-          className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed py-10 transition-colors cursor-pointer ${dragOver ? 'border-[var(--olive)] bg-[var(--olive)]/5' : 'border-[var(--border)] hover:border-[var(--border-strong)]'}`}
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-lg)] border border-dashed py-10 transition-colors ${dragOver ? 'border-[var(--olive)] bg-[var(--bg-surface)]' : 'border-[var(--border)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)]'}`}
         >
-          <p className="text-sm font-semibold text-[var(--text-secondary)]">Kéo thả file .xlsx vào đây</p>
-          <p className="text-xs text-[var(--text-muted)] mt-1">hoặc click để chọn file</p>
+          <div className="vyvy-empty-mark" />
+          <p className="text-sm font-bold text-[var(--text-primary)]">Kéo thả file .xlsx vào đây</p>
+          <p className="mt-1 text-xs text-[var(--text-muted)]">hoặc bấm để chọn file mẫu đã điền</p>
         </div>
+
+        {rows.length > 0 && (
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
+            {[
+              { label: 'Tổng dòng', value: rows.length },
+              { label: 'Hợp lệ', value: validRows.length },
+              { label: 'Lỗi', value: errorRows.length },
+              { label: 'Thiếu owner', value: missingOwner },
+              { label: 'Thiếu deadline', value: missingDeadline },
+              { label: 'Có thể trùng', value: dupeWarning.length },
+            ].map((item) => (
+              <div key={item.label} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
+                <p className="vyvy-label">{item.label}</p>
+                <p className="mt-1 font-display text-2xl tabular-nums text-[var(--text-primary)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Hướng dẫn sử dụng */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 space-y-5">
-        <h3 className="text-sm font-extrabold">Hướng dẫn nhập đầu việc bằng Excel</h3>
+      <div className="vyvy-card space-y-5 p-5">
+        <div>
+          <p className="vyvy-label">Format guide</p>
+          <h3 className="mt-1 font-display text-lg">Hướng dẫn nhập đầu việc bằng Excel</h3>
+        </div>
 
         {/* Bước thực hiện */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -11696,14 +11853,14 @@ function ImportExcelView(props: {
               </ul>
             </div>
           </div>
-          <p className="mt-2 text-xs text-[var(--text-muted)] rounded-lg bg-[var(--bg-surface)] px-3 py-2">
-            💡 <b>Mẹo:</b> Nếu cột B (Nhóm việc) của Task trùng với Nhóm việc của một Milestone trong cùng dự án, Task đó sẽ tự động trở thành đầu việc con của Milestone đó.
+          <p className="mt-2 rounded-[var(--radius)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-muted)]">
+            <b>Mẹo:</b> Nếu cột B (Nhóm việc) của Task trùng với Nhóm việc của một Milestone trong cùng dự án, Task đó sẽ tự động trở thành đầu việc con của Milestone đó.
           </p>
         </div>
 
         {/* Lưu ý */}
-        <div className="rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
-          <p className="text-xs font-extrabold text-[var(--warning)] mb-2">⚠ Lưu ý quan trọng</p>
+        <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
+          <p className="mb-2 text-xs font-extrabold text-[var(--warning)]">Lưu ý quan trọng</p>
           <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
             <li>• <b>Không xóa hoặc đổi tên hàng tiêu đề</b> (hàng 1) trong file mẫu</li>
             <li>• Tên Owner phải <b>khớp chính xác</b> với tên nhân viên đã có trong hệ thống</li>
@@ -11716,13 +11873,13 @@ function ImportExcelView(props: {
 
       {/* Duplicate warning */}
       {rows.length > 0 && (dupeChecking || dupeWarning.length > 0) && (
-        <div className={`rounded-xl border p-4 ${dupeWarning.length > 0 ? 'border-[var(--warning)]/50 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+        <div className={`rounded-[var(--radius-lg)] border p-4 ${dupeWarning.length > 0 ? 'border-[var(--warning)]/50 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
           {dupeChecking ? (
             <p className="text-xs text-[var(--text-muted)]">Đang kiểm tra trùng lặp…</p>
           ) : (
             <>
               <p className="text-xs font-extrabold text-[var(--warning)] mb-2">
-                ⚠ Phát hiện {dupeWarning.length} đầu việc có thể trùng với dữ liệu hiện có
+                Phát hiện {dupeWarning.length} đầu việc có thể trùng với dữ liệu hiện có
               </p>
               <div className="overflow-x-auto mb-3">
                 <table className="w-full text-xs">
@@ -11748,12 +11905,12 @@ function ImportExcelView(props: {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setSkipDupes(true)}
-                  className={`rounded-lg px-4 py-1.5 text-xs font-bold border transition-all ${skipDupes === true ? 'bg-[var(--warning)] text-white border-[var(--warning)]' : 'bg-white border-[var(--warning)]/50 text-[var(--warning)] hover:bg-[var(--warning-soft)]'}`}>
+                  className={`rounded-[var(--radius)] border px-4 py-1.5 text-xs font-bold transition-all ${skipDupes === true ? 'border-[var(--warning)] bg-[var(--warning)] text-[var(--ivory)]' : 'border-[var(--warning)]/50 bg-[var(--bg-card)] text-[var(--warning)] hover:bg-[var(--warning-soft)]'}`}>
                   Bỏ qua bản trùng — chỉ nhập mới
                 </button>
                 <button
                   onClick={() => setSkipDupes(false)}
-                  className={`rounded-lg px-4 py-1.5 text-xs font-bold border transition-all ${skipDupes === false ? 'bg-[var(--olive)] text-[var(--ivory)] border-[var(--olive)]' : 'bg-white border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'}`}>
+                  className={`rounded-[var(--radius)] border px-4 py-1.5 text-xs font-bold transition-all ${skipDupes === false ? 'border-[var(--olive)] bg-[var(--olive)] text-[var(--ivory)]' : 'border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'}`}>
                   Nhập tất cả (kể cả trùng)
                 </button>
               </div>
@@ -11767,42 +11924,64 @@ function ImportExcelView(props: {
 
       {/* Preview */}
       {rows.length > 0 && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-extrabold">
-              Xem trước <span className="font-normal text-[var(--text-muted)]">({validRows.length} hợp lệ{errorRows.length > 0 ? `, ${errorRows.length} lỗi` : ''})</span>
-            </h3>
+        <div className="vyvy-card p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="vyvy-label">Parsed preview</p>
+              <h3 className="mt-1 font-display text-lg">
+                Xem trước <span className="font-sans text-sm font-normal normal-case text-[var(--text-muted)]">({validRows.length} hợp lệ{errorRows.length > 0 ? `, ${errorRows.length} lỗi` : ''})</span>
+              </h3>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                {workstreamRows} đầu việc lớn · {subtaskRows} đầu việc con · {stepRows} bước
+              </p>
+            </div>
             <button
               onClick={doImport}
               disabled={importing || validRows.length === 0 || (dupeWarning.length > 0 && skipDupes === null)}
-              className="rounded-lg bg-[var(--olive)] px-5 py-2 text-xs font-bold text-[var(--ivory)] disabled:opacity-40">
+              className="vyvy-button-primary disabled:opacity-40">
               {importing ? 'Đang nhập…'
                 : dupeWarning.length > 0 && skipDupes === null ? 'Chọn xử lý trùng trước'
                 : `Xác nhận nhập ${validRows.length} mục`}
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="vyvy-table min-w-[980px]">
               <thead>
-                <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-left">
-                  {['#','Dự án','Nhóm','Cấp độ','Tên đầu việc','Owner','Deadline','Lỗi'].map(h=>(
-                    <th key={h} className="py-2 pr-3 font-bold whitespace-nowrap">{h}</th>
+                <tr>
+                  {['#','Dự án','Nhóm','Cấp độ','Tên đầu việc','Owner','Deadline','Cảnh báo'].map(h=>(
+                    <th key={h} className="whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.rowNum} className={`border-b border-[var(--border)]/50 ${r.error ? 'bg-[var(--danger-soft)]' : ''}`}>
-                    <td className="py-2 pr-3 text-[var(--text-muted)]">{r.rowNum}</td>
-                    <td className="py-2 pr-3 max-w-[120px] truncate">{r.project}</td>
-                    <td className="py-2 pr-3">{r.group}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{r.level}</td>
-                    <td className="py-2 pr-3 max-w-[200px] font-medium">{r.title}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{r.owner}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{r.deadline}</td>
-                    <td className="py-2 pr-3 text-[var(--danger)] font-medium">{r.error || ''}</td>
-                  </tr>
-                ))}
+                {rows.map(r => {
+                  const badges = rowBadges(r)
+                  return (
+                    <tr key={r.rowNum} className={r.error ? 'bg-[var(--danger-soft)]' : ''}>
+                      <td className="text-[var(--text-muted)]">{r.rowNum}</td>
+                      <td className="max-w-[150px] truncate">{r.project || '—'}</td>
+                      <td>{r.group || '—'}</td>
+                      <td className="whitespace-nowrap">
+                        <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
+                          {levelLabel(r.level)}
+                        </span>
+                      </td>
+                      <td className="max-w-[240px] font-medium">{r.title || '—'}</td>
+                      <td className="whitespace-nowrap">{r.owner || <span className="text-[var(--warning)]">Chưa gắn</span>}</td>
+                      <td className="whitespace-nowrap">{r.deadline || <span className="text-[var(--warning)]">Chưa có</span>}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1">
+                          {badges.length === 0 ? (
+                            <span className="rounded-full bg-[var(--success-soft)] px-2 py-0.5 text-[11px] font-bold text-[var(--success)]">Sẵn sàng</span>
+                          ) : badges.map((badge) => (
+                            <span key={badge.label} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${badge.cls}`}>{badge.label}</span>
+                          ))}
+                        </div>
+                        {r.error && <p className="mt-1 text-[11px] font-semibold text-[var(--danger)]">{r.error}</p>}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -11811,32 +11990,33 @@ function ImportExcelView(props: {
 
       {/* Result */}
       {result && (
-        <div className={`rounded-xl border p-4 text-sm font-semibold ${result.fail === 0 ? 'border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]' : 'border-[var(--warning)]/30 bg-[var(--warning-soft)] text-[var(--warning)]'}`}>
-          ✓ Nhập xong: {result.ok} thành công{result.fail > 0 ? `, ${result.fail} lỗi (kiểm tra lại dữ liệu)` : ''}
+        <div className={`rounded-[var(--radius-lg)] border p-4 text-sm font-semibold ${result.fail === 0 ? 'border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]' : 'border-[var(--warning)]/30 bg-[var(--warning-soft)] text-[var(--warning)]'}`}>
+          Nhập xong: {result.ok} thành công{result.fail > 0 ? `, ${result.fail} lỗi (kiểm tra lại dữ liệu)` : ''}
         </div>
       )}
 
       {/* Dọn trùng DB */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <div className="vyvy-card p-5">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-sm font-extrabold">Dọn đầu việc trùng</h3>
+            <p className="vyvy-label">Database hygiene</p>
+            <h3 className="mt-1 font-display text-lg">Dọn đầu việc trùng</h3>
             <p className="text-xs text-[var(--text-muted)] mt-0.5">Quét DB tìm workstream / đầu việc con có tên trùng nhau trong cùng dự án</p>
           </div>
           <button onClick={scanDbDupes} disabled={dbDupeScanning}
-            className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-4 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50">
-            {dbDupeScanning ? 'Đang quét…' : '🔍 Quét trùng'}
+            className="vyvy-button-secondary disabled:opacity-50">
+            {dbDupeScanning ? 'Đang quét…' : 'Quét trùng'}
           </button>
         </div>
 
         {dbDupeScanned && dbDupes.length === 0 && (
-          <p className="text-xs text-[var(--success)] font-semibold">✓ Không tìm thấy đầu việc trùng nào.</p>
+          <p className="text-xs text-[var(--success)] font-semibold">Không tìm thấy đầu việc trùng nào.</p>
         )}
 
         {dbDupes.length > 0 && (
           <>
             <p className="text-xs text-[var(--warning)] font-semibold mb-3">
-              ⚠ Phát hiện {dbDupes.length} nhóm trùng. Hệ thống sẽ <b>giữ bản cũ nhất</b>, xóa các bản sau.
+              Phát hiện {dbDupes.length} nhóm trùng. Hệ thống sẽ <b>giữ bản cũ nhất</b>, xóa các bản sau.
             </p>
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {dbDupes.map((g, i) => (
@@ -11850,7 +12030,7 @@ function ImportExcelView(props: {
                   <button
                     onClick={() => deleteDbDupeExtra(g)}
                     disabled={g.ids.slice(1).some(id => dbDupeDeleting.has(id))}
-                    className="shrink-0 rounded-lg bg-[var(--danger)] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50 hover:opacity-80">
+                    className="vyvy-button-danger min-h-0 shrink-0 px-3 py-1 disabled:opacity-50">
                     {g.ids.slice(1).some(id => dbDupeDeleting.has(id)) ? 'Đang xóa…' : `Xóa ${g.ids.length - 1} bản thừa`}
                   </button>
                 </div>
@@ -11859,7 +12039,7 @@ function ImportExcelView(props: {
             <button
               onClick={() => Promise.all(dbDupes.map(g => deleteDbDupeExtra(g)))}
               disabled={dbDupeDeleting.size > 0}
-              className="mt-3 rounded-lg bg-[var(--danger)] px-5 py-2 text-xs font-bold text-white disabled:opacity-50 hover:opacity-80">
+              className="vyvy-button-danger mt-3 disabled:opacity-50">
               {dbDupeDeleting.size > 0 ? 'Đang xóa…' : `Xóa tất cả ${dbDupes.reduce((s,g)=>s+g.ids.length-1,0)} bản thừa`}
             </button>
           </>
@@ -11905,11 +12085,11 @@ function CalendarView(props: {
   }, [props.tasks])
 
   const STATUS_COLOR: Record<string, string> = {
-    completed:  'bg-[#4ade80] text-[#14532d]',
-    in_progress:'bg-[#60a5fa] text-[#1e3a5f]',
-    pending:    'bg-[#fb923c] text-[#431407]',
+    completed:  'bg-[var(--success-soft)] text-[var(--success)] border border-[var(--success)]/20',
+    in_progress:'bg-[var(--bg-surface)] text-[var(--olive)] border border-[var(--olive)]/20',
+    pending:    'bg-[var(--warning-soft)] text-[var(--warning)] border border-[var(--warning)]/20',
     not_started:'bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border)]',
-    overdue:    'bg-[#f87171] text-[#450a0a]',
+    overdue:    'bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/20',
   }
   function taskColor(t: Task) {
     const isOverdue = t.due_date && new Date(t.due_date) < today && t.status !== 'completed'
@@ -12045,11 +12225,11 @@ function CalendarView(props: {
       {/* Legend */}
       <div className="flex flex-wrap gap-3 px-1 text-[11px] font-medium">
         {[
-          { label: 'Hoàn thành', cls: 'bg-[#4ade80]' },
-          { label: 'Đang làm', cls: 'bg-[#60a5fa]' },
-          { label: 'Pending', cls: 'bg-[#fb923c]' },
+          { label: 'Hoàn thành', cls: 'bg-[var(--success)]' },
+          { label: 'Đang làm', cls: 'bg-[var(--olive)]' },
+          { label: 'Pending', cls: 'bg-[var(--warning)]' },
           { label: 'Chưa bắt đầu', cls: 'bg-[var(--bg-surface)] border border-[var(--border)]' },
-          { label: 'Trễ deadline', cls: 'bg-[#f87171]' },
+          { label: 'Trễ deadline', cls: 'bg-[var(--danger)]' },
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1.5">
             <span className={`w-3 h-3 rounded-sm inline-block ${l.cls}`}/>
@@ -12113,6 +12293,9 @@ function CalendarView(props: {
                     <p className="text-sm font-semibold truncate">{t.title}</p>
                     <p className="text-xs text-[var(--text-muted)]">{projMap.get(t.project_id || '')?.name || ''}</p>
                   </div>
+                  {t.deadline_status === 'extension_requested' && (
+                    <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Đang xin gia hạn</span>
+                  )}
                   {t.head_id && props.employeeMap.get(t.head_id) && (
                     <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
                   )}
@@ -12149,6 +12332,9 @@ function CalendarView(props: {
                     <p className="text-sm font-semibold truncate">{t.title}</p>
                     <p className="text-xs text-[var(--text-muted)]">{projMap.get(t.project_id || '')?.name || ''}</p>
                   </div>
+                  {t.deadline_status === 'extension_requested' && (
+                    <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Đang xin gia hạn</span>
+                  )}
                   {t.head_id && props.employeeMap.get(t.head_id) && (
                     <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
                   )}
@@ -12668,7 +12854,6 @@ function MyWorkView(props: {
 
 // ─── PermissionsView ────────────────────────────────────────────────────────
 const RESOURCES = ['project', 'workstream', 'subtask', 'step', 'import', 'export', 'admin_panel'] as const
-const ACTIONS   = ['view', 'create', 'edit', 'delete', 'approve', 'use'] as const
 const SCOPES    = ['all', 'own_dept', 'assigned', 'none'] as const
 const ROLES     = ['ceo', 'coo', 'admin', 'department_head', 'employee'] as const
 
@@ -12684,8 +12869,8 @@ const SCOPE_LABEL: Record<string, string> = {
 }
 const SCOPE_COLOR: Record<string, string> = {
   all: 'bg-[var(--olive)] text-[var(--ivory)]',
-  own_dept: 'bg-amber-100 text-amber-800',
-  assigned: 'bg-blue-100 text-blue-800',
+  own_dept: 'bg-[var(--warning-soft)] text-[var(--warning)]',
+  assigned: 'bg-[var(--success-soft)] text-[var(--success)]',
   none: 'bg-[var(--bg-surface)] text-[var(--text-muted)]',
 }
 
@@ -12732,7 +12917,7 @@ function PermissionsView(props: {
       return { role: selectedRole, resource, action, scope, updated_at: new Date().toISOString() }
     })
     await supabase.from('role_permissions').upsert(upserts, { onConflict: 'role,resource,action' })
-    await props.onRefresh()  // eslint-disable-line
+    await props.onRefresh()
     setDraft({})
     setSaving(false)
     toast(`Đã lưu ${upserts.length} thay đổi quyền cho ${selectedRole === 'department_head' ? 'Trưởng phòng' : selectedRole}`)
@@ -12756,12 +12941,15 @@ function PermissionsView(props: {
   return (
     <div className="space-y-5">
       {/* Role tabs */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
-        <h3 className="mb-4 text-sm font-extrabold">Chọn vai trò để chỉnh quyền</h3>
+      <div className="vyvy-card p-5">
+        <div className="mb-4">
+          <p className="vyvy-label">Permission matrix</p>
+          <h3 className="mt-1 font-display text-lg">Chọn vai trò để chỉnh quyền</h3>
+        </div>
         <div className="flex flex-wrap gap-2">
           {ROLES.map(r => (
             <button key={r} onClick={() => selectRole(r)}
-              className={`rounded-lg px-4 py-2 text-xs font-bold transition-colors ${selectedRole === r ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--olive)]'}`}>
+              className={`rounded-[var(--radius)] px-4 py-2 text-xs font-bold transition-colors ${selectedRole === r ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--olive)]'}`}>
               {roleLabel(r)}
             </button>
           ))}
@@ -12769,39 +12957,40 @@ function PermissionsView(props: {
       </div>
 
       {/* Matrix */}
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5">
+      <div className="vyvy-card p-5">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h3 className="text-sm font-extrabold">Ma trận quyền — {roleLabel(selectedRole)}</h3>
+            <p className="vyvy-label">Access scope</p>
+            <h3 className="mt-1 font-display text-lg">Ma trận quyền — {roleLabel(selectedRole)}</h3>
             <p className="mt-0.5 text-xs text-[var(--text-muted)]">Chọn phạm vi rồi bấm <strong>Lưu thay đổi</strong> để áp dụng.</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {hasDraft && (
               <>
-                <span className="text-xs text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                <span className="rounded-[var(--radius)] border border-[var(--warning)]/20 bg-[var(--warning-soft)] px-2 py-1 text-xs font-semibold text-[var(--warning)]">
                   {Object.keys(draft).length} thay đổi chưa lưu
                 </span>
                 <button onClick={discardDraft}
-                  className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]">
+                  className="vyvy-button-secondary min-h-0 px-3 py-1.5">
                   Huỷ
                 </button>
               </>
             )}
             <button onClick={saveDraft} disabled={!hasDraft || saving}
-              className="rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-[var(--ivory)] disabled:opacity-40 transition-opacity">
+              className="vyvy-button-primary min-h-0 px-4 py-1.5 disabled:opacity-40">
               {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
             </button>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="vyvy-table min-w-[820px]">
             <thead>
-              <tr className="border-b border-[var(--border)]">
-                <th className="pb-2 pr-4 text-left font-semibold text-[var(--text-secondary)]">Đối tượng</th>
-                <th className="pb-2 pr-4 text-left font-semibold text-[var(--text-secondary)]">Hành động</th>
+              <tr>
+                <th>Đối tượng</th>
+                <th>Hành động</th>
                 {SCOPES.map(s => (
-                  <th key={s} className="pb-2 px-2 text-center font-semibold text-[var(--text-secondary)] min-w-[90px]">
+                  <th key={s} className="min-w-[90px] text-center">
                     {SCOPE_LABEL[s]}
                   </th>
                 ))}
@@ -12815,15 +13004,15 @@ function PermissionsView(props: {
                   const savedScope = getSavedScope(res, act)
                   const isChanged = draftScope !== savedScope
                   return (
-                    <tr key={`${res}:${act}`} className={`border-b border-[var(--border)] border-opacity-50 ${ai === 0 ? 'border-t border-t-[var(--border)]' : ''} ${isChanged ? 'bg-amber-50' : ''}`}>
+                    <tr key={`${res}:${act}`} className={`${isChanged ? 'bg-[var(--warning-soft)]' : ''}`}>
                       {ai === 0 && (
-                        <td rowSpan={actions.length} className="py-2 pr-4 font-bold text-[var(--text-primary)] align-top pt-3">
+                        <td rowSpan={actions.length} className="align-top font-bold text-[var(--text-primary)]">
                           {RESOURCE_LABEL[res]}
                         </td>
                       )}
-                      <td className="py-2 pr-4 text-[var(--text-secondary)]">
+                      <td className="text-[var(--text-secondary)]">
                         {ACTION_LABEL[act]}
-                        {isChanged && <span className="ml-1 text-amber-600">*</span>}
+                        {isChanged && <span className="ml-1 text-[var(--warning)]">*</span>}
                       </td>
                       {SCOPES.map(sc => {
                         const isActive = draftScope === sc
@@ -12835,7 +13024,7 @@ function PermissionsView(props: {
                               title={isActive && !isSaved ? 'Thay đổi chưa lưu' : ''}
                               className={`w-full rounded-md py-1 px-2 text-xs font-semibold transition-all
                                 ${isActive
-                                  ? SCOPE_COLOR[sc] + (isSaved ? ' ring-2 ring-offset-1 ring-[var(--olive)]' : ' ring-2 ring-offset-1 ring-amber-400')
+                                  ? SCOPE_COLOR[sc] + (isSaved ? ' ring-1 ring-[var(--olive)]' : ' ring-2 ring-[var(--warning)]')
                                   : 'bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-input)] opacity-50 hover:opacity-100'}`}>
                               {isActive ? (isSaved ? '●' : '◉') : '○'}
                             </button>
@@ -12853,12 +13042,12 @@ function PermissionsView(props: {
         {/* Legend */}
         <div className="mt-4 flex flex-wrap gap-3 items-center">
           {SCOPES.map(s => (
-            <span key={s} className={`rounded-md px-2 py-1 text-xs font-semibold ${SCOPE_COLOR[s]}`}>
-              {SCOPE_LABEL[s]}
-            </span>
-          ))}
-          <span className="text-xs text-[var(--text-muted)] ml-1">— phạm vi áp dụng</span>
-          <span className="text-xs text-amber-600 ml-3">◉ = chưa lưu &nbsp; ● = đã lưu</span>
+          <span key={s} className={`rounded-md px-2 py-1 text-xs font-semibold ${SCOPE_COLOR[s]}`}>
+            {SCOPE_LABEL[s]}
+          </span>
+        ))}
+        <span className="text-xs text-[var(--text-muted)] ml-1">— phạm vi áp dụng</span>
+          <span className="text-xs text-[var(--warning)] ml-3">◉ = chưa lưu &nbsp; ● = đã lưu</span>
         </div>
       </div>
     </div>

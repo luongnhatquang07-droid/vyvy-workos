@@ -134,55 +134,79 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
   }
 
   const inputCls = 'w-full rounded-lg border border-[var(--border)] bg-[var(--bg-input)] px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)]'
+  const missingOwner = rows.filter((row) => !row.ownerId).length
+  const missingDeadline = rows.filter((row) => !row.deadline).length
 
   return (
     <div className="flex flex-col gap-5">
       {/* Input Notex */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
+        <div className="vyvy-card p-4">
           <div className="mb-2 flex items-center justify-between">
-            <p className="font-extrabold">① Bảng tóm tắt (Notex AI)</p>
-            <label className="cursor-pointer text-xs font-bold text-[var(--accent-hover)]">
+            <div>
+              <p className="vyvy-label">Summary</p>
+              <p className="font-bold text-[var(--text-primary)]">Bảng tóm tắt Notex AI</p>
+            </div>
+            <label className="vyvy-button-secondary min-h-0 cursor-pointer px-3 py-1.5">
               Tải file<input type="file" className="hidden" onChange={(e) => readFile(e.target.files?.[0], setSummary)} />
             </label>
           </div>
-          <textarea className="min-h-32 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3 text-sm outline-none" placeholder="Dán bảng tóm tắt cuộc họp Notex tạo..." value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <textarea className="vyvy-input min-h-32 w-full p-3 text-sm outline-none" placeholder="Dán bảng tóm tắt cuộc họp Notex tạo..." value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">{summary.trim() ? `${summary.trim().length.toLocaleString('vi-VN')} ký tự` : 'Chưa có summary'}</p>
         </div>
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
+        <div className="vyvy-card p-4">
           <div className="mb-2 flex items-center justify-between">
-            <p className="font-extrabold">② Bản ghi (ai nói gì)</p>
-            <label className="cursor-pointer text-xs font-bold text-[var(--accent-hover)]">
+            <div>
+              <p className="vyvy-label">Transcript</p>
+              <p className="font-bold text-[var(--text-primary)]">Bản ghi cuộc họp</p>
+            </div>
+            <label className="vyvy-button-secondary min-h-0 cursor-pointer px-3 py-1.5">
               Tải file<input type="file" className="hidden" onChange={(e) => readFile(e.target.files?.[0], setTranscript)} />
             </label>
           </div>
-          <textarea className="min-h-32 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-input)] p-3 text-sm outline-none" placeholder="Dán bản ghi/transcript Notex..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+          <textarea className="vyvy-input min-h-32 w-full p-3 text-sm outline-none" placeholder="Dán bản ghi/transcript Notex..." value={transcript} onChange={(e) => setTranscript(e.target.value)} />
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">{transcript.trim() ? `${transcript.trim().length.toLocaleString('vi-VN')} ký tự` : 'Chưa có transcript'}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-3">
         <button type="button" onClick={analyze} disabled={analyzing}
-          className="h-11 rounded-xl bg-[var(--accent)] px-6 text-sm font-extrabold text-[var(--on-accent)] disabled:opacity-40 hover:bg-[var(--accent-hover)]">
-          {analyzing ? 'Đang phân tích...' : '✨ Phân tích & bóc đầu việc'}
+          className="vyvy-button-primary h-11 px-6 disabled:opacity-40">
+          {analyzing ? 'Đang phân tích...' : 'Phân tích & bóc đầu việc'}
         </button>
         {err && <span className="text-sm font-semibold text-[var(--danger)]">{err}</span>}
       </div>
 
       {/* Ý chính */}
       {analyzed && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
-          <p className="mb-2 font-extrabold">Ý chính cần lưu ý</p>
+        <div className="vyvy-card p-4">
+          <p className="vyvy-label mb-2">Key points</p>
           {keyPoints.length === 0 ? <p className="text-sm text-[var(--text-secondary)]">—</p> : (
-            <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)]">
-              {keyPoints.map((k, i) => <li key={i}>{k}</li>)}
-            </ul>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {keyPoints.map((k, i) => (
+                <div key={i} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-secondary)]">
+                  {k}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
 
       {/* Bảng đầu việc + deadline + duyệt */}
       {analyzed && (
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
-          <p className="mb-3 font-extrabold">Đầu việc — nhập deadline & gửi duyệt</p>
+        <div className="vyvy-card p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="vyvy-label">Action items</p>
+              <h3 className="mt-1 font-display text-lg">Đầu việc — nhập deadline & gửi duyệt</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-[var(--bg-surface)] px-2.5 py-1 text-xs font-bold text-[var(--text-secondary)]">{rows.length} dòng</span>
+              {missingOwner > 0 && <span className="rounded-full bg-[var(--warning-soft)] px-2.5 py-1 text-xs font-bold text-[var(--warning)]">{missingOwner} thiếu owner</span>}
+              {missingDeadline > 0 && <span className="rounded-full bg-[var(--warning-soft)] px-2.5 py-1 text-xs font-bold text-[var(--warning)]">{missingDeadline} thiếu deadline</span>}
+            </div>
+          </div>
           <div className="space-y-2">
             <div className="hidden grid-cols-[1.6fr_1fr_140px_1fr] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)] lg:grid">
               <span>Công việc được giao</span><span>Người phụ trách</span><span>Deadline</span><span>Gửi duyệt tới</span>
@@ -199,7 +223,11 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
                   <option value="">— Cấp duyệt —</option>
                   {approverList.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.role ? ` (${e.role})` : ''}</option>)}
                 </select>
-                {r.note && <p className="text-xs text-[var(--text-muted)] lg:col-span-4">{r.note}</p>}
+                <div className="flex flex-wrap gap-1 lg:col-span-4">
+                  {!r.ownerId && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Thiếu owner</span>}
+                  {!r.deadline && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Thiếu deadline</span>}
+                  {r.note && <span className="text-xs text-[var(--text-muted)]">{r.note}</span>}
+                </div>
               </div>
             ))}
           </div>
@@ -213,7 +241,7 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
               <input className="h-10 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] px-3 text-sm" placeholder="Tên dự án mới" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} />
             )}
             <button type="button" onClick={createAndSend} disabled={creating || rows.length === 0}
-              className="h-10 rounded-xl bg-[var(--accent)] px-5 text-sm font-extrabold text-[var(--on-accent)] disabled:opacity-40 hover:bg-[var(--accent-hover)]">
+              className="vyvy-button-primary h-10 px-5 disabled:opacity-40">
               {creating ? 'Đang tạo...' : `Tạo & gửi duyệt (${rows.length})`}
             </button>
           </div>

@@ -31,6 +31,7 @@ export async function notifyInApp(supabase: SupabaseClient, p: NotifyPayload): P
 
 // Zalo OA / ZNS — cần ZALO_OA_TOKEN (server-side) + zalo_user_id của nhân viên.
 export async function notifyZalo(zaloUserId: string | null | undefined, _p: NotifyPayload): Promise<boolean> {
+  void _p
   const token = process.env.ZALO_OA_TOKEN
   if (!token || !zaloUserId) return false
   // TODO: gọi Zalo OA Message / ZNS API với template đã duyệt. Giữ stub khi chưa cấu hình.
@@ -39,6 +40,7 @@ export async function notifyZalo(zaloUserId: string | null | undefined, _p: Noti
 
 // Facebook Messenger — cần FB_PAGE_TOKEN + PSID của nhân viên (cửa sổ chính sách 24h).
 export async function notifyMessenger(psid: string | null | undefined, _p: NotifyPayload): Promise<boolean> {
+  void _p
   const token = process.env.FB_PAGE_TOKEN
   if (!token || !psid) return false
   // TODO: gọi Facebook Send API.

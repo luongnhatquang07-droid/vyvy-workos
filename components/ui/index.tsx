@@ -189,7 +189,7 @@ export function Drawer({ open, onClose, title, children, width = 'max-w-md' }: {
   return (
     <>
       {open && <div className="fixed inset-0 z-[9980] bg-black/50 backdrop-blur-sm" onClick={onClose} />}
-      <div className={`fixed inset-y-0 right-0 z-[9981] flex flex-col w-full ${width} bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-[−24px_0_64px_-16px_rgba(0,0,0,0.6)] transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 z-[9981] flex flex-col w-full ${width} bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-[-24px_0_64px_-16px_rgba(0,0,0,0.6)] transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {title && (
           <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4 shrink-0">
             <h3 className="text-base font-bold text-[var(--text-primary)]">{title}</h3>
@@ -262,12 +262,12 @@ export function SkeletonRow() {
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 const avatarColors = [
-  'bg-[#2D4A2A] text-[#4ADE80]',
-  'bg-[#1A2D4A] text-[#60A5FA]',
-  'bg-[#4A2A1A] text-[#FBBF24]',
-  'bg-[#3A1A4A] text-[#C084FC]',
-  'bg-[#1A4A3A] text-[#34D399]',
-  'bg-[#4A3A1A] text-[#FCA5A5]',
+  'bg-[var(--olive)] text-[var(--ivory)]',
+  'bg-[var(--umber)] text-[var(--ivory)]',
+  'bg-[var(--bg-surface)] text-[var(--olive)] border border-[var(--border)]',
+  'bg-[var(--char)] text-[var(--ivory)]',
+  'bg-[var(--success-soft)] text-[var(--success)]',
+  'bg-[var(--warning-soft)] text-[var(--warning)]',
 ]
 
 export function Avatar({ name, size = 'md', src }: { name: string; size?: 'sm' | 'md' | 'lg'; src?: string }) {
@@ -276,6 +276,7 @@ export function Avatar({ name, size = 'md', src }: { name: string; size?: 'sm' |
   const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
 
   if (src) {
+    // eslint-disable-next-line @next/next/no-img-element -- Avatar URLs can be external; sizing is constrained by CSS.
     return <img src={src} alt={name} className={`${sizeClass} rounded-full object-cover`} />
   }
 
@@ -387,5 +388,176 @@ export function FilterChip({ label, active, count, onClick, onRemove }: {
         </span>
       )}
     </button>
+  )
+}
+
+// --- VyVy brand components --------------------------------------------------
+
+export const VyvyButton = Button
+export const VyvyBadge = Badge
+export const VyvyModal = Modal
+export const VyvyDrawer = Drawer
+export const VyvyEmptyState = EmptyState
+export const VyvyProgressBar = ProgressBar
+
+export function VyvyCard({ children, className = '', hover = false, muted = false }: {
+  children: React.ReactNode
+  className?: string
+  hover?: boolean
+  muted?: boolean
+}) {
+  return (
+    <div className={`${muted ? 'vyvy-card-muted' : 'vyvy-card'} ${hover ? 'card-hover cursor-pointer' : ''} ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+export function VyvyMetricCard({
+  label,
+  value,
+  meta,
+  icon,
+  tone = 'neutral',
+  className = '',
+}: {
+  label: string
+  value: React.ReactNode
+  meta?: React.ReactNode
+  icon?: React.ReactNode
+  tone?: 'success' | 'warning' | 'danger' | 'olive' | 'neutral'
+  className?: string
+}) {
+  const accent =
+    tone === 'success' ? 'var(--success)' :
+    tone === 'warning' ? 'var(--warning)' :
+    tone === 'danger' ? 'var(--danger)' :
+    tone === 'olive' ? 'var(--olive)' :
+    'var(--border-strong)'
+
+  return (
+    <div className={`vyvy-metric-card p-4 ${className}`} style={{ '--metric-accent': accent } as React.CSSProperties}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="vyvy-label truncate">{label}</p>
+          <p className="mt-3 font-display text-3xl leading-none tabular-nums text-[var(--text-primary)]">{value}</p>
+          {meta && <p className="mt-1 text-xs text-[var(--text-secondary)]">{meta}</p>}
+        </div>
+        {icon && <span className="vyvy-metric-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius)]">{icon}</span>}
+      </div>
+    </div>
+  )
+}
+
+export function VyvySectionHeader({ number, title, caption, className = '' }: {
+  number?: string
+  title: string
+  caption?: string
+  className?: string
+}) {
+  return (
+    <div className={`vyvy-section-header ${className}`}>
+      {number && <span className="vyvy-section-number">{number}</span>}
+      <div className="min-w-0">
+        <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
+        {caption && <p className="text-xs text-[var(--text-muted)]">{caption}</p>}
+      </div>
+    </div>
+  )
+}
+
+export function VyvyStatusPill({ tone = 'neutral', children, className = '' }: {
+  tone?: BadgeTone
+  children: React.ReactNode
+  className?: string
+}) {
+  return <span className={`vyvy-status-pill ${badgeTones[tone]} ${className}`}>{children}</span>
+}
+
+export function VyvyTable({ children, className = '', ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
+  return (
+    <div className="overflow-x-auto">
+      <table {...props} className={`vyvy-table ${className}`}>
+        {children}
+      </table>
+    </div>
+  )
+}
+
+export function VyvyNotificationItem({
+  title,
+  body,
+  unread,
+  meta,
+  action,
+}: {
+  title: string
+  body?: string
+  unread?: boolean
+  meta?: React.ReactNode
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="flex gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
+      <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${unread ? 'bg-[var(--lime)]' : 'bg-[var(--border)]'}`} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-[var(--text-primary)]">{title}</p>
+        {body && <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{body}</p>}
+        {meta && <div className="mt-2 text-[11px] text-[var(--text-muted)]">{meta}</div>}
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  )
+}
+
+export function VyvyTimeline({ items, className = '' }: {
+  items: Array<{ id: string; title: string; meta?: React.ReactNode; body?: React.ReactNode; tone?: 'success' | 'warning' | 'danger' | 'neutral' }>
+  className?: string
+}) {
+  return (
+    <div className={`space-y-3 ${className}`}>
+      {items.map((item) => {
+        const dot =
+          item.tone === 'success' ? 'bg-[var(--success)]' :
+          item.tone === 'warning' ? 'bg-[var(--warning)]' :
+          item.tone === 'danger' ? 'bg-[var(--danger)]' :
+          'bg-[var(--border-strong)]'
+        return (
+          <div key={item.id} className="grid grid-cols-[12px_1fr] gap-3">
+            <span className={`mt-1.5 h-2.5 w-2.5 rounded-full ${dot}`} />
+            <div className="border-b border-[var(--border)] pb-3">
+              <p className="text-sm font-bold text-[var(--text-primary)]">{item.title}</p>
+              {item.meta && <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{item.meta}</p>}
+              {item.body && <div className="mt-2 text-sm text-[var(--text-secondary)]">{item.body}</div>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export function VyvyFormField({ label, helper, error, htmlFor, children }: {
+  label?: string
+  helper?: string
+  error?: string
+  htmlFor?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      {label && <label htmlFor={htmlFor} className="vyvy-label">{label}</label>}
+      {children}
+      {error ? <p className="text-xs font-semibold text-[var(--danger)]">{error}</p> : helper ? <p className="text-xs text-[var(--text-muted)]">{helper}</p> : null}
+    </div>
+  )
+}
+
+export function VyvyTextarea({ className = '', ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={`vyvy-input min-h-24 w-full resize-y px-3 py-2.5 text-sm outline-none placeholder:text-[var(--text-muted)] ${className}`}
+    />
   )
 }

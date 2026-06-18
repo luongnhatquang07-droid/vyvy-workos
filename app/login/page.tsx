@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { loginIdentifierToAuthEmail } from '@/lib/internal-auth'
+import { SOLO_PILOT_MODE, SOLO_PILOT_LOGIN_ID, SOLO_PILOT_PASSWORD } from '@/lib/config'
 
 type Tab = 'login' | 'signup'
 
@@ -17,6 +18,7 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+  const [soloPilotError, setSoloPilotError] = useState('')
 
   const errorParam = searchParams.get('error')
 
@@ -27,6 +29,24 @@ function LoginForm() {
       setError('Tài khoản đã bị vô hiệu hoá. Liên hệ Admin.')
     }
   }, [errorParam])
+
+  async function handleSoloPilot() {
+    if (!SOLO_PILOT_PASSWORD) {
+      setSoloPilotError('Chưa cấu hình mật khẩu Solo Pilot. Mở lib/config.ts và điền SOLO_PILOT_PASSWORD.')
+      return
+    }
+    setSoloPilotError('')
+    setLoading(true)
+    const authEmail = loginIdentifierToAuthEmail(SOLO_PILOT_LOGIN_ID)
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: authEmail, password: SOLO_PILOT_PASSWORD })
+    setLoading(false)
+    if (authError) {
+      setSoloPilotError(`Đăng nhập Solo Pilot thất bại: ${authError.message}. Hãy reset password tài khoản ${SOLO_PILOT_LOGIN_ID} rồi cập nhật SOLO_PILOT_PASSWORD trong lib/config.ts.`)
+      return
+    }
+    router.push('/')
+    router.refresh()
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -223,6 +243,40 @@ function LoginForm() {
             )}
           </div>
         </div>
+
+        {/* Solo Pilot quick-entry — chỉ hiện khi SOLO_PILOT_MODE = true */}
+        {SOLO_PILOT_MODE && (
+          <div className="mt-4 rounded-[var(--radius-lg)] border border-[var(--lime)]/30 bg-[var(--lime)]/6 p-4">
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--olive)]">
+              ⚡ Solo Pilot Mode
+            </p>
+            <p className="mb-3 text-xs text-[var(--dim)]">
+              Đăng nhập nhanh bằng tài khoản <b>{SOLO_PILOT_LOGIN_ID}</b> để test nội bộ.
+              {!SOLO_PILOT_PASSWORD && <span className="ml-1 font-semibold text-[var(--warning)]">Cần set SOLO_PILOT_PASSWORD trong lib/config.ts trước.</span>}
+            </p>
+            {soloPilotError && (
+              <div className="mb-3 rounded-[var(--radius)] border border-[var(--danger)]/30 bg-[var(--danger-soft)] px-3 py-2 text-xs font-semibold text-[var(--danger)]">
+                {soloPilotError}
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleSoloPilot}
+              className="flex w-full items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--olive)]/25 bg-[var(--olive)] px-4 py-3 text-sm font-extrabold text-[var(--ivory)] hover:bg-[#4a5837] disabled:opacity-50 transition-colors"
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Đang vào...
+                </>
+              ) : `Vào bằng ${SOLO_PILOT_LOGIN_ID} — Solo Pilot`}
+            </button>
+          </div>
+        )}
 
         <p className="mt-8 text-center font-spec text-[10px] text-[var(--greige)]">
           © {new Date().getFullYear()} VyVyHaircare · Internal Operations Platform
