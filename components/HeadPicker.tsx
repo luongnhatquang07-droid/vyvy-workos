@@ -9,9 +9,10 @@ type Props = {
   headIds: string[]
   employees: Emp[]
   onSave: (ids: string[]) => void
+  placeholder?: string
 }
 
-export default function HeadPicker({ headIds, employees, onSave }: Props) {
+export default function HeadPicker({ headIds, employees, onSave, placeholder = 'Chưa chọn' }: Props) {
   const [open, setOpen] = useState(false)
   const [coords, setCoords] = useState({ top: 0, left: 0, minWidth: 0 })
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -21,7 +22,7 @@ export default function HeadPicker({ headIds, employees, onSave }: Props) {
     .map((id) => employees.find((e) => e.id === id)?.full_name)
     .filter((x): x is string => Boolean(x))
   const label =
-    names.length === 0 ? 'Chưa gắn head' : names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
+    names.length === 0 ? placeholder : names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
 
   function openMenu(e: React.MouseEvent) {
     e.stopPropagation()

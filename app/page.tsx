@@ -3534,6 +3534,7 @@ export default function Home() {
       title: 'Tạo đầu việc lớn',
       disabled: false,
       onClick: () => {
+        if (SOLO_PILOT_MODE && currentEmployee?.id) setWorkHeadIds([currentEmployee.id])
         setCreateTab('workstream')
         setCreateOpen(true)
       },
@@ -3983,6 +3984,7 @@ export default function Home() {
                   setSelectedWorkstreamId={setSelectedWorkstreamId}
                   openWorkstreamForm={(projectId) => {
                     setWorkProjectId(projectId)
+                    if (SOLO_PILOT_MODE && currentEmployee?.id) setWorkHeadIds([currentEmployee.id])
                     setCreateTab('workstream')
                     setCreateOpen(true)
                   }}
@@ -5266,6 +5268,7 @@ function CooBoard(props: {
                                   headIds={ws.head_ids || (ws.head_id ? [ws.head_id] : [])}
                                   employees={props.employees}
                                   onSave={(ids) => props.updateTaskHead(ws.id, ids)}
+                                  placeholder="Chưa chọn"
                                 />
                               </div>
                               <div className="flex flex-col items-start gap-0.5">
@@ -5382,6 +5385,7 @@ function CooBoard(props: {
                                               headIds={subtaskHeadIds}
                                               employees={props.employees}
                                               onSave={(ids) => props.updateTaskHead(subtask.id, ids)}
+                                              placeholder="Chưa chọn"
                                             />
                                           </div>
                                           <div className="flex flex-col items-start gap-0.5">
@@ -9534,11 +9538,12 @@ function CreatePanel(props: {
             </Select>
 
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc (Head)</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc</label>
               <HeadPicker
                 headIds={props.workHeadIds}
                 employees={props.employees}
                 onSave={props.setWorkHeadIds}
+                placeholder="Chưa chọn người giao việc"
               />
             </div>
 
