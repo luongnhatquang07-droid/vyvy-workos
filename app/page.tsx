@@ -445,6 +445,7 @@ type RecurringTask = {
   observer_ids?: string[] | null
   participant_ids?: string[] | null
   department_id?: string | null
+  department_ids?: string[] | null
   objective?: string | null
   agenda?: string | null
   preparation_checklist?: PrepChecklistItem[] | null
@@ -468,7 +469,7 @@ type RecurringTaskForm = {
   remind_minutes_before: string
   // v2 fields
   host_id: string
-  department_id: string
+  department_ids: string[]
   participant_ids: string[]
   observer_ids: string[]
   objective: string
@@ -541,7 +542,7 @@ const DEFAULT_RECURRING_FORM: RecurringTaskForm = {
   remind_days_before: '2',
   remind_minutes_before: '60',
   host_id: '',
-  department_id: '',
+  department_ids: [],
   participant_ids: [],
   observer_ids: [],
   objective: '',
@@ -1600,7 +1601,9 @@ export default function Home() {
       remind_days_before: String(task.remind_days_before ?? 2),
       remind_minutes_before: String(task.remind_minutes_before ?? 60),
       host_id: task.host_id || '',
-      department_id: task.department_id || '',
+      department_ids: task.department_ids && task.department_ids.length > 0
+        ? task.department_ids
+        : task.department_id ? [task.department_id] : [],
       participant_ids: task.participant_ids || [],
       observer_ids: task.observer_ids || [],
       objective: task.objective || '',
@@ -1638,7 +1641,8 @@ export default function Home() {
       remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
       remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
       host_id: recurringForm.host_id || null,
-      department_id: recurringForm.department_id || null,
+      department_id: recurringForm.department_ids[0] || null,
+      department_ids: recurringForm.department_ids,
       participant_ids: recurringForm.participant_ids,
       observer_ids: recurringForm.observer_ids,
       objective: recurringForm.objective.trim() || null,
@@ -1679,7 +1683,8 @@ export default function Home() {
       remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
       remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
       host_id: recurringForm.host_id || null,
-      department_id: recurringForm.department_id || null,
+      department_id: recurringForm.department_ids[0] || null,
+      department_ids: recurringForm.department_ids.length > 0 ? recurringForm.department_ids : [],
       participant_ids: recurringForm.participant_ids.length > 0 ? recurringForm.participant_ids : [],
       observer_ids: recurringForm.observer_ids.length > 0 ? recurringForm.observer_ids : [],
       objective: recurringForm.objective.trim() || null,
@@ -8274,6 +8279,8 @@ function RecurringFormPanel(props: {
 }) {
   const patchForm = (patch: Partial<RecurringTaskForm>) => props.setForm((prev) => ({ ...prev, ...patch }))
   const [newChecklistText, setNewChecklistText] = useState('')
+  const [deptMenuOpen, setDeptMenuOpen] = useState(false)
+  const [deptSearch, setDeptSearch] = useState('')
 
   function addChecklistItem() {
     if (!newChecklistText.trim()) return
@@ -8391,19 +8398,77 @@ function RecurringFormPanel(props: {
               </select>
             </label>
 
-            {/* Phòng ban */}
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban liên quan</span>
-              <select
-                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
-                value={props.form.department_id}
-                onChange={(e) => patchForm({ department_id: e.target.value })}>
-                <option value="">— Chưa chọn phòng ban —</option>
-                {props.departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </label>
+            {/* Phòng ban — multi-select */}
+            <div>
+              <span className="mb-1.5 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban liên quan</span>
+              {/* Chips of selected depts */}
+              {props.form.department_ids.length > 0 && (
+                <div className="mb-1.5 flex flex-wrap gap-1">
+                  {props.form.department_ids.map((id) => {
+                    const d = props.departments.find((x) => x.id === id)
+                    if (!d) return null
+                    return (
+                      <span key={id} className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-bold text-[var(--accent-hover)]">
+                        {d.name}
+                        <button type="button" onClick={() => patchForm({ department_ids: props.form.department_ids.filter((x) => x !== id) })} className="ml-0.5 hover:text-[var(--danger)]">×</button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+              {/* Dropdown trigger */}
+              <div className="relative">
+                <button type="button"
+                  onClick={() => { setDeptMenuOpen(!deptMenuOpen); setDeptSearch('') }}
+                  className="flex h-10 w-full items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm text-left">
+                  <span className={props.form.department_ids.length === 0 ? 'text-[var(--text-muted)]' : 'font-bold text-[var(--text-primary)]'}>
+                    {props.form.department_ids.length === 0 ? '— Chưa chọn phòng ban —' : `${props.form.department_ids.length} phòng ban đã chọn`}
+                  </span>
+                  <span className="text-[var(--text-muted)]">{deptMenuOpen ? '▲' : '▼'}</span>
+                </button>
+                {deptMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setDeptMenuOpen(false)} />
+                    <div className="absolute left-0 top-11 z-40 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] shadow-xl">
+                      <div className="p-2 border-b border-[var(--border)]">
+                        <input
+                          className="h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-2.5 text-xs outline-none"
+                          placeholder="Tìm phòng ban..."
+                          value={deptSearch}
+                          onChange={(e) => setDeptSearch(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-48 overflow-y-auto p-1">
+                        {props.departments
+                          .filter((d) => d.name.toLowerCase().includes(deptSearch.toLowerCase()))
+                          .map((d) => {
+                            const on = props.form.department_ids.includes(d.id)
+                            return (
+                              <label key={d.id}
+                                className={`flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-xs ${on ? 'bg-[var(--accent-soft)] font-bold' : 'hover:bg-[var(--bg-surface)]'}`}>
+                                <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--char)]" checked={on}
+                                  onChange={(e) => {
+                                    patchForm({ department_ids: e.target.checked
+                                      ? [...props.form.department_ids, d.id]
+                                      : props.form.department_ids.filter((x) => x !== d.id)
+                                    })
+                                  }} />
+                                <span>{d.name}</span>
+                              </label>
+                            )
+                          })
+                        }
+                        {props.departments.filter((d) => d.name.toLowerCase().includes(deptSearch.toLowerCase())).length === 0 && (
+                          <p className="px-3 py-2 text-xs text-[var(--text-muted)]">Không tìm thấy.</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
 
             {/* Người tham gia */}
             <div>
@@ -8678,7 +8743,10 @@ function ScheduleDetailModal(p: {
   close: () => void
 }) {
   const host = p.employeeMap.get(p.task.host_id || '')
-  const dept = p.task.department_id ? p.departmentMap.get(p.task.department_id) : null
+  const deptIds = p.task.department_ids && p.task.department_ids.length > 0
+    ? p.task.department_ids
+    : p.task.department_id ? [p.task.department_id] : []
+  const deptNames = deptIds.map((id) => p.departmentMap.get(id)?.name).filter(Boolean) as string[]
   const observers = (p.task.observer_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
   const participants = (p.task.participant_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
   const recipients = (p.task.recipient_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
@@ -8728,7 +8796,9 @@ function ScheduleDetailModal(p: {
               </div>
               <div>
                 <p className="text-[var(--text-muted)]">Phòng ban</p>
-                <p className={`mt-0.5 font-bold ${dept ? 'text-[var(--text-primary)]' : 'italic text-[var(--text-muted)]'}`}>{dept ? dept.name : 'Chưa có phòng ban'}</p>
+                <p className={`mt-0.5 font-bold ${deptNames.length > 0 ? 'text-[var(--text-primary)]' : 'italic text-[var(--text-muted)]'}`}>
+                  {deptNames.length > 0 ? deptNames.join(', ') : 'Chưa có phòng ban'}
+                </p>
               </div>
               {participants.length > 0 && (
                 <div>
@@ -9129,7 +9199,10 @@ function RecurringView(props: {
                 const filesCount = taskMeetingFiles.length
                 const relatedCount = (task.related_task_ids || []).length
                 const host = props.employeeMap.get(task.host_id || '')
-                const dept = task.department_id ? props.departmentMap.get(task.department_id) : null
+                const deptIds = task.department_ids && task.department_ids.length > 0
+                  ? task.department_ids
+                  : task.department_id ? [task.department_id] : []
+                const deptNames = deptIds.map((id) => props.departmentMap.get(id)?.name).filter(Boolean) as string[]
                 const alertTone =
                   alert.tone === 'red' ? 'text-[var(--danger)]' :
                   alert.tone === 'amber' ? 'text-[var(--warning)]' : ''
@@ -9158,7 +9231,10 @@ function RecurringView(props: {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-2">
                       <span className="text-[var(--text-muted)]">Chủ trì: <b className={host ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)] font-normal italic'}>{host ? host.full_name : 'Chưa có chủ trì'}</b></span>
-                      <span className="text-[var(--text-muted)]">Phòng ban: <b className={dept ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)] font-normal italic'}>{dept ? dept.name : 'Chưa có phòng ban'}</b></span>
+                      <span className="text-[var(--text-muted)]">Phòng ban: {deptNames.length === 0
+                        ? <b className="font-normal italic">Chưa có phòng ban</b>
+                        : <b className="text-[var(--text-secondary)]">{deptNames.slice(0,2).join(', ')}{deptNames.length > 2 ? ` +${deptNames.length - 2}` : ''}</b>
+                      }</span>
                     </div>
 
                     {/* ── Dòng 3: mục tiêu ── */}
