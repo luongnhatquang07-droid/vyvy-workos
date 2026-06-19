@@ -322,6 +322,8 @@ type Task = {
   deadline_reason?: string | null
   deadline_decided_by?: string | null
   deadline_decided_at?: string | null
+  // ── Meeting session link (008_task_meeting_session_link.sql) ──
+  meeting_session_id?: string | null
 }
 
 type TaskStep = {
@@ -449,6 +451,7 @@ type RecurringTask = {
   objective?: string | null
   agenda?: string | null
   preparation_checklist?: PrepChecklistItem[] | null
+  prep_resources?: { name: string; url: string }[] | null
   related_task_ids?: string[] | null
 }
 
@@ -508,6 +511,7 @@ type RecurringRunResult = {
 type RecurringMeetingFile = {
   id: string
   recurring_task_id: string
+  meeting_session_id?: string | null
   meeting_date: string | null
   title: string | null
   file_name: string
@@ -540,6 +544,7 @@ type MeetingSession = {
   minutes_url: string | null
   minutes_file_id: string | null
   decisions: { text: string; owner?: string }[]
+  pending_issues: { text: string; owner?: string }[]
   action_items: { text: string; owner_id?: string; due_date?: string; done?: boolean }[]
   linked_task_ids: string[]
   prep_checklist_snapshot: PrepChecklistItem[]
@@ -3102,6 +3107,7 @@ export default function Home() {
       }
 
       const workstreamIds = new Map<string, string>()
+      const allInsertedTaskIds: string[] = []  // workstream + subtask IDs để link vào session
       const approvalNotices: Array<{ recipient_id: string; title: string; body: string; task_id: string; project_id: string }> = []
 
       for (const row of notexRows) {
@@ -3140,6 +3146,7 @@ export default function Home() {
 
           workstreamId = data.id as string
           workstreamIds.set(workstreamKey, workstreamId)
+          allInsertedTaskIds.push(workstreamId)
         }
 
         const { data: subtask, error: subtaskError } = await supabase
@@ -3171,6 +3178,7 @@ export default function Home() {
         }
 
         const subtaskId = subtask.id as string
+        allInsertedTaskIds.push(subtaskId)
         const departmentApproverId = getDefaultDepartmentApprover(row.departmentId || null, departments, employees)
         const cooApproverId = getCooApprover(employees)
         const ceoApproverId = getCeoApprover(employees)
@@ -3223,28 +3231,35 @@ export default function Home() {
       // Gửi thông báo duyệt phân công
       await pushNotify(approvalNotices.map((n) => ({ ...n, actor_id: currentEmployee?.id || null, type: 'assignment_approval' })))
 
-      // Nếu chọn lịch định kỳ → tạo meeting_sessions record
+      // Nếu chọn lịch định kỳ → tạo meeting_sessions record rồi gắn meeting_session_id vào tasks
       const scheduleId = notexScheduleId.trim()
       const occurredAt = notexOccurredAt.trim() || new Date().toISOString().slice(0, 10)
       if (scheduleId) {
-        const allSubtaskIds = [...workstreamIds.values()] // workstream IDs
         try {
-          await supabase.from('meeting_sessions').insert({
+          const { data: sessionData } = await supabase.from('meeting_sessions').insert({
             schedule_id: scheduleId,
             title: `${meetingTitle} - ${occurredAt}`,
             occurred_at: occurredAt,
             status: 'completed',
             recap: meetingRecap?.notes || null,
-            linked_task_ids: allSubtaskIds,
+            linked_task_ids: allInsertedTaskIds,  // cả workstream + subtask IDs
             decisions: [],
+            pending_issues: [],
             action_items: [],
             department_ids: [],
             participant_ids: [],
             created_by: currentEmployee?.id || null,
-          })
+          }).select('id').single()
+
+          // Batch-update meeting_session_id trên tất cả tasks đã tạo
+          if (sessionData?.id && allInsertedTaskIds.length > 0) {
+            await supabase.from('tasks')
+              .update({ meeting_session_id: sessionData.id })
+              .in('id', allInsertedTaskIds)
+          }
           await fetchMeetingSessions()
         } catch {
-          // non-blocking — table may not exist yet
+          // non-blocking — table / column chưa migrate thì bỏ qua
         }
       }
 
@@ -9821,7 +9836,9 @@ function AddMeetingSessionModal(p: {
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState<MeetingSession['status']>('completed')
   const [decisions, setDecisions] = useState<{ text: string }[]>([])
+  const [pendingIssues, setPendingIssues] = useState<{ text: string }[]>([])
   const [newDecision, setNewDecision] = useState('')
+  const [newPending, setNewPending] = useState('')
   const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [taskSearch, setTaskSearch] = useState('')
@@ -9836,11 +9853,17 @@ function AddMeetingSessionModal(p: {
     setNewDecision('')
   }
 
+  function addPending() {
+    if (!newPending.trim()) return
+    setPendingIssues((prev) => [...prev, { text: newPending.trim() }])
+    setNewPending('')
+  }
+
   async function handleSave() {
     if (!occurredAt) { return }
     setSaving(true)
     try {
-      const payload: Omit<MeetingSession, 'id' | 'created_at' | 'updated_at'> = {
+      const payload = {
         schedule_id: p.task.id,
         title: `${p.task.title} - ${occurredAt}`,
         occurred_at: occurredAt,
@@ -9854,14 +9877,19 @@ function AddMeetingSessionModal(p: {
         minutes_url: minutesUrl.trim() || null,
         minutes_file_id: null,
         decisions,
+        pending_issues: pendingIssues,
         action_items: [],
         linked_task_ids: linkedTaskIds,
         prep_checklist_snapshot: p.task.preparation_checklist || [],
-        prep_resources_snapshot: [],
+        prep_resources_snapshot: (p.task.prep_resources || []),
         notes: notes.trim() || null,
         created_by: null,
       }
-      const { error } = await supabase.from('meeting_sessions').insert(payload)
+      const { data: sessionRow, error } = await supabase
+        .from('meeting_sessions')
+        .insert(payload)
+        .select('id')
+        .single()
       if (error) {
         if (error.message?.includes('does not exist') || error.message?.includes('relation')) {
           toast('Bảng meeting_sessions chưa tồn tại. Chạy sql/007_meeting_sessions.sql trong Supabase SQL Editor.', 'warning')
@@ -9871,6 +9899,30 @@ function AddMeetingSessionModal(p: {
         setSaving(false)
         return
       }
+
+      const sessionId = sessionRow?.id as string | undefined
+
+      // Gắn meeting_session_id lên các tasks đã link
+      if (sessionId && linkedTaskIds.length > 0) {
+        await supabase.from('tasks').update({ meeting_session_id: sessionId }).in('id', linkedTaskIds)
+      }
+
+      // Nếu có link biên bản → tạo recurring_meeting_files record (backward compat + link session)
+      const url = minutesUrl.trim()
+      if (url && sessionId) {
+        await supabase.from('recurring_meeting_files').insert({
+          recurring_task_id: p.task.id,
+          meeting_session_id: sessionId,
+          meeting_date: occurredAt,
+          title: `Biên bản ${p.task.title} - ${occurredAt}`,
+          file_name: url,
+          file_url: url,
+          file_type: 'link',
+          note: recap.trim() || null,
+          uploaded_by: null,
+        })
+      }
+
       await p.onSaved()
       toast('Đã lưu buổi họp thành công.')
     } catch {
@@ -9942,6 +9994,25 @@ function AddMeetingSessionModal(p: {
             </div>
           </div>
 
+          {/* Vấn đề pending */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Vấn đề còn pending</label>
+            <div className="space-y-1.5 mb-2">
+              {pendingIssues.map((issue, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-xs">
+                  <span className="flex-1">{issue.text}</span>
+                  <button type="button" onClick={() => setPendingIssues((prev) => prev.filter((_, j) => j !== i))} className="text-[var(--text-muted)] hover:text-[var(--danger)]"><Ico d={IC.x} size={12}/></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input className="vyvy-input flex-1 text-sm" placeholder="Vấn đề chưa giải quyết..." value={newPending}
+                onChange={(e) => setNewPending(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPending() } }} />
+              <button type="button" onClick={addPending} className="rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--bg-surface)]">Thêm</button>
+            </div>
+          </div>
+
           {/* Gắn đầu việc */}
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Gắn đầu việc từ buổi họp này</label>
@@ -10006,7 +10077,46 @@ function MeetingSessionDetailModal(p: {
   const host = s.host_id ? p.employeeMap.get(s.host_id) : null
   const participants = (s.participant_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean) as string[]
   const deptNames = (s.department_ids || []).map((id) => p.departmentMap.get(id)?.name).filter(Boolean) as string[]
-  const linkedTasks = (s.linked_task_ids || []).map((id) => p.allTasks.find((t) => t.id === id)).filter(Boolean) as Task[]
+
+  // Fetch tasks từ Supabase theo meeting_session_id (nguồn chuẩn) + fallback linked_task_ids
+  const [sessionTasks, setSessionTasks] = useState<Task[]>([])
+  const [tasksLoading, setTasksLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      setTasksLoading(true)
+      try {
+        // Ưu tiên: tasks có meeting_session_id = session.id
+        const { data: bySessionId } = await supabase
+          .from('tasks')
+          .select('id,title,status,due_date,task_level,assignee_id,priority')
+          .eq('meeting_session_id', s.id)
+          .order('created_at')
+
+        if (bySessionId && bySessionId.length > 0) {
+          setSessionTasks(bySessionId as Task[])
+        } else {
+          // Fallback: dùng linked_task_ids (dữ liệu cũ trước khi có FK)
+          const ids = s.linked_task_ids || []
+          if (ids.length > 0) {
+            const { data: byIds } = await supabase
+              .from('tasks')
+              .select('id,title,status,due_date,task_level,assignee_id,priority')
+              .in('id', ids)
+            setSessionTasks((byIds || []) as Task[])
+          } else {
+            // Cuối cùng fallback: filter từ allTasks (không cần fetch)
+            setSessionTasks((s.linked_task_ids || []).map((id) => p.allTasks.find((t) => t.id === id)).filter(Boolean) as Task[])
+          }
+        }
+      } catch {
+        setSessionTasks((s.linked_task_ids || []).map((id) => p.allTasks.find((t) => t.id === id)).filter(Boolean) as Task[])
+      } finally {
+        setTasksLoading(false)
+      }
+    }
+    void load()
+  }, [s.id, s.linked_task_ids, p.allTasks])
 
   const fmtDate = (d: string) => {
     const [y, m, day] = d.split('-')
@@ -10077,20 +10187,46 @@ function MeetingSessionDetailModal(p: {
             </section>
           )}
 
-          {/* Đầu việc đã gắn */}
+          {/* Vấn đề pending */}
+          {s.pending_issues && s.pending_issues.length > 0 && (
+            <section>
+              <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Vấn đề còn pending ({s.pending_issues.length})</p>
+              <div className="space-y-1.5">
+                {s.pending_issues.map((issue, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-xs">
+                    <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full bg-[var(--warning)]/20 text-center text-[10px] font-bold leading-4 text-[var(--warning)]">{i + 1}</span>
+                    <span className="flex-1 text-[var(--text-primary)]">{issue.text}</span>
+                    {issue.owner && <span className="shrink-0 text-[var(--text-muted)]">{issue.owner}</span>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Đầu việc đã giao — fetch từ Supabase theo meeting_session_id */}
           <section>
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Đầu việc đã giao ({linkedTasks.length})</p>
-            {linkedTasks.length === 0 ? (
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">
+              Đầu việc đã giao ({tasksLoading ? '...' : sessionTasks.length})
+            </p>
+            {tasksLoading ? (
+              <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--text-muted)]">Đang tải...</p>
+            ) : sessionTasks.length === 0 ? (
               <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-3 text-xs italic text-[var(--text-muted)]">Chưa có đầu việc nào được gắn với buổi họp này.</p>
             ) : (
               <div className="space-y-1.5">
-                {linkedTasks.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
-                    <span className="flex-1 font-bold text-[var(--text-primary)] truncate">{t.title}</span>
-                    <span className="shrink-0 rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">{t.status}</span>
-                    {t.due_date && <span className="shrink-0 text-[var(--text-muted)]">{t.due_date}</span>}
-                  </div>
-                ))}
+                {sessionTasks.map((t) => {
+                  const assignee = t.assignee_id ? p.employeeMap.get(t.assignee_id) : null
+                  return (
+                    <div key={t.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-[var(--text-primary)] truncate">{t.title}</p>
+                        {assignee && <p className="mt-0.5 text-[var(--text-muted)]">{assignee.full_name}</p>}
+                      </div>
+                      <span className="shrink-0 rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">{t.status}</span>
+                      {t.due_date && <span className="shrink-0 text-[var(--text-muted)]">{t.due_date}</span>}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </section>
