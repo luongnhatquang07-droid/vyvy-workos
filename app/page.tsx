@@ -466,6 +466,14 @@ type RecurringTaskForm = {
   assignee_ids: string[]
   remind_days_before: string
   remind_minutes_before: string
+  // v2 fields
+  host_id: string
+  department_id: string
+  participant_ids: string[]
+  observer_ids: string[]
+  objective: string
+  agenda: string
+  preparation_checklist: PrepChecklistItem[]
 }
 
 type RecurringRun = {
@@ -532,6 +540,13 @@ const DEFAULT_RECURRING_FORM: RecurringTaskForm = {
   assignee_ids: [],
   remind_days_before: '2',
   remind_minutes_before: '60',
+  host_id: '',
+  department_id: '',
+  participant_ids: [],
+  observer_ids: [],
+  objective: '',
+  agenda: '',
+  preparation_checklist: [],
 }
 const DEFAULT_MEETING_FILE_DRAFT: MeetingFileDraft = {
   title: '',
@@ -1584,6 +1599,13 @@ export default function Home() {
       assignee_ids: recurringRecipientIds(task),
       remind_days_before: String(task.remind_days_before ?? 2),
       remind_minutes_before: String(task.remind_minutes_before ?? 60),
+      host_id: task.host_id || '',
+      department_id: task.department_id || '',
+      participant_ids: task.participant_ids || [],
+      observer_ids: task.observer_ids || [],
+      objective: task.objective || '',
+      agenda: task.agenda || '',
+      preparation_checklist: task.preparation_checklist || [],
     })
     setRecurringPanelOpen(true)
   }
@@ -1615,6 +1637,13 @@ export default function Home() {
       recipient_ids: recurringForm.assignee_ids,
       remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
       remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
+      host_id: recurringForm.host_id || null,
+      department_id: recurringForm.department_id || null,
+      participant_ids: recurringForm.participant_ids,
+      observer_ids: recurringForm.observer_ids,
+      objective: recurringForm.objective.trim() || null,
+      agenda: recurringForm.agenda.trim() || null,
+      preparation_checklist: recurringForm.preparation_checklist,
       is_active: true,
       notified_early_for: null,
       notified_near_for: null,
@@ -1649,6 +1678,13 @@ export default function Home() {
       recipient_ids: recurringForm.assignee_ids.length > 0 ? recurringForm.assignee_ids : null,
       remind_days_before: Math.max(0, Number(recurringForm.remind_days_before) || 0),
       remind_minutes_before: Math.max(1, Number(recurringForm.remind_minutes_before) || 60),
+      host_id: recurringForm.host_id || null,
+      department_id: recurringForm.department_id || null,
+      participant_ids: recurringForm.participant_ids.length > 0 ? recurringForm.participant_ids : [],
+      observer_ids: recurringForm.observer_ids.length > 0 ? recurringForm.observer_ids : [],
+      objective: recurringForm.objective.trim() || null,
+      agenda: recurringForm.agenda.trim() || null,
+      preparation_checklist: recurringForm.preparation_checklist.length > 0 ? recurringForm.preparation_checklist : [],
       is_active: true,
       created_by: currentEmployee?.id || null,
     }
@@ -4296,6 +4332,7 @@ export default function Home() {
         saveTask={saveRecurringTask}
         resetForm={resetRecurringForm}
         employees={employees}
+        departments={departments}
       />
 
       {selectedTask && (
@@ -8233,8 +8270,21 @@ function RecurringFormPanel(props: {
   saveTask: (event: React.FormEvent) => void
   resetForm: () => void
   employees: Employee[]
+  departments: Department[]
 }) {
   const patchForm = (patch: Partial<RecurringTaskForm>) => props.setForm((prev) => ({ ...prev, ...patch }))
+  const [newChecklistText, setNewChecklistText] = useState('')
+
+  function addChecklistItem() {
+    if (!newChecklistText.trim()) return
+    const item: PrepChecklistItem = { id: crypto.randomUUID(), text: newChecklistText.trim(), done: false }
+    patchForm({ preparation_checklist: [...props.form.preparation_checklist, item] })
+    setNewChecklistText('')
+  }
+
+  function removeChecklistItem(id: string) {
+    patchForm({ preparation_checklist: props.form.preparation_checklist.filter((i) => i.id !== id) })
+  }
 
   if (!props.open) return null
 
@@ -8270,165 +8320,257 @@ function RecurringFormPanel(props: {
           </button>
         )}
 
-        <form onSubmit={props.saveTask} className="space-y-3">
-          <Input
-            placeholder="Tên việc, ví dụ: Họp Performance"
-            value={props.form.title}
-            onChange={(value) => patchForm({ title: value })}
-          />
+        <form onSubmit={props.saveTask} className="space-y-4">
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Select value={props.form.kind} onChange={(value) => patchForm({ kind: value })}>
-              <option value="meeting">Cuộc họp</option>
-              <option value="report">Báo cáo</option>
-              <option value="task">Đầu việc</option>
-            </Select>
-
-            <Select value={props.form.frequency} onChange={(value) => patchForm({ frequency: value })}>
-              <option value="daily">Hằng ngày</option>
-              <option value="weekly">Hằng tuần</option>
-              <option value="monthly">Hằng tháng</option>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {props.form.frequency === 'weekly' ? (
-              <Select value={props.form.weekday} onChange={(value) => patchForm({ weekday: value })}>
-                {WEEKDAY_LABELS.map((label, index) => (
-                  <option key={label} value={String(index)}>{label}</option>
-                ))}
+          {/* ── 1. Thông tin lịch ── */}
+          <div className="space-y-2.5">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">1 · Thông tin lịch</p>
+            <Input
+              placeholder="Tên việc, ví dụ: Họp Performance"
+              value={props.form.title}
+              onChange={(value) => patchForm({ title: value })}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={props.form.kind} onChange={(value) => patchForm({ kind: value })}>
+                <option value="meeting">Cuộc họp</option>
+                <option value="report">Báo cáo</option>
+                <option value="task">Đầu việc</option>
               </Select>
-            ) : props.form.frequency === 'monthly' ? (
-              <input
-                type="number"
-                min={1}
-                max={31}
-                className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm outline-none"
-                value={props.form.month_day}
-                onChange={(event) => patchForm({ month_day: event.target.value })}
-                aria-label="Ngày trong tháng"
-              />
-            ) : (
-              <div className="flex h-12 items-center rounded-2xl border border-[var(--border)] px-4 text-sm font-bold text-[var(--text-secondary)]">
-                Lặp mỗi ngày
-              </div>
-            )}
-
-            <input
-              type="time"
-              className="h-12 w-full rounded-2xl border border-[var(--border)] px-4 text-sm font-bold outline-none"
-              value={props.form.time_of_day}
-              onChange={(event) => patchForm({ time_of_day: event.target.value })}
-              aria-label="Giờ họp hoặc hạn nộp"
-            />
+              <Select value={props.form.frequency} onChange={(value) => patchForm({ frequency: value })}>
+                <option value="daily">Hằng ngày</option>
+                <option value="weekly">Hằng tuần</option>
+                <option value="monthly">Hằng tháng</option>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {props.form.frequency === 'weekly' ? (
+                <Select value={props.form.weekday} onChange={(value) => patchForm({ weekday: value })}>
+                  {WEEKDAY_LABELS.map((label, index) => (
+                    <option key={label} value={String(index)}>{label}</option>
+                  ))}
+                </Select>
+              ) : props.form.frequency === 'monthly' ? (
+                <input type="number" min={1} max={31}
+                  className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
+                  value={props.form.month_day}
+                  onChange={(e) => patchForm({ month_day: e.target.value })}
+                  aria-label="Ngày trong tháng" />
+              ) : (
+                <div className="flex h-11 items-center rounded-xl border border-[var(--border)] px-3 text-sm font-bold text-[var(--text-secondary)]">Lặp mỗi ngày</div>
+              )}
+              <input type="time"
+                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm font-bold outline-none"
+                value={props.form.time_of_day}
+                onChange={(e) => patchForm({ time_of_day: e.target.value })}
+                aria-label="Giờ họp" />
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-extrabold uppercase text-[var(--text-muted)]">Ghi chú chung</span>
+              <textarea className="min-h-14 w-full rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
+                placeholder="Ví dụ: Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00."
+                value={props.form.description}
+                onChange={(e) => patchForm({ description: e.target.value })} />
+            </label>
           </div>
 
-          <label className="block">
-            <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Ghi chú chung</span>
-            <textarea
-              className="min-h-16 w-full rounded-xl border border-[var(--border)] p-3 text-sm outline-none"
-              placeholder="Ví dụ: Họp Performance định kỳ thứ 7 hằng tuần lúc 10:00."
-              value={props.form.description}
-              onChange={(event) => patchForm({ description: event.target.value })}
-            />
-          </label>
+          {/* ── 2. Người phụ trách & phòng ban ── */}
+          <div className="space-y-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">2 · Người phụ trách & Phòng ban</p>
 
-          {props.form.kind === 'meeting' && (
-            <div className="space-y-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">RECAP cuộc họp trước đó</span>
-                <textarea
-                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
-                  placeholder="- Quyết định đã chốt&#10;- Action items còn mở&#10;- Vấn đề cần follow-up"
-                  value={props.form.recap}
-                  onChange={(event) => patchForm({ recap: event.target.value })}
-                />
-              </label>
+            {/* Chủ trì */}
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chủ trì</span>
+              <select
+                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
+                value={props.form.host_id}
+                onChange={(e) => patchForm({ host_id: e.target.value })}>
+                <option value="">— Chưa chọn chủ trì —</option>
+                {props.employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.full_name}{emp.position ? ` · ${emp.position}` : ''}</option>
+                ))}
+              </select>
+            </label>
 
-              <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">File cần chuẩn bị</span>
-                <textarea
-                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
-                  placeholder="- File recap/biên bản họp trước&#10;- Báo cáo KPI/Performance&#10;- Dashboard hoặc link số liệu"
-                  value={props.form.prepFiles}
-                  onChange={(event) => patchForm({ prepFiles: event.target.value })}
-                />
-              </label>
+            {/* Phòng ban */}
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Phòng ban liên quan</span>
+              <select
+                className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
+                value={props.form.department_id}
+                onChange={(e) => patchForm({ department_id: e.target.value })}>
+                <option value="">— Chưa chọn phòng ban —</option>
+                {props.departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </label>
 
-              <label className="block">
-                <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Lịch sử họp</span>
-                <textarea
-                  className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
-                  placeholder="- 15/06: Chốt vấn đề..., giao cho..., deadline...&#10;- 22/06: ..."
-                  value={props.form.meetingHistory}
-                  onChange={(event) => patchForm({ meetingHistory: event.target.value })}
-                />
-              </label>
-            </div>
-          )}
-
-          <div>
-            <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">Người nhận nhắc</p>
-            <div className="max-h-40 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1">
-              {props.employees.length === 0 ? (
-                <p className="px-2 py-3 text-sm text-[var(--text-secondary)]">Chưa có nhân sự để chọn.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                  {props.employees.map((employee) => {
-                    const checked = props.form.assignee_ids.includes(employee.id)
-
+            {/* Người tham gia */}
+            <div>
+              <p className="mb-1.5 text-xs font-bold text-[var(--text-secondary)]">Người tham gia</p>
+              <div className="max-h-32 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1">
+                <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+                  {props.employees.map((emp) => {
+                    const on = props.form.participant_ids.includes(emp.id)
                     return (
-                      <label
-                        key={employee.id}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-bold ${
-                          checked ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]' : 'hover:bg-[var(--bg-surface)]'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-[var(--char)]"
-                          checked={checked}
-                          onChange={(event) => {
-                            patchForm({
-                              assignee_ids: event.target.checked
-                                ? [...props.form.assignee_ids, employee.id]
-                                : props.form.assignee_ids.filter((id) => id !== employee.id),
-                            })
-                          }}
-                        />
-                        <span className="min-w-0 truncate">{employee.full_name}</span>
+                      <label key={emp.id} className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${on ? 'bg-[var(--accent-soft)] font-bold' : 'hover:bg-[var(--bg-surface)]'}`}>
+                        <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--char)]" checked={on}
+                          onChange={(e) => patchForm({ participant_ids: e.target.checked ? [...props.form.participant_ids, emp.id] : props.form.participant_ids.filter((id) => id !== emp.id) })} />
+                        <span className="min-w-0 truncate">{emp.full_name}</span>
                       </label>
                     )
                   })}
                 </div>
-              )}
+              </div>
+            </div>
+
+            {/* Người theo dõi */}
+            <div>
+              <p className="mb-1.5 text-xs font-bold text-[var(--text-secondary)]">Người theo dõi</p>
+              <div className="max-h-32 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1">
+                <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+                  {props.employees.map((emp) => {
+                    const on = props.form.observer_ids.includes(emp.id)
+                    return (
+                      <label key={emp.id} className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${on ? 'bg-[var(--accent-soft)] font-bold' : 'hover:bg-[var(--bg-surface)]'}`}>
+                        <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--char)]" checked={on}
+                          onChange={(e) => patchForm({ observer_ids: e.target.checked ? [...props.form.observer_ids, emp.id] : props.form.observer_ids.filter((id) => id !== emp.id) })} />
+                        <span className="min-w-0 truncate">{emp.full_name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Người nhận nhắc */}
+            <div>
+              <p className="mb-1.5 text-xs font-bold text-[var(--text-secondary)]">Người nhận nhắc nhở</p>
+              <div className="max-h-32 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1">
+                {props.employees.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-[var(--text-muted)]">Chưa có nhân sự.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+                    {props.employees.map((emp) => {
+                      const on = props.form.assignee_ids.includes(emp.id)
+                      return (
+                        <label key={emp.id} className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${on ? 'bg-[var(--accent-soft)] font-bold' : 'hover:bg-[var(--bg-surface)]'}`}>
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-[var(--char)]" checked={on}
+                            onChange={(e) => patchForm({ assignee_ids: e.target.checked ? [...props.form.assignee_ids, emp.id] : props.form.assignee_ids.filter((id) => id !== emp.id) })} />
+                          <span className="min-w-0 truncate">{emp.full_name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {/* ── 3. Mục tiêu & Agenda ── */}
+          <div className="space-y-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">3 · Mục tiêu & Agenda</p>
             <label className="block">
-              <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Nhắc trước ngày</span>
-              <input
-                type="number"
-                min={0}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
-                value={props.form.remind_days_before}
-                onChange={(event) => patchForm({ remind_days_before: event.target.value })}
-              />
+              <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mục tiêu họp</span>
+              <textarea className="min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm outline-none"
+                placeholder="Ví dụ: Review chỉ số Performance tuần, chốt vấn đề tồn đọng, phân công đầu việc tuần tới."
+                value={props.form.objective}
+                onChange={(e) => patchForm({ objective: e.target.value })} />
             </label>
             <label className="block">
-              <span className="mb-1 block text-xs font-extrabold uppercase text-[var(--text-muted)]">Nhắc trước phút</span>
-              <input
-                type="number"
-                min={1}
-                className="h-11 w-full rounded-xl border border-[var(--border)] px-3 text-sm outline-none"
-                value={props.form.remind_minutes_before}
-                onChange={(event) => patchForm({ remind_minutes_before: event.target.value })}
-              />
+              <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Agenda</span>
+              <textarea className="min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-6 outline-none"
+                placeholder={"1. Review kết quả tuần trước\n2. Kiểm tra chỉ số chính\n3. Chốt vấn đề cần xử lý\n4. Giao đầu việc tuần tới"}
+                value={props.form.agenda}
+                onChange={(e) => patchForm({ agenda: e.target.value })} />
             </label>
           </div>
 
-          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--bg-card)] px-5 py-3 text-sm font-extrabold text-[var(--text-primary)]">
+          {/* ── 4. Checklist chuẩn bị ── */}
+          <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">4 · Checklist chuẩn bị</p>
+              {props.form.preparation_checklist.length > 0 && (
+                <span className="text-[10px] font-bold text-[var(--text-muted)]">{props.form.preparation_checklist.length} mục</span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {props.form.preparation_checklist.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2">
+                  <span className="flex-1 text-xs text-[var(--text-secondary)]">{item.text}</span>
+                  <button type="button" onClick={() => removeChecklistItem(item.id)}
+                    className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger)]">
+                    <Ico d={IC.x} size={12}/>
+                  </button>
+                </div>
+              ))}
+              {props.form.preparation_checklist.length === 0 && (
+                <p className="text-xs italic text-[var(--text-muted)]">Chưa có mục nào. Thêm bên dưới.</p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <input className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none focus:border-[var(--accent-hover)]"
+                placeholder="Ví dụ: Chuẩn bị báo cáo KPI tuần..."
+                value={newChecklistText}
+                onChange={(e) => setNewChecklistText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem() } }} />
+              <button type="button" onClick={addChecklistItem}
+                className="h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs font-bold hover:bg-[var(--border)]">
+                + Thêm
+              </button>
+            </div>
+          </div>
+
+          {/* ── 5. Recap / Hồ sơ / Lịch sử (meeting only) ── */}
+          {props.form.kind === 'meeting' && (
+            <div className="space-y-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">5 · Recap & Hồ sơ</p>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Recap cuộc họp trước đó</span>
+                <textarea className="min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
+                  placeholder={"- Quyết định đã chốt\n- Action items còn mở\n- Vấn đề cần follow-up"}
+                  value={props.form.recap}
+                  onChange={(e) => patchForm({ recap: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Hồ sơ / File cần chuẩn bị</span>
+                <textarea className="min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
+                  placeholder={"- File recap/biên bản họp trước\n- Báo cáo KPI/Performance\n- Dashboard hoặc link số liệu"}
+                  value={props.form.prepFiles}
+                  onChange={(e) => patchForm({ prepFiles: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Lịch sử họp (ghi chú nội bộ)</span>
+                <textarea className="min-h-16 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3 text-sm leading-5 outline-none"
+                  placeholder={"- 15/06: Chốt vấn đề..., giao cho...\n- 22/06: ..."}
+                  value={props.form.meetingHistory}
+                  onChange={(e) => patchForm({ meetingHistory: e.target.value })} />
+              </label>
+            </div>
+          )}
+
+          {/* ── 6. Cài đặt nhắc ── */}
+          <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">6 · Cài đặt nhắc</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Nhắc trước (ngày)</span>
+                <input type="number" min={0}
+                  className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
+                  value={props.form.remind_days_before}
+                  onChange={(e) => patchForm({ remind_days_before: e.target.value })} />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Nhắc trước (phút)</span>
+                <input type="number" min={1}
+                  className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
+                  value={props.form.remind_minutes_before}
+                  onChange={(e) => patchForm({ remind_minutes_before: e.target.value })} />
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--bg-card)] px-5 py-3 text-sm font-extrabold text-[var(--text-primary)] border border-[var(--border)] hover:bg-[var(--bg-surface)]">
             <Ico d={props.form.id ? IC.edit : IC.plus} size={15}/>
             {props.form.id ? 'Lưu thay đổi' : 'Tạo việc định kỳ'}
           </button>
