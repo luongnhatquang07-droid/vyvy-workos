@@ -5173,19 +5173,17 @@ function CooBoard(props: {
   cooTarget?: CooTarget | null
   onCooTargetHandled?: () => void
 }) {
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
   const [boardSearch, setBoardSearch] = useState('')
   const [boardDeptFilter, setBoardDeptFilter] = useState('')
   const [boardStatusFilter, setBoardStatusFilter] = useState('')
-  const [workspaceTab, setWorkspaceTab] = useState<'workstreams' | 'overview' | 'deadline' | 'files'>('workstreams')
+  const [workspaceTab, setWorkspaceTab] = useState<'workstreams' | 'overview' | 'deadline' | 'files' | 'history'>('workstreams')
 
-  // Auto-expand project + workstreams khi nhảy từ dashboard
+  // Auto-expand workstreams khi nhảy từ dashboard
   useEffect(() => {
     const id = props.selectedProjectId
     if (!id || id === 'all') return
-    setExpandedProjects((prev) => { const s = new Set(prev); s.add(id); return s })
     // Expand tất cả workstream của project này
     const wsList = props.workstreams.filter((ws) => ws.project_id === id)
     if (wsList.length > 0) {
@@ -5232,15 +5230,6 @@ function CooBoard(props: {
     props.onCooTargetHandled?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.cooTarget])
-
-  function toggleProject(id: string) {
-    setExpandedProjects((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   function toggleWorkstream(id: string) {
     setExpandedWorkstreams((prev) => {
@@ -5629,6 +5618,7 @@ function CooBoard(props: {
       { id: 'overview', label: 'Tổng quan' },
       { id: 'deadline', label: 'Deadline' },
       { id: 'files', label: 'File & Báo cáo' },
+      { id: 'history', label: 'Lịch sử' },
     ] as const
 
     return (
@@ -5823,6 +5813,107 @@ function CooBoard(props: {
                 )
               })()
             )}
+          </div>
+        )}
+
+        {/* Tab: Lịch sử hoạt động */}
+        {workspaceTab === 'history' && (
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-6">
+            {(() => {
+              type ActivityEvent = {
+                id: string
+                at: string
+                icon: string
+                label: string
+                sub?: string
+                color?: string
+              }
+
+              const events: ActivityEvent[] = []
+
+              // Workstreams added
+              allProjectWorkstreams.forEach((ws) => {
+                if (ws.created_at) {
+                  events.push({ id: `ws-${ws.id}`, at: ws.created_at, icon: '📋', label: `Thêm đầu việc lớn: ${ws.title}`, sub: project.name })
+                }
+                // Workstream completed
+                if (ws.status === 'completed' && ws.created_at) {
+                  events.push({ id: `ws-done-${ws.id}`, at: ws.created_at, icon: '✅', label: `Hoàn thành: ${ws.title}`, color: 'text-[var(--success)]' })
+                }
+                // Subtasks added
+                const subtasks = props.tasksByParent.get(ws.id) || []
+                subtasks.forEach((st) => {
+                  if (st.created_at) {
+                    events.push({ id: `st-${st.id}`, at: st.created_at, icon: '📌', label: `Thêm task: ${st.title}`, sub: ws.title })
+                  }
+                  if (st.status === 'completed' && st.created_at) {
+                    events.push({ id: `st-done-${st.id}`, at: st.created_at, icon: '✅', label: `Hoàn thành task: ${st.title}`, color: 'text-[var(--success)]' })
+                  }
+                  // Steps
+                  const steps = props.stepsByTask.get(st.id) || []
+                  steps.forEach((step) => {
+                    if (step.is_done && step.submitted_at) {
+                      events.push({ id: `step-done-${step.id}`, at: step.submitted_at, icon: '🔖', label: `Bước "${step.step_title}" hoàn thành`, sub: st.title })
+                    }
+                    // Comments
+                    const comments = props.commentsByStep.get(step.id) || []
+                    comments.forEach((c) => {
+                      const actor = c.employees?.full_name || 'Ai đó'
+                      events.push({ id: `cmt-${c.id}`, at: c.created_at, icon: '💬', label: `${actor} bình luận tại bước "${step.step_title}"`, sub: c.comment.slice(0, 60) + (c.comment.length > 60 ? '…' : '') })
+                    })
+                  })
+                  // Reports / files
+                  const reports = props.reportsByTask.get(st.id) || []
+                  reports.forEach((r) => {
+                    events.push({ id: `rpt-${r.id}`, at: r.created_at, icon: '📎', label: `Upload file: ${r.file_name || 'file'}`, sub: st.title })
+                  })
+                })
+                // Workstream-level reports
+                const wsReports = props.reportsByTask.get(ws.id) || []
+                wsReports.forEach((r) => {
+                  events.push({ id: `rpt-ws-${r.id}`, at: r.created_at, icon: '📎', label: `Upload file: ${r.file_name || 'file'}`, sub: ws.title })
+                })
+              })
+
+              // Sort newest first
+              events.sort((a, b) => b.at.localeCompare(a.at))
+
+              if (events.length === 0) {
+                return (
+                  <div className="flex flex-col items-center gap-3 py-10 text-center">
+                    <div className="text-4xl">📭</div>
+                    <p className="font-semibold text-[var(--text-secondary)]">Chưa có lịch sử hoạt động</p>
+                    <p className="text-sm text-[var(--text-muted)]">Các thay đổi trong dự án sẽ hiển thị tại đây.</p>
+                  </div>
+                )
+              }
+
+              function fmtAt(iso: string) {
+                const d = new Date(iso)
+                const pad = (n: number) => String(n).padStart(2, '0')
+                return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+              }
+
+              return (
+                <div className="space-y-0">
+                  {events.slice(0, 80).map((ev) => (
+                    <div key={ev.id} className="flex items-start gap-3 py-2.5 border-b border-[var(--border)] last:border-0">
+                      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] text-sm">
+                        {ev.icon}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-medium ${ev.color || 'text-[var(--text-primary)]'}`}>{ev.label}</p>
+                        {ev.sub && <p className="text-xs text-[var(--text-muted)] truncate">{ev.sub}</p>}
+                      </div>
+                      <span className="shrink-0 text-xs text-[var(--text-muted)] tabular-nums">{fmtAt(ev.at)}</span>
+                    </div>
+                  ))}
+                  {events.length > 80 && (
+                    <p className="pt-3 text-center text-xs text-[var(--text-muted)]">+ {events.length - 80} sự kiện cũ hơn</p>
+                  )}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
@@ -9416,13 +9507,13 @@ function MeetingPrepModal(p: {
   const [checklist, setChecklist] = useState<PrepChecklistItem[]>(p.task.preparation_checklist || [])
   const [newText, setNewText] = useState('')
   const [saving, setSaving] = useState(false)
-  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [savedCount, setSavedCount] = useState(0)
 
   async function save(next: PrepChecklistItem[]) {
     setSaving(true)
     await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
     setSaving(false)
-    setSavedAt(Date.now())
+    setSavedCount((c) => c + 1)
   }
 
   async function toggleItem(id: string) {
@@ -9465,7 +9556,7 @@ function MeetingPrepModal(p: {
               {checklist.length === 0 ? 'Chưa có mục nào' : `Hoàn thành ${done}/${checklist.length}`}
             </span>
             <span className="text-[var(--text-muted)]">
-              {saving ? 'Đang lưu...' : savedAt ? '✓ Đã lưu' : ''}
+              {saving ? 'Đang lưu...' : savedCount > 0 ? '✓ Đã lưu' : ''}
             </span>
           </div>
           <div className="space-y-1.5">
