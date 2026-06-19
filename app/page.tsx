@@ -6045,7 +6045,7 @@ function StepWorkflowCard(props: {
 
   // Mặc định mở nếu cần hành động
   const needsAction = status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
-  const [expanded, setExpanded] = useState(needsAction)
+  const [expanded, setExpanded] = useState(false)
   const [noteDraft, setNoteDraft] = useState(props.step.note || '')
 
   return (
