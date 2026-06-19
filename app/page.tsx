@@ -1735,9 +1735,27 @@ export default function Home() {
   }
 
   async function updateRecurringTaskPatch(taskId: string, patch: Partial<RecurringTask>) {
+    // Local / default tasks — no DB row, update in-memory only
+    const isLocal = taskId.startsWith('local-') || taskId.startsWith('default-')
+    if (isLocal) {
+      setRecurringTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, ...patch } : t))
+      return
+    }
     const { error } = await supabase.from('recurring_tasks').update(patch as Record<string, unknown>).eq('id', taskId)
-    if (error) { toast('Cập nhật bị lỗi.', 'error'); return }
+    // Always reflect the change locally so UI stays consistent
     setRecurringTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, ...patch } : t))
+    if (error) {
+      const msg = error.message || ''
+      if (msg.includes('preparation_checklist') || msg.includes('column') || msg.includes('does not exist')) {
+        toast('Chưa có cột preparation_checklist trong DB. Chạy sql/005_recurring_tasks_upgrade.sql trong Supabase.', 'warning')
+      } else if (msg.includes('department_ids')) {
+        toast('Chưa có cột department_ids. Chạy sql/006_recurring_tasks_department_ids.sql trong Supabase.', 'warning')
+      } else if (msg.includes('permission') || msg.includes('policy') || msg.includes('RLS')) {
+        toast('Không có quyền cập nhật lịch này.', 'error')
+      } else {
+        toast(`Lưu lên DB lỗi: ${msg || 'unknown'}. Dữ liệu đã cập nhật trên màn hình.`, 'warning')
+      }
+    }
   }
 
   async function deleteRecurringTask(task: RecurringTask) {
@@ -8953,34 +8971,38 @@ function MeetingPrepModal(p: {
   const [checklist, setChecklist] = useState<PrepChecklistItem[]>(p.task.preparation_checklist || [])
   const [newText, setNewText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+
+  async function save(next: PrepChecklistItem[]) {
+    setSaving(true)
+    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
+    setSaving(false)
+    setSavedAt(Date.now())
+  }
 
   async function toggleItem(id: string) {
     const next = checklist.map((item) => item.id === id ? { ...item, done: !item.done } : item)
     setChecklist(next)
-    setSaving(true)
-    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
-    setSaving(false)
+    await save(next)
   }
 
   async function addItem() {
-    if (!newText.trim()) return
-    const next = [...checklist, { id: crypto.randomUUID(), text: newText.trim(), done: false }]
+    const text = newText.trim()
+    if (!text) return
+    const next = [...checklist, { id: crypto.randomUUID(), text, done: false }]
     setChecklist(next)
     setNewText('')
-    setSaving(true)
-    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
-    setSaving(false)
+    await save(next)
   }
 
   async function removeItem(id: string) {
     const next = checklist.filter((item) => item.id !== id)
     setChecklist(next)
-    setSaving(true)
-    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
-    setSaving(false)
+    await save(next)
   }
 
   const done = checklist.filter((i) => i.done).length
+  const allDone = checklist.length > 0 && done === checklist.length
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
       <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -8992,21 +9014,24 @@ function MeetingPrepModal(p: {
           <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
         </div>
         <div className="p-5 space-y-3">
-          {checklist.length > 0 && (
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-[var(--text-muted)]">Hoàn thành {done}/{checklist.length}</span>
-              {saving && <span className="text-[var(--text-muted)]">Đang lưu...</span>}
-            </div>
-          )}
+          {/* Progress + save status */}
+          <div className="flex items-center justify-between text-xs min-h-[18px]">
+            <span className={`font-bold ${allDone ? 'text-[var(--success)]' : 'text-[var(--text-muted)]'}`}>
+              {checklist.length === 0 ? 'Chưa có mục nào' : `Hoàn thành ${done}/${checklist.length}`}
+            </span>
+            <span className="text-[var(--text-muted)]">
+              {saving ? 'Đang lưu...' : savedAt ? '✓ Đã lưu' : ''}
+            </span>
+          </div>
           <div className="space-y-1.5">
             {checklist.map((item) => (
               <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
-                <button type="button" onClick={() => toggleItem(item.id)}
+                <button type="button" onClick={() => void toggleItem(item.id)}
                   className={`h-4 w-4 shrink-0 rounded border text-[10px] leading-[14px] text-center transition-colors ${item.done ? 'bg-[var(--success)] border-[var(--success)] text-white' : 'border-[var(--border-strong)] hover:border-[var(--success)]'}`}>
                   {item.done ? '✓' : ''}
                 </button>
                 <span className={`flex-1 text-xs ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>{item.text}</span>
-                <button type="button" onClick={() => removeItem(item.id)} className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger)]"><Ico d={IC.x} size={12}/></button>
+                <button type="button" onClick={() => void removeItem(item.id)} className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger)]"><Ico d={IC.x} size={12}/></button>
               </div>
             ))}
             {checklist.length === 0 && (
