@@ -8693,6 +8693,39 @@ function ScheduleDetailModal(p: {
               </div>
             )}
           </section>
+
+          {/* ── Lịch sử các lần họp trước ── */}
+          <section>
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Lịch sử các lần họp trước</p>
+            {sortedFiles.length === 0 ? (
+              <div className="rounded-xl bg-[var(--bg-surface)] px-4 py-4 text-center">
+                <p className="text-xs font-bold text-[var(--text-secondary)]">Chưa có lịch sử họp trước.</p>
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">Sau mỗi buổi họp, biên bản và đầu việc được gắn sẽ hiển thị tại đây.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
+                {sortedFiles.map((f, idx) => {
+                  const uploader = f.uploaded_by ? p.employeeMap.get(f.uploaded_by) : null
+                  return (
+                    <div key={f.id}
+                      className={`rounded-xl border px-3.5 py-3 text-xs ${idx === 0 ? 'border-[var(--success)]/30 bg-[var(--success-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="font-extrabold text-[var(--text-primary)]">{f.meeting_date || '(Chưa có ngày)'}</span>
+                        <span className="shrink-0 rounded-full border border-[var(--success)]/30 bg-[var(--success)]/10 px-2 py-0.5 text-[10px] font-bold text-[var(--success)]">Đã có biên bản</span>
+                      </div>
+                      <p className="truncate text-[var(--text-secondary)]">{f.title || f.file_name}</p>
+                      {uploader && <p className="mt-0.5 text-[var(--text-muted)]">Lưu bởi: <b className="text-[var(--text-secondary)]">{uploader.full_name}</b></p>}
+                      {f.note && <p className="mt-0.5 italic text-[var(--text-muted)] truncate">{f.note}</p>}
+                      <a href={f.file_url} target="_blank" rel="noreferrer"
+                        className="mt-2 inline-block text-[11px] font-bold text-[var(--accent-hover)] hover:underline">
+                        Xem biên bản →
+                      </a>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </div>
       </div>
     </div>
@@ -9062,7 +9095,7 @@ function RecurringView(props: {
                               </button>
                               <div className="mx-3 my-1 border-t border-[var(--border)]" />
                               <button type="button"
-                                onClick={() => { setOpenMenuTaskId(null); props.deleteTask(task) }}
+                                onClick={() => { setOpenMenuTaskId(null); if (window.confirm(`Xóa lịch "${task.title}"? Không thể hoàn tác.`)) props.deleteTask(task) }}
                                 className="flex w-full items-center gap-2 px-3.5 py-2 text-xs font-bold text-[var(--danger)] hover:bg-[var(--danger-soft)]">
                                 Xóa lịch này
                               </button>
