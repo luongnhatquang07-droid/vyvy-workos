@@ -9599,104 +9599,267 @@ function TaskDetailDrawer(props: {
   const project = props.projectMap.get(props.task.project_id || '')
   const progress = calculateTaskProgress(props.task, props.steps)
 
+  const { canFullEdit, isOwner, canEdit } = canEditWorkItemDetails(
+    props.currentEmployee ? { id: props.currentEmployee.id, role: props.currentEmployee.role } : null,
+    props.task,
+  )
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editTitle, setEditTitle] = useState(props.task.title)
+  const [editDesc, setEditDesc] = useState(props.task.description || '')
+  const [editStatus, setEditStatus] = useState(props.task.status)
+  const [editIssueStatus, setEditIssueStatus] = useState(props.task.issue_status || 'normal')
+  const [editPriority, setEditPriority] = useState(props.task.priority || 'medium')
+  const [editProgress, setEditProgress] = useState<number>(props.task.progress_percent ?? 0)
+  const [editAssigneeId, setEditAssigneeId] = useState(props.task.assignee_id || '')
+  const [editHeadIds, setEditHeadIds] = useState<string[]>(
+    (props.task.head_ids?.length ? props.task.head_ids : props.task.head_id ? [props.task.head_id] : [])
+  )
+
+  function startEdit() {
+    setEditTitle(props.task.title)
+    setEditDesc(props.task.description || '')
+    setEditStatus(props.task.status)
+    setEditIssueStatus(props.task.issue_status || 'normal')
+    setEditPriority(props.task.priority || 'medium')
+    setEditProgress(props.task.progress_percent ?? 0)
+    setEditAssigneeId(props.task.assignee_id || '')
+    setEditHeadIds(props.task.head_ids?.length ? props.task.head_ids : props.task.head_id ? [props.task.head_id] : [])
+    setIsEditing(true)
+  }
+
+  async function handleSave() {
+    if (saving) return
+    setSaving(true)
+    try {
+      const update: Record<string, unknown> = {
+        status: editStatus,
+        issue_status: editIssueStatus,
+        progress_percent: editProgress,
+      }
+      if (canFullEdit) {
+        update.title = editTitle.trim() || props.task.title
+        update.description = editDesc.trim() || null
+        update.priority = editPriority
+        update.assignee_id = editAssigneeId || null
+        update.head_id = editHeadIds[0] || null
+        update.head_ids = editHeadIds.length > 0 ? editHeadIds : null
+      }
+      await supabase.from('tasks').update(update).eq('id', props.task.id)
+      setIsEditing(false)
+      props.refreshTask?.()
+    } catch (e) {
+      console.error('save task detail', e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const STATUS_OPTIONS = [
+    { value: 'not_started', label: 'Chưa bắt đầu' },
+    { value: 'in_progress', label: 'Đang làm' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'completed', label: 'Hoàn thành' },
+    { value: 'overdue', label: 'Trễ deadline' },
+  ]
+  const ISSUE_OPTIONS = [
+    { value: 'normal', label: 'Ổn' },
+    { value: 'watch', label: 'Cần theo dõi' },
+    { value: 'slow', label: 'Đang chậm' },
+    { value: 'problem', label: 'Có vấn đề' },
+  ]
+  const PRIORITY_OPTIONS = [
+    { value: 'low', label: 'Thấp' },
+    { value: 'medium', label: 'Trung bình' },
+    { value: 'high', label: 'Cao' },
+  ]
+  const inputCls = 'vyvy-input w-full px-3 py-2 text-sm'
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
       <button type="button" className="flex-1" onClick={props.close} />
       <div className="vyvy-drawer-panel h-full w-full max-w-full overflow-y-auto p-4 sm:max-w-[560px] sm:p-6">
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="font-display text-lg">Chi tiết vận hành</h3>
-          <button type="button" onClick={props.close} className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]"><Ico d={IC.x} size={16}/>
-          </button>
-        </div>
-
-        <h2 className="text-2xl font-extrabold">{props.task.title}</h2>
-        <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-          {props.task.description || 'Chưa có mô tả.'}
-        </p>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <StatusBadge status={props.task.status} label={props.getStatusLabel(props.task.status)} />
-          <IssueBadge issueStatus={props.task.issue_status} />
-        </div>
-
-        <div className="mt-6 space-y-4">
-          <InfoRow label="Dự án" value={project?.name || 'Chưa gắn'} />
-          <InfoRow label="Phòng ban" value={department?.name || 'Chưa gắn'} />
-          <InfoRow label="Người giao việc (Head)" value={head?.full_name || 'Chưa gán'} />
-          <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
-
-          {props.currentEmployee && (
-            <div className="vyvy-card-muted p-4">
-              <p className="mb-3 font-extrabold">Deadline &amp; gia hạn</p>
-              <DeadlineBlock
-                task={props.task}
-                currentUser={{ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }}
-                employees={props.employees}
-                deadlineStatus={getDeadlineStatus(props.task)}
-                statusLabel={DEADLINE_STATUS_LABEL[getDeadlineStatus(props.task)]}
-                sourceLabel={props.task.deadline_source ? DEADLINE_SOURCE_LABEL[props.task.deadline_source] : undefined}
-                canManage={canEditDeadlineDirect({ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }, props.task, department?.id)}
-                needsEscalation={deadlineNeedsEscalation(props.task)}
-                soloMode={SOLO_PILOT_MODE}
-                onChanged={props.refreshTask}
-              />
-            </div>
-          )}
-
-          <div>
-            <div className="mb-2 flex justify-between text-sm">
-              <span className="font-bold">Tiến độ theo bước đã duyệt</span>
-              <span className="font-extrabold text-[var(--olive)]">{progress}%</span>
-            </div>
-            <ProgressBar value={progress} />
-          </div>
-
-          <div className="vyvy-card-muted p-4">
-            <p className="mb-3 font-extrabold">File báo cáo cấp đầu việc</p>
-
-            <input
-              type="file"
-              onChange={(event) => props.uploadTaskFile(props.task, event.target.files?.[0])}
-              className="vyvy-input block w-full p-3 text-sm"
-            />
-
-            {props.uploading && (
-              <p className="mt-2 text-sm font-bold text-[var(--accent-hover)]">Đang upload...</p>
+        {/* Header */}
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h3 className="font-display text-lg">{isEditing ? 'Chỉnh sửa đầu việc' : 'Chi tiết vận hành'}</h3>
+          <div className="flex items-center gap-2">
+            {canEdit && !isEditing && (
+              <button type="button" onClick={startEdit}
+                className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--border)] transition-colors">
+                Sửa chi tiết
+              </button>
             )}
-
-            <div className="mt-4 space-y-2">
-              {props.reports.length === 0 ? (
-                <p className="text-sm text-[var(--text-secondary)]">Chưa có file báo cáo.</p>
-              ) : (
-                props.reports.map((report) => (
-                  <div key={report.id} className="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
-                    <p className="truncate text-sm font-bold">{report.file_name}</p>
-                    <div className="flex shrink-0 gap-2">
-                      <a
-                        href={report.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
-                      >
-                        Mở
-                      </a>
-                      <button type="button"
-                        onClick={() => props.deleteTaskReport(report)}
-                        className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs font-bold text-[var(--danger)]"
-                      >
-                        Xóa file
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[var(--radius)] border border-[var(--warning)]/20 bg-[var(--warning-soft)] p-4 text-sm text-[var(--warning)]">
-            <b>Gợi ý COO cần hỏi:</b> {buildFollowUpQuestion(props.task, head?.full_name)}
+            <button type="button" onClick={props.close}
+              className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border)]">
+              <Ico d={IC.x} size={16}/>
+            </button>
           </div>
         </div>
+
+        {isEditing ? (
+          /* ── EDIT MODE ── */
+          <div className="space-y-4">
+            {canFullEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tên đầu việc</label>
+                <input className={inputCls} value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="Tên đầu việc" />
+              </div>
+            )}
+            {!canFullEdit && (
+              <h2 className="text-xl font-extrabold">{props.task.title}</h2>
+            )}
+            {canFullEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mô tả</label>
+                <textarea className={inputCls} rows={3} value={editDesc}
+                  onChange={e => setEditDesc(e.target.value)}
+                  placeholder="Mô tả, mục tiêu, yêu cầu đầu ra..." />
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Trạng thái</label>
+                <select className={inputCls} value={editStatus} onChange={e => setEditStatus(e.target.value)}>
+                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Health</label>
+                <select className={inputCls} value={editIssueStatus} onChange={e => setEditIssueStatus(e.target.value)}>
+                  {ISSUE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            {canFullEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Mức ưu tiên</label>
+                <select className={inputCls} value={editPriority} onChange={e => setEditPriority(e.target.value)}>
+                  {PRIORITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Tiến độ %</label>
+              <input type="number" min={0} max={100} className={inputCls} value={editProgress}
+                onChange={e => setEditProgress(Math.max(0, Math.min(100, Number(e.target.value))))} />
+            </div>
+            {canFullEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc</label>
+                <HeadPicker headIds={editHeadIds} employees={props.employees}
+                  onSave={setEditHeadIds} placeholder="Chưa chọn người giao việc" />
+              </div>
+            )}
+            {canFullEdit && (
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người phụ trách</label>
+                <PersonPicker value={editAssigneeId || null} employees={props.employees}
+                  onSave={id => setEditAssigneeId(id || '')} placeholder="Chưa chọn người phụ trách" />
+              </div>
+            )}
+            {!isOwner && !canFullEdit && (
+              <p className="rounded-xl bg-[var(--warning-soft)] p-3 text-xs text-[var(--warning)]">
+                Bạn chỉ có thể cập nhật trạng thái và tiến độ.
+              </p>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={handleSave} disabled={saving}
+                className="vyvy-button-primary flex-1 disabled:opacity-40">
+                {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+              <button type="button" onClick={() => setIsEditing(false)} disabled={saving}
+                className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-sm font-bold text-[var(--text-primary)]">
+                Hủy
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── VIEW MODE ── */
+          <div>
+            <h2 className="text-2xl font-extrabold">{props.task.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+              {props.task.description || 'Chưa có mô tả.'}
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <StatusBadge status={props.task.status} label={props.getStatusLabel(props.task.status)} />
+              <IssueBadge issueStatus={props.task.issue_status} />
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <InfoRow label="Dự án" value={project?.name || 'Chưa gắn'} />
+              <InfoRow label="Phòng ban" value={department?.name || 'Chưa gắn'} />
+              <InfoRow label="Người giao việc" value={head?.full_name || 'Chưa gán'} />
+              <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gán'} />
+              <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
+              <InfoRow label="Ưu tiên" value={PRIORITY_OPTIONS.find(p => p.value === props.task.priority)?.label ?? (props.task.priority || 'Trung bình')} />
+
+              {props.currentEmployee && (
+                <div className="vyvy-card-muted p-4">
+                  <p className="mb-3 font-extrabold">Deadline &amp; gia hạn</p>
+                  <DeadlineBlock
+                    task={props.task}
+                    currentUser={{ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }}
+                    employees={props.employees}
+                    deadlineStatus={getDeadlineStatus(props.task)}
+                    statusLabel={DEADLINE_STATUS_LABEL[getDeadlineStatus(props.task)]}
+                    sourceLabel={props.task.deadline_source ? DEADLINE_SOURCE_LABEL[props.task.deadline_source] : undefined}
+                    canManage={canEditDeadlineDirect({ id: props.currentEmployee.id, role: props.currentEmployee.role, department_id: props.currentEmployee.department_id }, props.task, department?.id)}
+                    needsEscalation={deadlineNeedsEscalation(props.task)}
+                    soloMode={SOLO_PILOT_MODE}
+                    onChanged={props.refreshTask}
+                  />
+                </div>
+              )}
+
+              <div>
+                <div className="mb-2 flex justify-between text-sm">
+                  <span className="font-bold">Tiến độ theo bước đã duyệt</span>
+                  <span className="font-extrabold text-[var(--olive)]">{progress}%</span>
+                </div>
+                <ProgressBar value={progress} />
+              </div>
+
+              <div className="vyvy-card-muted p-4">
+                <p className="mb-3 font-extrabold">File báo cáo cấp đầu việc</p>
+                <input
+                  type="file"
+                  onChange={(event) => props.uploadTaskFile(props.task, event.target.files?.[0])}
+                  className="vyvy-input block w-full p-3 text-sm"
+                />
+                {props.uploading && (
+                  <p className="mt-2 text-sm font-bold text-[var(--accent-hover)]">Đang upload...</p>
+                )}
+                <div className="mt-4 space-y-2">
+                  {props.reports.length === 0 ? (
+                    <p className="text-sm text-[var(--text-secondary)]">Chưa có file báo cáo.</p>
+                  ) : (
+                    props.reports.map((report) => (
+                      <div key={report.id} className="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
+                        <p className="truncate text-sm font-bold">{report.file_name}</p>
+                        <div className="flex shrink-0 gap-2">
+                          <a href={report.file_url} target="_blank" rel="noreferrer"
+                            className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
+                            Mở
+                          </a>
+                          <button type="button" onClick={() => props.deleteTaskReport(report)}
+                            className="rounded-lg bg-[var(--danger-soft)] px-3 py-2 text-xs font-bold text-[var(--danger)]">
+                            Xóa file
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-[var(--radius)] border border-[var(--warning)]/20 bg-[var(--warning-soft)] p-4 text-sm text-[var(--warning)]">
+                <b>Gợi ý COO cần hỏi:</b> {buildFollowUpQuestion(props.task, head?.full_name)}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -10173,6 +10336,22 @@ function getDeadlineStatus(task: Task): DeadlineStatus {
   if (diffDays <= 3) return 'due_soon'
   if (ds === 'extension_approved') return 'extension_approved'
   return 'committed'
+}
+
+// Ai được sửa chi tiết đầu việc (title, desc, status, assignee, v.v.)
+function canEditWorkItemDetails(
+  user: { id: string; role?: string | null } | null,
+  task: Task,
+): { canFullEdit: boolean; isOwner: boolean; canEdit: boolean } {
+  if (!user) return { canFullEdit: false, isOwner: false, canEdit: false }
+  if (SOLO_PILOT_MODE) return { canFullEdit: true, isOwner: true, canEdit: true }
+  const role = (user.role || '').toLowerCase()
+  const canFullEdit =
+    ['admin', 'ceo', 'coo', 'department_head'].includes(role) ||
+    task.head_id === user.id ||
+    (task.head_ids?.includes(user.id) ?? false)
+  const isOwner = task.assignee_id === user.id
+  return { canFullEdit, isOwner, canEdit: canFullEdit || isOwner }
 }
 
 // Ai được sửa deadline trực tiếp / duyệt gia hạn.
