@@ -244,8 +244,8 @@ function LoginForm() {
           </div>
         </div>
 
-        {/* Solo Pilot quick-entry — chỉ hiện khi SOLO_PILOT_MODE = true */}
-        {SOLO_PILOT_MODE && (
+        {/* Solo Pilot quick-entry — chỉ hiện khi SOLO_PILOT_MODE = true VÀ đã cấu hình password */}
+        {SOLO_PILOT_MODE && !!SOLO_PILOT_PASSWORD && (
           <div className="mt-4 rounded-[var(--radius-lg)] border border-[var(--lime)]/30 bg-[var(--lime)]/6 p-4">
             <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[var(--olive)]">
               ⚡ Solo Pilot Mode
