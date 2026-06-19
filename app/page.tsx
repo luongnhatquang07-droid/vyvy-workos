@@ -5265,7 +5265,7 @@ function CooBoard(props: {
                               <div className="flex flex-col items-start gap-0.5">
                                 <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO VIỆC</span>
                                 <HeadPicker
-                                  headIds={ws.head_ids || (ws.head_id ? [ws.head_id] : [])}
+                                  headIds={ws.head_ids?.length ? ws.head_ids : (ws.head_id ? [ws.head_id] : [])}
                                   employees={props.employees}
                                   onSave={(ids) => props.updateTaskHead(ws.id, ids)}
                                   placeholder="Chưa chọn"
