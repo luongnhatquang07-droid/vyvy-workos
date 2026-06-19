@@ -525,6 +525,44 @@ type MeetingFileDraft = {
   meetingDate: string
 }
 
+type MeetingSession = {
+  id: string
+  schedule_id: string
+  title: string | null
+  occurred_at: string            // date string 'YYYY-MM-DD'
+  start_time: string | null
+  end_time: string | null
+  status: 'planned' | 'completed' | 'skipped' | 'cancelled'
+  host_id: string | null
+  department_ids: string[]
+  participant_ids: string[]
+  recap: string | null
+  minutes_url: string | null
+  minutes_file_id: string | null
+  decisions: { text: string; owner?: string }[]
+  action_items: { text: string; owner_id?: string; due_date?: string; done?: boolean }[]
+  linked_task_ids: string[]
+  prep_checklist_snapshot: PrepChecklistItem[]
+  prep_resources_snapshot: { name: string; url: string }[]
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+const SESSION_STATUS_LABEL: Record<MeetingSession['status'], string> = {
+  planned: 'Dự kiến',
+  completed: 'Đã họp',
+  skipped: 'Bỏ qua',
+  cancelled: 'Huỷ',
+}
+const SESSION_STATUS_CLS: Record<MeetingSession['status'], string> = {
+  planned: 'border-blue-200 bg-blue-50 text-blue-600',
+  completed: 'border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]',
+  skipped: 'border-slate-200 bg-slate-50 text-slate-500',
+  cancelled: 'border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]',
+}
+
 const WEEKDAY_LABELS = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']
 const DEFAULT_RECURRING_FORM: RecurringTaskForm = {
   id: null,
@@ -1052,6 +1090,8 @@ export default function Home() {
   const [analyzing, setAnalyzing] = useState(false)
   const [importing, setImporting] = useState(false)
   const [assistantOutput, setAssistantOutput] = useState('')
+  const [notexScheduleId, setNotexScheduleId] = useState('')
+  const [notexOccurredAt, setNotexOccurredAt] = useState('')
 
   useEffect(() => {
     async function checkAuth() {
@@ -1407,6 +1447,7 @@ export default function Home() {
   const [recurringForm, setRecurringForm] = useState<RecurringTaskForm>(DEFAULT_RECURRING_FORM)
   const [recurringPanelOpen, setRecurringPanelOpen] = useState(false)
   const [recurringMeetingFiles, setRecurringMeetingFiles] = useState<RecurringMeetingFile[]>([])
+  const [meetingSessions, setMeetingSessions] = useState<MeetingSession[]>([])
   const [meetingFileDrafts, setMeetingFileDrafts] = useState<Record<string, MeetingFileDraft>>({})
   const [selectedMeetingTaskId, setSelectedMeetingTaskId] = useState('')
   const [uploadingMeetingFileFor, setUploadingMeetingFileFor] = useState('')
@@ -1464,6 +1505,20 @@ export default function Home() {
     const timer = window.setTimeout(() => { fetchRecurringMeetingFiles() }, 0)
     return () => window.clearTimeout(timer)
   }, [fetchRecurringMeetingFiles])
+
+  const fetchMeetingSessions = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('meeting_sessions')
+      .select('*')
+      .order('occurred_at', { ascending: false })
+    if (error) { setMeetingSessions([]); return }
+    setMeetingSessions((data || []) as MeetingSession[])
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { fetchMeetingSessions() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [fetchMeetingSessions])
 
   // Supabase Realtime
   useEffect(() => {
@@ -3168,11 +3223,36 @@ export default function Home() {
       // Gửi thông báo duyệt phân công
       await pushNotify(approvalNotices.map((n) => ({ ...n, actor_id: currentEmployee?.id || null, type: 'assignment_approval' })))
 
+      // Nếu chọn lịch định kỳ → tạo meeting_sessions record
+      const scheduleId = notexScheduleId.trim()
+      const occurredAt = notexOccurredAt.trim() || new Date().toISOString().slice(0, 10)
+      if (scheduleId) {
+        const allSubtaskIds = [...workstreamIds.values()] // workstream IDs
+        try {
+          await supabase.from('meeting_sessions').insert({
+            schedule_id: scheduleId,
+            title: `${meetingTitle} - ${occurredAt}`,
+            occurred_at: occurredAt,
+            status: 'completed',
+            recap: meetingRecap?.notes || null,
+            linked_task_ids: allSubtaskIds,
+            decisions: [],
+            action_items: [],
+            department_ids: [],
+            participant_ids: [],
+            created_by: currentEmployee?.id || null,
+          })
+          await fetchMeetingSessions()
+        } catch {
+          // non-blocking — table may not exist yet
+        }
+      }
+
       await fetchAll({ silent: true })
       setNotexRows([])
       setView('coo')
       setSelectedProjectId(projectId)
-      toast(`Import thành công — ${approvalNotices.length} việc đã gửi cấp trên duyệt phân công.`)
+      toast(`Import thành công — ${approvalNotices.length} việc đã gửi cấp trên duyệt phân công.${scheduleId ? ' Đã lưu lịch sử cuộc họp.' : ''}`)
     } finally {
       setImporting(false)
     }
@@ -4174,6 +4254,11 @@ export default function Home() {
                   onMeetingCreated={() => refreshDataSilent()}
                   importNotexRows={importNotexRows}
                   saveMeeting={saveMeeting}
+                  recurringTasks={recurringTasks}
+                  notexScheduleId={notexScheduleId}
+                  setNotexScheduleId={setNotexScheduleId}
+                  notexOccurredAt={notexOccurredAt}
+                  setNotexOccurredAt={setNotexOccurredAt}
                 />
               )}
 
@@ -4196,6 +4281,8 @@ export default function Home() {
                   deleteTask={deleteRecurringTask}
                   updateTaskPatch={updateRecurringTaskPatch}
                   meetingFiles={recurringMeetingFiles}
+                  meetingSessions={meetingSessions}
+                  onSessionSaved={fetchMeetingSessions}
                   selectedMeetingTaskId={selectedMeetingTaskId}
                   setSelectedMeetingTaskId={setSelectedMeetingTaskId}
                   meetingFileDrafts={meetingFileDrafts}
@@ -7833,6 +7920,11 @@ function MeetingView(props: {
   onMeetingCreated: () => void
   importNotexRows: () => void
   saveMeeting: () => void
+  recurringTasks?: RecurringTask[]
+  notexScheduleId?: string
+  setNotexScheduleId?: (id: string) => void
+  notexOccurredAt?: string
+  setNotexOccurredAt?: (d: string) => void
 }) {
   const r = props.meetingRecap
   const set = (patch: Partial<MeetingRecap>) => props.setMeetingRecap((prev) => ({ ...prev, ...patch }))
@@ -8140,6 +8232,28 @@ function MeetingView(props: {
               onChange={(e) => props.setNotexProjectName(e.target.value)}
             />
           </div>
+          {/* Gắn với lịch định kỳ (tuỳ chọn) */}
+          {props.recurringTasks && props.recurringTasks.length > 0 && props.setNotexScheduleId && props.setNotexOccurredAt && (
+            <>
+              <div className="min-w-[200px] flex-1">
+                <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Gắn vào lịch định kỳ (tuỳ chọn)</label>
+                <select className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
+                  value={props.notexScheduleId || ''} onChange={(e) => props.setNotexScheduleId!(e.target.value)}>
+                  <option value="">— Không gắn —</option>
+                  {props.recurringTasks.filter((t) => t.kind === 'meeting').map((t) => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+              </div>
+              {props.notexScheduleId && (
+                <div className="min-w-[160px]">
+                  <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Ngày họp</label>
+                  <input type="date" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none focus:border-[var(--char)]"
+                    value={props.notexOccurredAt || ''} onChange={(e) => props.setNotexOccurredAt!(e.target.value)} />
+                </div>
+              )}
+            </>
+          )}
           <button type="button" onClick={props.saveMeeting}
             className="h-10 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-5 text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors">
             Lưu biên bản
@@ -8756,8 +8870,11 @@ function ScheduleDetailModal(p: {
   employeeMap: Map<string, Employee>
   departmentMap: Map<string, Department>
   meetingFiles: RecurringMeetingFile[]
+  meetingSessions: MeetingSession[]
   relatedTasks: Task[]
   now: Date
+  onAddSession: () => void
+  onViewSession: (s: MeetingSession) => void
   close: () => void
 }) {
   const host = p.employeeMap.get(p.task.host_id || '')
@@ -8926,30 +9043,54 @@ function ScheduleDetailModal(p: {
 
           {/* ── Lịch sử các lần họp trước ── */}
           <section>
-            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Lịch sử các lần họp trước</p>
-            {sortedFiles.length === 0 ? (
-              <div className="rounded-xl bg-[var(--bg-surface)] px-4 py-4 text-center">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Lịch sử các lần họp ({p.meetingSessions.length})</p>
+              <button type="button" onClick={p.onAddSession}
+                className="rounded-lg border border-[var(--border)] px-3 py-1 text-[10px] font-bold hover:bg-[var(--bg-surface)] transition-colors">
+                + Thêm buổi họp
+              </button>
+            </div>
+            {p.meetingSessions.length === 0 ? (
+              <div className="rounded-xl bg-[var(--bg-surface)] px-4 py-5 text-center">
                 <p className="text-xs font-bold text-[var(--text-secondary)]">Chưa có lịch sử họp trước.</p>
-                <p className="mt-1 text-[11px] text-[var(--text-muted)]">Sau mỗi buổi họp, biên bản và đầu việc được gắn sẽ hiển thị tại đây.</p>
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">Sau mỗi buổi họp, bấm &ldquo;+ Thêm buổi họp&rdquo; để lưu biên bản, recap và đầu việc.</p>
+                <button type="button" onClick={p.onAddSession}
+                  className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2 text-xs font-bold hover:bg-[var(--border)] transition-colors">
+                  + Thêm biên bản / lịch sử cuộc họp trước
+                </button>
               </div>
             ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
-                {sortedFiles.map((f, idx) => {
-                  const uploader = f.uploaded_by ? p.employeeMap.get(f.uploaded_by) : null
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+                {p.meetingSessions.map((s, idx) => {
+                  const host = s.host_id ? p.employeeMap.get(s.host_id) : null
+                  const [y, m, d] = s.occurred_at.split('-')
+                  const fmtDate = `${d}/${m}/${y}`
                   return (
-                    <div key={f.id}
+                    <div key={s.id}
                       className={`rounded-xl border px-3.5 py-3 text-xs ${idx === 0 ? 'border-[var(--success)]/30 bg-[var(--success-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
                       <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <span className="font-extrabold text-[var(--text-primary)]">{f.meeting_date || '(Chưa có ngày)'}</span>
-                        <span className="shrink-0 rounded-full border border-[var(--success)]/30 bg-[var(--success)]/10 px-2 py-0.5 text-[10px] font-bold text-[var(--success)]">Đã có biên bản</span>
+                        <span className="font-extrabold text-[var(--text-primary)]">{fmtDate}</span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${SESSION_STATUS_CLS[s.status]}`}>{SESSION_STATUS_LABEL[s.status]}</span>
                       </div>
-                      <p className="truncate text-[var(--text-secondary)]">{f.title || f.file_name}</p>
-                      {uploader && <p className="mt-0.5 text-[var(--text-muted)]">Lưu bởi: <b className="text-[var(--text-secondary)]">{uploader.full_name}</b></p>}
-                      {f.note && <p className="mt-0.5 italic text-[var(--text-muted)] truncate">{f.note}</p>}
-                      <a href={f.file_url} target="_blank" rel="noreferrer"
-                        className="mt-2 inline-block text-[11px] font-bold text-[var(--accent-hover)] hover:underline">
-                        Xem biên bản →
-                      </a>
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 mb-2">
+                        {host && <span className="text-[var(--text-muted)]">Chủ trì: <b className="text-[var(--text-secondary)]">{host.full_name}</b></span>}
+                        <span className="text-[var(--text-muted)]">Biên bản: <b className={s.minutes_url ? 'text-[var(--success)]' : 'text-[var(--text-muted)] font-normal italic'}>{s.minutes_url ? 'Có' : 'Chưa có'}</b></span>
+                        <span className="text-[var(--text-muted)]">Đầu việc: <b className="text-[var(--text-secondary)]">{(s.linked_task_ids || []).length}</b></span>
+                        {(s.decisions || []).length > 0 && <span className="text-[var(--text-muted)]">Quyết định: <b className="text-[var(--text-secondary)]">{s.decisions.length}</b></span>}
+                      </div>
+                      {s.recap && <p className="mb-2 line-clamp-2 italic text-[var(--text-muted)]">{s.recap}</p>}
+                      <div className="flex gap-2 flex-wrap">
+                        <button type="button" onClick={() => p.onViewSession(s)}
+                          className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1.5 text-[11px] font-bold hover:bg-[var(--border)]">
+                          Xem chi tiết
+                        </button>
+                        {s.minutes_url && (
+                          <a href={s.minutes_url} target="_blank" rel="noreferrer"
+                            className="rounded-lg border border-[var(--success)]/30 bg-[var(--success-soft)] px-3 py-1.5 text-[11px] font-bold text-[var(--success)] hover:opacity-80">
+                            Mở biên bản →
+                          </a>
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -9124,6 +9265,8 @@ function RecurringView(props: {
   deleteTask: (task: RecurringTask) => void
   updateTaskPatch: (taskId: string, patch: Partial<RecurringTask>) => Promise<void>
   meetingFiles: RecurringMeetingFile[]
+  meetingSessions: MeetingSession[]
+  onSessionSaved: () => Promise<void>
   selectedMeetingTaskId: string
   setSelectedMeetingTaskId: (taskId: string) => void
   meetingFileDrafts: Record<string, MeetingFileDraft>
@@ -9139,6 +9282,8 @@ function RecurringView(props: {
   const [prepTask, setPrepTask] = useState<RecurringTask | null>(null)
   const [linkTask, setLinkTask] = useState<RecurringTask | null>(null)
   const [openMenuTaskId, setOpenMenuTaskId] = useState<string | null>(null)
+  const [addSessionTask, setAddSessionTask] = useState<RecurringTask | null>(null)
+  const [viewSession, setViewSession] = useState<MeetingSession | null>(null)
 
   const activeTasks = props.tasks.filter((task) => task.is_active)
   const upcoming = [...props.tasks].sort(
@@ -9223,6 +9368,10 @@ function RecurringView(props: {
                 const taskMeetingFiles = props.meetingFiles.filter((f) => f.recurring_task_id === task.id)
                 const filesCount = taskMeetingFiles.length
                 const relatedCount = (task.related_task_ids || []).length
+                const taskSessions = props.meetingSessions
+                  .filter((s) => s.schedule_id === task.id)
+                  .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+                const lastSession = taskSessions[0] || null
                 const host = props.employeeMap.get(task.host_id || '')
                 const deptIds = task.department_ids && task.department_ids.length > 0
                   ? task.department_ids
@@ -9269,6 +9418,30 @@ function RecurringView(props: {
                         : <p className="italic text-[var(--text-muted)]">Chưa có mục tiêu họp</p>
                       }
                     </div>
+
+                    {/* ── Dòng 3b: lần họp trước ── */}
+                    {task.kind === 'meeting' && (
+                      <div className="mb-2.5 text-[11px]">
+                        {lastSession ? (() => {
+                          const [y, m, d] = lastSession.occurred_at.split('-')
+                          return (
+                            <button type="button" onClick={() => setViewSession(lastSession)}
+                              className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-left hover:underline">
+                              <span className="text-[var(--text-muted)]">Lần họp trước:</span>
+                              <b className="text-[var(--text-secondary)]">{d}/{m}/{y}</b>
+                              <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${SESSION_STATUS_CLS[lastSession.status]}`}>{SESSION_STATUS_LABEL[lastSession.status]}</span>
+                              {lastSession.minutes_url && <span className="text-[var(--success)] font-bold">· Có biên bản</span>}
+                              {(lastSession.linked_task_ids || []).length > 0 && <span className="text-[var(--text-muted)]">· {lastSession.linked_task_ids.length} đầu việc</span>}
+                            </button>
+                          )
+                        })() : (
+                          <button type="button" onClick={() => setAddSessionTask(task)}
+                            className="text-[var(--text-muted)] hover:text-[var(--accent-hover)] hover:underline">
+                            Chưa có cuộc họp trước · <span className="font-bold">+ Thêm</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* ── Dòng 4: badge hồ sơ + checklist + task ── */}
                     <div className="flex flex-wrap gap-1.5 mb-3">
@@ -9373,8 +9546,11 @@ function RecurringView(props: {
           employeeMap={props.employeeMap}
           departmentMap={props.departmentMap}
           meetingFiles={props.meetingFiles.filter((f) => f.recurring_task_id === detailTask.id)}
+          meetingSessions={[...props.meetingSessions.filter((s) => s.schedule_id === detailTask.id)].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))}
           relatedTasks={props.allTasks.filter((t) => (detailTask.related_task_ids || []).includes(t.id))}
           now={props.now}
+          onAddSession={() => setAddSessionTask(detailTask)}
+          onViewSession={(s) => setViewSession(s)}
           close={() => setDetailTask(null)}
         />
       )}
@@ -9594,10 +9770,343 @@ function RecurringView(props: {
           </div>
         </div>
       )}
+      {/* Modal: Thêm/sửa buổi họp trước */}
+      {addSessionTask && (
+        <AddMeetingSessionModal
+          task={addSessionTask}
+          employeeMap={props.employeeMap}
+          departmentMap={props.departmentMap}
+          allTasks={props.allTasks}
+          existingSessions={props.meetingSessions.filter((s) => s.schedule_id === addSessionTask.id)}
+          onSaved={async () => { await props.onSessionSaved(); setAddSessionTask(null) }}
+          close={() => setAddSessionTask(null)}
+        />
+      )}
+
+      {/* Modal: Xem chi tiết buổi họp trước */}
+      {viewSession && (
+        <MeetingSessionDetailModal
+          session={viewSession}
+          scheduleTitle={props.tasks.find((t) => t.id === viewSession.schedule_id)?.title || ''}
+          employeeMap={props.employeeMap}
+          departmentMap={props.departmentMap}
+          allTasks={props.allTasks}
+          close={() => setViewSession(null)}
+          onEdit={() => {
+            const task = props.tasks.find((t) => t.id === viewSession.schedule_id)
+            if (task) { setAddSessionTask(task) }
+            setViewSession(null)
+          }}
+        />
+      )}
     </div>
   )
 }
 
+
+// ─── AddMeetingSessionModal ───────────────────────────────────────────────────
+function AddMeetingSessionModal(p: {
+  task: RecurringTask
+  employeeMap: Map<string, Employee>
+  departmentMap: Map<string, Department>
+  allTasks: Task[]
+  existingSessions: MeetingSession[]
+  onSaved: () => Promise<void>
+  close: () => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [occurredAt, setOccurredAt] = useState(today)
+  const [recap, setRecap] = useState('')
+  const [minutesUrl, setMinutesUrl] = useState('')
+  const [notes, setNotes] = useState('')
+  const [status, setStatus] = useState<MeetingSession['status']>('completed')
+  const [decisions, setDecisions] = useState<{ text: string }[]>([])
+  const [newDecision, setNewDecision] = useState('')
+  const [linkedTaskIds, setLinkedTaskIds] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
+  const [taskSearch, setTaskSearch] = useState('')
+
+  const filteredTasks = p.allTasks.filter((t) =>
+    t.title.toLowerCase().includes(taskSearch.toLowerCase()) && t.task_level !== 'workstream'
+  ).slice(0, 20)
+
+  function addDecision() {
+    if (!newDecision.trim()) return
+    setDecisions((prev) => [...prev, { text: newDecision.trim() }])
+    setNewDecision('')
+  }
+
+  async function handleSave() {
+    if (!occurredAt) { return }
+    setSaving(true)
+    try {
+      const payload: Omit<MeetingSession, 'id' | 'created_at' | 'updated_at'> = {
+        schedule_id: p.task.id,
+        title: `${p.task.title} - ${occurredAt}`,
+        occurred_at: occurredAt,
+        start_time: null,
+        end_time: null,
+        status,
+        host_id: p.task.host_id || null,
+        department_ids: p.task.department_ids || [],
+        participant_ids: p.task.participant_ids || [],
+        recap: recap.trim() || null,
+        minutes_url: minutesUrl.trim() || null,
+        minutes_file_id: null,
+        decisions,
+        action_items: [],
+        linked_task_ids: linkedTaskIds,
+        prep_checklist_snapshot: p.task.preparation_checklist || [],
+        prep_resources_snapshot: [],
+        notes: notes.trim() || null,
+        created_by: null,
+      }
+      const { error } = await supabase.from('meeting_sessions').insert(payload)
+      if (error) {
+        if (error.message?.includes('does not exist') || error.message?.includes('relation')) {
+          toast('Bảng meeting_sessions chưa tồn tại. Chạy sql/007_meeting_sessions.sql trong Supabase SQL Editor.', 'warning')
+        } else {
+          toast('Lưu bị lỗi: ' + (error.message || 'unknown'), 'error')
+        }
+        setSaving(false)
+        return
+      }
+      await p.onSaved()
+      toast('Đã lưu buổi họp thành công.')
+    } catch {
+      toast('Lưu bị lỗi.', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
+          <div>
+            <p className="font-display text-sm font-bold">Thêm lịch sử cuộc họp</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{p.task.title}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Ngày họp */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Ngày họp <span className="text-[var(--danger)]">*</span></label>
+            <input type="date" className="vyvy-input w-full" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
+            {p.existingSessions.some((s) => s.occurred_at === occurredAt) && (
+              <p className="mt-1 text-[11px] text-[var(--warning)]">⚠ Đã có buổi họp ngày này. Thêm sẽ tạo bản ghi riêng.</p>
+            )}
+          </div>
+
+          {/* Trạng thái */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Trạng thái</label>
+            <select className="vyvy-input w-full" value={status} onChange={(e) => setStatus(e.target.value as MeetingSession['status'])}>
+              <option value="completed">Đã họp</option>
+              <option value="planned">Dự kiến</option>
+              <option value="skipped">Bỏ qua</option>
+              <option value="cancelled">Huỷ</option>
+            </select>
+          </div>
+
+          {/* Recap */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Recap / tóm tắt buổi họp</label>
+            <textarea className="vyvy-input w-full min-h-[80px]" placeholder="Tóm tắt nội dung họp, kết quả chính..." value={recap} onChange={(e) => setRecap(e.target.value)} />
+          </div>
+
+          {/* Link biên bản */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Link biên bản (Notex / Google Docs / Lark)</label>
+            <input type="url" className="vyvy-input w-full" placeholder="https://..." value={minutesUrl} onChange={(e) => setMinutesUrl(e.target.value)} />
+          </div>
+
+          {/* Quyết định */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Quyết định đã chốt</label>
+            <div className="space-y-1.5 mb-2">
+              {decisions.map((d, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
+                  <span className="flex-1">{d.text}</span>
+                  <button type="button" onClick={() => setDecisions((prev) => prev.filter((_, j) => j !== i))} className="text-[var(--text-muted)] hover:text-[var(--danger)]"><Ico d={IC.x} size={12}/></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input className="vyvy-input flex-1 text-sm" placeholder="Thêm quyết định..." value={newDecision}
+                onChange={(e) => setNewDecision(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addDecision() } }} />
+              <button type="button" onClick={addDecision} className="rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--bg-surface)]">Thêm</button>
+            </div>
+          </div>
+
+          {/* Gắn đầu việc */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Gắn đầu việc từ buổi họp này</label>
+            <input className="vyvy-input w-full text-sm mb-2" placeholder="Tìm đầu việc..." value={taskSearch} onChange={(e) => setTaskSearch(e.target.value)} />
+            {taskSearch && (
+              <div className="max-h-40 overflow-y-auto space-y-1 mb-2">
+                {filteredTasks.map((t) => (
+                  <button key={t.id} type="button"
+                    onClick={() => setLinkedTaskIds((prev) => prev.includes(t.id) ? prev.filter((id) => id !== t.id) : [...prev, t.id])}
+                    className={`w-full flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${linkedTaskIds.includes(t.id) ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-bold' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
+                    <span className={`h-3.5 w-3.5 shrink-0 rounded border text-center text-[10px] leading-[14px] ${linkedTaskIds.includes(t.id) ? 'bg-[var(--accent)] border-[var(--accent)] text-white' : 'border-[var(--border)]'}`}>{linkedTaskIds.includes(t.id) ? '✓' : ''}</span>
+                    <span className="flex-1 truncate">{t.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {linkedTaskIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {linkedTaskIds.map((id) => {
+                  const t = p.allTasks.find((x) => x.id === id)
+                  return t ? (
+                    <span key={id} className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-bold text-[var(--accent-hover)]">
+                      {t.title.slice(0, 30)}{t.title.length > 30 ? '...' : ''}
+                      <button type="button" onClick={() => setLinkedTaskIds((prev) => prev.filter((i) => i !== id))} className="hover:text-[var(--danger)]"><Ico d={IC.x} size={10}/></button>
+                    </span>
+                  ) : null
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Ghi chú */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[var(--text-secondary)]">Ghi chú thêm</label>
+            <textarea className="vyvy-input w-full min-h-[60px]" placeholder="Vấn đề còn pending, lưu ý tiếp theo..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="sticky bottom-0 flex gap-2 border-t border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
+          <button type="button" onClick={p.close} className="flex-1 rounded-xl border border-[var(--border)] py-2.5 text-sm font-bold hover:bg-[var(--bg-surface)]">Huỷ</button>
+          <button type="button" disabled={!occurredAt || saving} onClick={() => void handleSave()}
+            className="flex-1 rounded-xl bg-[var(--accent)] py-2.5 text-sm font-extrabold disabled:opacity-40 hover:bg-[var(--accent-hover)]">
+            {saving ? 'Đang lưu...' : 'Lưu buổi họp'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── MeetingSessionDetailModal ────────────────────────────────────────────────
+function MeetingSessionDetailModal(p: {
+  session: MeetingSession
+  scheduleTitle: string
+  employeeMap: Map<string, Employee>
+  departmentMap: Map<string, Department>
+  allTasks: Task[]
+  close: () => void
+  onEdit: () => void
+}) {
+  const s = p.session
+  const host = s.host_id ? p.employeeMap.get(s.host_id) : null
+  const participants = (s.participant_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean) as string[]
+  const deptNames = (s.department_ids || []).map((id) => p.departmentMap.get(id)?.name).filter(Boolean) as string[]
+  const linkedTasks = (s.linked_task_ids || []).map((id) => p.allTasks.find((t) => t.id === id)).filter(Boolean) as Task[]
+
+  const fmtDate = (d: string) => {
+    const [y, m, day] = d.split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-display text-sm font-bold">{p.scheduleTitle} — {fmtDate(s.occurred_at)}</p>
+              <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${SESSION_STATUS_CLS[s.status]}`}>{SESSION_STATUS_LABEL[s.status]}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)]">Ngày họp: {fmtDate(s.occurred_at)}{s.start_time ? ` · ${s.start_time}` : ''}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={p.onEdit} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-bold hover:bg-[var(--bg-surface)]">Sửa</button>
+            <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Thông tin buổi họp */}
+          <section>
+            <p className="mb-2.5 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Thông tin buổi họp</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
+              <div><p className="text-[var(--text-muted)]">Chủ trì</p><p className="mt-0.5 font-bold text-[var(--text-primary)]">{host ? host.full_name : <span className="italic text-[var(--text-muted)]">Chưa có</span>}</p></div>
+              <div><p className="text-[var(--text-muted)]">Phòng ban</p><p className="mt-0.5 font-bold text-[var(--text-primary)]">{deptNames.length > 0 ? deptNames.join(', ') : <span className="italic text-[var(--text-muted)]">Chưa có</span>}</p></div>
+              {participants.length > 0 && <div className="col-span-2"><p className="text-[var(--text-muted)]">Tham gia</p><p className="mt-0.5 font-bold text-[var(--text-primary)]">{participants.join(', ')}</p></div>}
+            </div>
+          </section>
+
+          {/* Recap */}
+          {s.recap && (
+            <section>
+              <p className="mb-1 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Recap</p>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-[var(--text-secondary)]">{s.recap}</p>
+            </section>
+          )}
+
+          {/* Link biên bản */}
+          {s.minutes_url && (
+            <section>
+              <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Biên bản</p>
+              <a href={s.minutes_url} target="_blank" rel="noreferrer"
+                className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 hover:bg-[var(--border)] transition-colors">
+                <span className="flex-1 text-xs font-bold text-[var(--text-primary)] truncate">{s.minutes_url}</span>
+                <span className="shrink-0 text-[11px] font-bold text-[var(--accent-hover)]">Mở →</span>
+              </a>
+            </section>
+          )}
+
+          {/* Quyết định */}
+          {s.decisions && s.decisions.length > 0 && (
+            <section>
+              <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Quyết định đã chốt ({s.decisions.length})</p>
+              <div className="space-y-1.5">
+                {s.decisions.map((d, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
+                    <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full bg-[var(--accent-soft)] text-center text-[10px] font-bold leading-4 text-[var(--accent-hover)]">{i + 1}</span>
+                    <span className="flex-1 text-[var(--text-primary)]">{d.text}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Đầu việc đã gắn */}
+          <section>
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Đầu việc đã giao ({linkedTasks.length})</p>
+            {linkedTasks.length === 0 ? (
+              <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-3 text-xs italic text-[var(--text-muted)]">Chưa có đầu việc nào được gắn với buổi họp này.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {linkedTasks.map((t) => (
+                  <div key={t.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs">
+                    <span className="flex-1 font-bold text-[var(--text-primary)] truncate">{t.title}</span>
+                    <span className="shrink-0 rounded-full bg-[var(--bg-card)] px-2 py-0.5 text-[10px] text-[var(--text-muted)]">{t.status}</span>
+                    {t.due_date && <span className="shrink-0 text-[var(--text-muted)]">{t.due_date}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Ghi chú */}
+          {s.notes && (
+            <section>
+              <p className="mb-1 text-[10px] font-extrabold uppercase tracking-widest text-[var(--text-muted)]">Ghi chú</p>
+              <p className="whitespace-pre-line text-sm leading-relaxed text-[var(--text-secondary)]">{s.notes}</p>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function RecurringMeetingSummary({ description, compact = false }: { description: string; compact?: boolean }) {
   const parts = parseMeetingDescription(description)
