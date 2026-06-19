@@ -939,6 +939,7 @@ export default function Home() {
   const [selectedWorkstreamId, setSelectedWorkstreamId] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [cooTarget, setCooTarget] = useState<CooTarget | null>(null)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createTab, setCreateTab] = useState<'project' | 'workstream'>('workstream')
@@ -4046,6 +4047,8 @@ export default function Home() {
                   canCreateSubtask={canCreateSubtask}
                   canCreateStep={canCreateStep}
                   canDeleteTask={canDeleteTask}
+                  canEditProject={SOLO_PILOT_MODE || ['admin','ceo','coo','department_head'].includes((currentEmployee?.role||'').toLowerCase()) || visibleProjects.some(p => p.owner_id === currentEmployee?.id)}
+                  onEditProject={(project) => setEditingProject(project)}
                   updateTaskSequential={updateTaskSequential}
                   uploadTaskFile={uploadTaskFile}
                   deleteTaskReport={deleteTaskReport}
@@ -4069,6 +4072,8 @@ export default function Home() {
                   setSelectedTask={setSelectedTask}
                   deleteProject={canDeleteTask ? deleteProject : async () => {}}
                   canDeleteProject={canDeleteTask}
+                  canEditProject={SOLO_PILOT_MODE || ['admin','ceo','coo','department_head'].includes((currentEmployee?.role||'').toLowerCase()) || visibleProjects.some(p => p.owner_id === currentEmployee?.id)}
+                  onEditProject={(project) => setEditingProject(project)}
                 />
               )}
 
@@ -4320,6 +4325,20 @@ export default function Home() {
             const { data } = await supabase.from('tasks').select('*').eq('id', selectedTask.id).maybeSingle()
             if (data) setSelectedTask(data as Task)
             void fetchTasks()
+          }}
+        />
+      )}
+
+      {editingProject && (
+        <ProjectEditModal
+          project={editingProject}
+          employees={employees}
+          departments={departments}
+          currentEmployee={currentEmployee}
+          close={() => setEditingProject(null)}
+          onSaved={async () => {
+            setEditingProject(null)
+            void fetchProjects()
           }}
         />
       )}
@@ -4992,6 +5011,8 @@ function CooBoard(props: {
   canCreateStep: (task: Task) => boolean
   canDeleteTask: boolean
   deleteProject: (project: Project) => void
+  canEditProject: boolean
+  onEditProject: (project: Project) => void
   updateTaskSequential: (taskId: string, sequential: boolean) => void
   uploadTaskFile: (task: Task, file?: File) => void
   deleteTaskReport: (report: TaskReport) => void
@@ -5197,6 +5218,16 @@ function CooBoard(props: {
                 >
                   <Ico d={IC.plus} size={13}/>
                   Đầu việc lớn
+                </button>
+                )}
+                {props.canEditProject && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); props.onEditProject(project) }}
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+                >
+                  <Ico d={IC.edit} size={13}/>
+                  Sửa dự án
                 </button>
                 )}
                 {props.canDeleteTask && (
@@ -6585,6 +6616,8 @@ function ProjectsView(props: {
   setSelectedTask: (task: Task) => void
   deleteProject: (project: Project) => void
   canDeleteProject: boolean
+  canEditProject?: boolean
+  onEditProject?: (project: Project) => void
   currentEmployee: Employee | null
   projectSpecs: ProjectSpec[]
   executionTrackers: ExecutionTracker[]
@@ -6833,6 +6866,12 @@ function ProjectsView(props: {
                     </div>
                   ) : <p className="text-xs text-[var(--text-muted)]">Không có cảnh báo.</p>
                 })()}
+                {props.canEditProject && props.onEditProject && (
+                  <button type="button" onClick={() => props.onEditProject!(focusedProject)}
+                    className="mt-1 w-full rounded-xl border border-[var(--border)] py-1.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-surface)]">
+                    Sửa dự án
+                  </button>
+                )}
                 {props.canDeleteProject && (
                   <button type="button" onClick={() => props.deleteProject(focusedProject)}
                     className="mt-1 w-full rounded-xl border border-[var(--danger)]/20 py-1.5 text-xs font-semibold text-[var(--danger)] hover:bg-[var(--danger-soft)]">
@@ -9577,6 +9616,150 @@ function CreatePanel(props: {
   )
 }
 
+function ProjectEditModal(props: {
+  project: Project
+  employees: Employee[]
+  departments: Department[]
+  currentEmployee: Employee | null
+  close: () => void
+  onSaved: () => Promise<void>
+}) {
+  const { canFullEdit } = canEditProjectDetails(props.currentEmployee, props.project)
+  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState(props.project.name)
+  const [desc, setDesc] = useState(props.project.description || '')
+  const [status, setStatus] = useState(props.project.status || 'active')
+  const [priority, setPriority] = useState(props.project.priority || 'medium')
+  const [ownerId, setOwnerId] = useState(props.project.owner_id || '')
+  const [deptId, setDeptId] = useState(props.project.department_id || '')
+  const [issueStatus, setIssueStatus] = useState(props.project.issue_status || 'normal')
+
+  async function handleSave() {
+    if (saving) return
+    setSaving(true)
+    try {
+      const update: Record<string, unknown> = {
+        status,
+        issue_status: issueStatus,
+      }
+      if (canFullEdit) {
+        update.name = name.trim() || props.project.name
+        update.description = desc.trim() || null
+        update.priority = priority
+        update.owner_id = ownerId || null
+        update.department_id = deptId || null
+      }
+      await supabase.from('projects').update(update).eq('id', props.project.id)
+      await props.onSaved()
+    } catch (e) {
+      console.error('save project', e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={props.close}>
+      <div className="w-full max-w-lg rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <p className="font-display text-base font-bold text-[var(--text-primary)]">Sửa dự án</p>
+          <button type="button" onClick={props.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]">
+            <Ico d={IC.x} size={16}/>
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4 space-y-4">
+          {canFullEdit && (
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Tên dự án</span>
+              <input
+                className="vyvy-input mt-1 w-full"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Tên dự án"
+              />
+            </label>
+          )}
+          {canFullEdit && (
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Mô tả</span>
+              <textarea
+                className="vyvy-input mt-1 w-full resize-none"
+                rows={3}
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder="Mô tả ngắn về dự án"
+              />
+            </label>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Trạng thái</span>
+              <select className="vyvy-input mt-1 w-full" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="active">Đang chạy</option>
+                <option value="planning">Lên kế hoạch</option>
+                <option value="on_hold">Tạm dừng</option>
+                <option value="completed">Hoàn thành</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Tình trạng rủi ro</span>
+              <select className="vyvy-input mt-1 w-full" value={issueStatus} onChange={(e) => setIssueStatus(e.target.value)}>
+                <option value="normal">Bình thường</option>
+                <option value="at_risk">Có rủi ro</option>
+                <option value="critical">Nghiêm trọng</option>
+              </select>
+            </label>
+          </div>
+          {canFullEdit && (
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Ưu tiên</span>
+              <select className="vyvy-input mt-1 w-full" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option value="low">Thấp</option>
+                <option value="medium">Trung bình</option>
+                <option value="high">Cao</option>
+                <option value="critical">Khẩn cấp</option>
+              </select>
+            </label>
+          )}
+          {canFullEdit && (
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Người phụ trách dự án</span>
+              <select className="vyvy-input mt-1 w-full" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                <option value="">— Chưa gán —</option>
+                {props.employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {canFullEdit && (
+            <label className="block">
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Phòng ban</span>
+              <select className="vyvy-input mt-1 w-full" value={deptId} onChange={(e) => setDeptId(e.target.value)}>
+                <option value="">— Không phân phòng —</option>
+                {props.departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {!canFullEdit && (
+            <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--text-muted)]">
+              Bạn chỉ có thể chỉnh trạng thái và tình trạng rủi ro. Liên hệ quản lý để thay đổi các thông tin khác.
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
+          <button type="button" onClick={props.close} className="vyvy-button-ghost text-sm">Hủy</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="vyvy-button text-sm disabled:opacity-50">
+            {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TaskDetailDrawer(props: {
   task: Task
   employeeMap: Map<string, Employee>
@@ -10352,6 +10535,22 @@ function canEditWorkItemDetails(
     (task.head_ids?.includes(user.id) ?? false)
   const isOwner = task.assignee_id === user.id
   return { canFullEdit, isOwner, canEdit: canFullEdit || isOwner }
+}
+
+function canEditProjectDetails(
+  user: { id: string; role?: string | null; department_id?: string | null } | null,
+  project: Project,
+): { canFullEdit: boolean; canEdit: boolean } {
+  if (!user) return { canFullEdit: false, canEdit: false }
+  if (SOLO_PILOT_MODE) return { canFullEdit: true, canEdit: true }
+  const role = (user.role || '').toLowerCase()
+  if (['admin', 'ceo', 'coo'].includes(role)) return { canFullEdit: true, canEdit: true }
+  if (role === 'department_head') {
+    if (project.department_id && user.department_id && project.department_id === user.department_id)
+      return { canFullEdit: true, canEdit: true }
+  }
+  if (project.owner_id === user.id) return { canFullEdit: false, canEdit: true }
+  return { canFullEdit: false, canEdit: false }
 }
 
 // Ai được sửa deadline trực tiếp / duyệt gia hạn.
