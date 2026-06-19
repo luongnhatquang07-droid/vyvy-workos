@@ -2273,34 +2273,8 @@ export default function Home() {
     }
 
     // Ghi timestamp tự động
-    if (patch.step_deadline_status === 'cho_duyet' && !step.step_deadline_submitted_at) {
-      await updateTaskStepCompat(step.id, { step_deadline_submitted_at: new Date().toISOString() } as DbPayload)
-    }
-    if (patch.step_deadline_status === 'da_duyet') {
-      await updateTaskStepCompat(step.id, { step_deadline_approved_at: new Date().toISOString() } as DbPayload)
-    }
     if ((patch as Record<string, unknown>).step_in_progress === true && !step.step_started_at) {
       await updateTaskStepCompat(step.id, { step_started_at: new Date().toISOString() } as DbPayload)
-    }
-
-    // Notify khi gửi duyệt deadline
-    if (patch.step_deadline_status === 'cho_duyet') {
-      const approverId = (patch.step_deadline_approver_id as string | null) || step.step_deadline_approver_id || step.department_approver_id || step.approver_id
-      if (approverId && approverId !== currentEmployee?.id) {
-        const stepTask = tasks.find((t) => t.id === step.task_id)
-        pushNotify([{ recipient_id: approverId, actor_id: currentEmployee?.id || null, type: 'step_submitted', title: 'Có deadline chờ bạn duyệt', body: step.step_title, task_id: step.task_id }])
-        sendPush([approverId], '📅 Có deadline chờ bạn duyệt', `${step.step_title} — ${stepTask?.title || ''}`)
-      }
-    }
-
-    // Notify khi duyệt/trả lại deadline
-    if (patch.step_deadline_status === 'da_duyet' || patch.step_deadline_status === 'tra_lai') {
-      if (step.owner_id && step.owner_id !== currentEmployee?.id) {
-        const approved = patch.step_deadline_status === 'da_duyet'
-        const stepTask = tasks.find((t) => t.id === step.task_id)
-        pushNotify([{ recipient_id: step.owner_id, actor_id: currentEmployee?.id || null, type: approved ? 'step_approved' : 'step_revision', title: approved ? 'Deadline đã được chốt' : 'Deadline bị trả lại', body: step.step_title, task_id: step.task_id }])
-        sendPush([step.owner_id], approved ? '✅ Deadline đã được chốt' : '🔴 Deadline bị trả lại', `${step.step_title} — ${stepTask?.title || ''}`)
-      }
     }
 
     await syncTaskProgress(step.task_id)
@@ -3373,11 +3347,6 @@ export default function Home() {
   const pendingForMe = useMemo(() => {
     if (!currentEmployee?.id) return []
     return steps.filter((step) => {
-      // Deadline chờ duyệt
-      if ((step.step_deadline_status || 'draft') === 'cho_duyet') {
-        const approverId = step.step_deadline_approver_id || step.department_approver_id || step.approver_id
-        return approverId === currentEmployee.id
-      }
       // Kết quả chờ duyệt
       if (step.approval_status !== 'pending') return false
       const stage = step.approval_stage || 'department'
@@ -3819,16 +3788,12 @@ export default function Home() {
                     <div className="max-h-80 space-y-1 overflow-y-auto">
                       {pendingForMe.map((step) => {
                         const task = tasks.find((item) => item.id === step.task_id)
-                        const isDeadlinePending = (step.step_deadline_status || 'draft') === 'cho_duyet'
                         return (
                           <div key={step.id} className="rounded-lg border border-[var(--border)] p-2">
                             <p className="truncate text-sm font-bold">{step.step_title}</p>
                             <p className="truncate text-[11px] text-[var(--text-secondary)]">{task?.title || 'Đầu việc'}</p>
 
-                            {isDeadlinePending ? (
-                              /* ── Duyệt Deadline ── */
-                              <DeadlineInboxCard step={step} currentEmployeeId={currentEmployee?.id || ''} employeeMap={employeeMap} updateStep={updateStep} />
-                            ) : (
+                            {(
                               /* ── Duyệt kết quả ── */
                               <div className="mt-1.5 flex gap-1.5">
                                 <button type="button"
@@ -5614,45 +5579,6 @@ function InlineSubtaskForm(props: {
   )
 }
 
-function DeadlineInboxCard({ step, currentEmployeeId, employeeMap, updateStep }: {
-  step: TaskStep
-  currentEmployeeId: string
-  employeeMap: Map<string, Employee>
-  updateStep: (step: TaskStep, patch: Partial<TaskStep>) => Promise<void>
-}) {
-  const [date, setDate] = useState(step.step_proposed_deadline || step.due_date || '')
-  const proposer = employeeMap.get(step.owner_id || '')
-  return (
-    <div className="mt-2 flex flex-col gap-2">
-      {step.step_proposed_deadline && (
-        <p className="text-[11px] text-[var(--text-muted)]">
-          {proposer?.full_name || 'Cấp dưới'} đề xuất: <b className="text-[var(--text-primary)]">{step.step_proposed_deadline}</b>
-        </p>
-      )}
-      <div className="flex items-center gap-1.5">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-          className="h-8 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
-        />
-        <button type="button" disabled={!date}
-          onClick={() => updateStep(step, {
-            step_deadline_status: 'da_duyet',
-            step_proposed_deadline: date,
-            due_date: date,
-            step_deadline_approver_id: currentEmployeeId,
-          } as Partial<TaskStep>)}
-          className="rounded-lg bg-[var(--success)] px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40"
-        >Duyệt</button>
-        <button type="button"
-          onClick={() => {
-            const note = prompt('Lý do trả lại?')
-            if (note) updateStep(step, { step_deadline_status: 'tra_lai', step_deadline_note: note } as Partial<TaskStep>)
-          }}
-          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-bold text-[var(--danger)]"
-        >Trả lại</button>
-      </div>
-    </div>
-  )
-}
 
 function SubtaskCard(props: {
   task: Task
@@ -6117,12 +6043,8 @@ function StepWorkflowCard(props: {
     setLocalCommentDraft('')
   }
 
-  const deadlineStatus = props.step.step_deadline_status || 'draft'
-  const deadlineApproved = deadlineStatus === 'da_duyet'
-  const deadlineApprover = props.employeeMap.get(props.step.step_deadline_approver_id || '')
-
   // Mặc định mở nếu cần hành động
-  const needsAction = !deadlineApproved || status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
+  const needsAction = status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
   const [expanded, setExpanded] = useState(needsAction)
   const [noteDraft, setNoteDraft] = useState(props.step.note || '')
 
@@ -6136,20 +6058,18 @@ function StepWorkflowCard(props: {
         <span className="flex-1 min-w-0 font-semibold text-sm text-[var(--text-primary)] truncate">{props.step.step_title}</span>
         {/* Thanh thông tin giai đoạn */}
         <div className="shrink-0 flex items-stretch rounded-lg border border-[var(--border)] overflow-hidden text-[11px] font-bold">
-          {/* GĐ1: Deadline */}
-          <div className={`flex items-center gap-1 px-2.5 py-1 ${deadlineApproved ? 'bg-[var(--success-soft)] text-[var(--success)]' : deadlineStatus === 'cho_duyet' ? 'bg-[var(--warning-soft)] text-[var(--warning)]' : deadlineStatus === 'tra_lai' ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
+          {/* Deadline */}
+          <div className={`flex items-center gap-1 px-2.5 py-1 ${props.step.due_date ? 'bg-[var(--success-soft)] text-[var(--success)]' : 'bg-[var(--bg-surface)] text-[var(--text-muted)]'}`}>
             <span>Deadline</span>
-            <span>{deadlineApproved ? `✓ ${props.step.step_proposed_deadline || props.step.due_date || '—'}` : deadlineStatus === 'cho_duyet' ? 'Chờ duyệt' : deadlineStatus === 'tra_lai' ? 'Bị trả lại' : 'Chưa gửi'}</span>
+            <span>{props.step.due_date ? `✓ ${props.step.due_date}` : 'Chưa có'}</span>
           </div>
           <div className="w-px bg-[var(--border)]" />
-          {/* GĐ2: Kết quả — 5 bước */}
+          {/* Kết quả */}
           {(() => {
             const s = props.step
             let label: string
             let cls: string
-            if (!deadlineApproved) {
-              label = 'Chưa bắt đầu'; cls = 'bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-50'
-            } else if (s.approval_status === 'approved') {
+            if (s.approval_status === 'approved') {
               label = '✓ Hoàn thành'; cls = 'bg-[var(--success-soft)] text-[var(--success)]'
             } else if (s.approval_status === 'pending') {
               label = '⏳ Chờ duyệt kết quả'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
@@ -6188,66 +6108,30 @@ function StepWorkflowCard(props: {
         </button>
       </div>
 
-      {/* ── Giai đoạn 1: Duyệt Deadline ── */}
-      <div className={`mb-4 rounded-xl border p-3 ${deadlineApproved ? 'border-[var(--success)]/30 bg-[var(--success-soft)]' : deadlineStatus === 'tra_lai' ? 'border-[var(--danger)]/30 bg-[var(--danger-soft)]' : deadlineStatus === 'cho_duyet' ? 'border-[var(--warning)]/30 bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--bg-surface)]'}`}>
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Giai đoạn 1 · Duyệt Deadline</span>
-          {deadlineApproved && <span className="rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">Đã chốt {props.step.step_proposed_deadline}</span>}
-          {deadlineStatus === 'cho_duyet' && <span className="rounded-full bg-[var(--warning)] px-2 py-0.5 text-[10px] font-bold text-white">Chờ duyệt · {props.step.step_proposed_deadline}</span>}
-          {deadlineStatus === 'tra_lai' && <span className="rounded-full bg-[var(--danger)] px-2 py-0.5 text-[10px] font-bold text-white">Bị trả lại</span>}
-        </div>
-        {deadlineStatus === 'tra_lai' && props.step.step_deadline_note && (
-          <p className="mb-2 text-xs text-[var(--danger)]">Lý do: {props.step.step_deadline_note}</p>
-        )}
-        {/* Nhân viên: gửi duyệt deadline */}
-        {!deadlineApproved && deadlineStatus !== 'cho_duyet' && (
-          <div className="flex flex-col gap-2">
-            <div className="flex gap-2 items-center">
+      {/* ── Deadline (đã chốt ngay khi giao) ── */}
+      <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wide text-[var(--text-muted)]">Deadline</span>
+            {props.step.due_date
+              ? <span className="rounded-full bg-[var(--success)] px-2 py-0.5 text-[10px] font-bold text-white">Đã chốt · {props.step.due_date}</span>
+              : <span className="rounded-full bg-[var(--bg-surface)] border border-[var(--border)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-muted)]">Chưa có deadline</span>
+            }
+          </div>
+          {props.canApprove && (
+            <div className="flex items-center gap-1.5">
               <input type="date"
-                className="h-9 flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-3 text-xs outline-none"
-                value={props.step.step_proposed_deadline || props.step.due_date || ''}
-                onChange={(e) => props.updateStep(props.step, { step_proposed_deadline: e.target.value || null } as Partial<TaskStep>)}
+                className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2 text-xs outline-none"
+                defaultValue={props.step.due_date || ''}
+                onBlur={(e) => {
+                  if (e.target.value && e.target.value !== props.step.due_date)
+                    props.updateStep(props.step, { due_date: e.target.value } as Partial<TaskStep>)
+                }}
               />
-              <span className="text-xs text-[var(--text-muted)] shrink-0">
-                Duyệt: <b>{(props.employeeMap.get(props.step.step_deadline_approver_id || '') || props.employeeMap.get(props.step.department_approver_id || '') || props.employeeMap.get(props.step.approver_id || ''))?.full_name || 'Chưa gắn'}</b>
-              </span>
+              <span className="text-[10px] text-[var(--text-muted)]">Sửa deadline</span>
             </div>
-            <button type="button"
-              disabled={props.locked || !(props.step.step_proposed_deadline || props.step.due_date)}
-              onClick={() => props.updateStep(props.step, {
-                step_deadline_status: 'cho_duyet',
-                step_proposed_deadline: props.step.step_proposed_deadline || props.step.due_date,
-                step_deadline_approver_id: props.step.step_deadline_approver_id || props.step.department_approver_id || props.step.approver_id,
-              } as Partial<TaskStep>)}
-              className="self-start rounded-lg bg-[var(--olive)] px-4 py-1.5 text-xs font-bold text-white disabled:opacity-40"
-            >
-              Gửi duyệt Deadline
-            </button>
-          </div>
-        )}
-        {/* Người duyệt deadline: duyệt / trả lại */}
-        {deadlineStatus === 'cho_duyet' && props.canApprove && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button"
-              onClick={() => props.updateStep(props.step, { step_deadline_status: 'da_duyet', due_date: props.step.step_proposed_deadline } as Partial<TaskStep>)}
-              className="rounded-lg bg-[var(--success)] px-4 py-1.5 text-xs font-bold text-white"
-            >
-              Duyệt deadline
-            </button>
-            <button type="button"
-              onClick={() => {
-                const note = prompt('Lý do trả lại?')
-                if (note) props.updateStep(props.step, { step_deadline_status: 'tra_lai', step_deadline_note: note } as Partial<TaskStep>)
-              }}
-              className="rounded-lg bg-[var(--danger-soft)] px-4 py-1.5 text-xs font-bold text-[var(--danger)]"
-            >
-              Trả lại
-            </button>
-          </div>
-        )}
-        {deadlineStatus === 'cho_duyet' && !props.canApprove && (
-          <p className="text-xs text-[var(--text-muted)]">Đang chờ {deadlineApprover?.full_name || 'người duyệt'} chốt deadline…</p>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── Timeline lịch sử ── */}
@@ -6255,8 +6139,6 @@ function StepWorkflowCard(props: {
         const s = props.step
         const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null
         const events: { icon: string; label: string; time: string | null; done: boolean }[] = [
-          { icon: '📅', label: 'Gửi duyệt deadline', time: fmt(s.step_deadline_submitted_at), done: !!s.step_deadline_submitted_at },
-          { icon: '✅', label: `Deadline chốt: ${s.step_proposed_deadline || s.due_date || '—'}`, time: fmt(s.step_deadline_approved_at), done: !!s.step_deadline_approved_at },
           { icon: '▶', label: 'Bắt đầu thực hiện', time: fmt(s.step_started_at), done: !!s.step_started_at },
           { icon: '📤', label: 'Gửi duyệt kết quả', time: fmt(s.submitted_at), done: !!s.submitted_at },
           { icon: '🏁', label: 'Hoàn thành', time: fmt(s.approved_at), done: s.approval_status === 'approved' },
@@ -6277,16 +6159,11 @@ function StepWorkflowCard(props: {
         )
       })()}
 
-      {/* ── Giai đoạn 2: Thực hiện & Duyệt kết quả (chỉ mở khi deadline đã chốt) ── */}
-      {!deadlineApproved && (
-        <p className="mb-3 rounded-xl bg-[var(--bg-base)] px-3 py-2 text-xs text-[var(--text-muted)]">
-          Chốt deadline trước khi bắt đầu thực hiện.
-        </p>
-      )}
-      <div className={!deadlineApproved ? 'pointer-events-none opacity-40' : ''}>
+      {/* ── Thực hiện & Duyệt kết quả ── */}
+      <div>
 
       {/* Nút Bắt đầu thực hiện */}
-      {deadlineApproved && !props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
+      {!props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
         <button type="button"
           onClick={() => props.updateStep(props.step, { step_in_progress: true } as Partial<TaskStep>)}
           className="mb-3 w-full rounded-xl border-2 border-dashed border-[var(--olive)]/40 py-2 text-sm font-bold text-[var(--olive)] hover:bg-[var(--olive)]/5 transition-colors"
@@ -6294,7 +6171,7 @@ function StepWorkflowCard(props: {
           ▶ Bắt đầu thực hiện
         </button>
       )}
-      {deadlineApproved && props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
+      {props.step.step_in_progress && props.step.approval_status === 'not_submitted' && (
         <div className="mb-3 flex items-center justify-between rounded-xl bg-[var(--warning-soft)] px-3 py-2">
           <span className="text-xs font-bold text-[var(--warning)]">🔄 Đang thực hiện</span>
           <button type="button"
