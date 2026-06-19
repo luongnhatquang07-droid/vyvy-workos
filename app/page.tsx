@@ -414,6 +414,14 @@ type CooTarget = {
   highlightId?: string | null    // ID cần scroll + highlight (thường = taskId || workstreamId)
 }
 
+type PrepChecklistItem = {
+  id: string
+  text: string
+  done: boolean
+  owner_id?: string | null
+  note?: string | null
+}
+
 type RecurringTask = {
   id: string
   title: string
@@ -432,6 +440,15 @@ type RecurringTask = {
   notified_near_for: string | null
   created_by: string | null
   created_at: string
+  // Upgrade v2
+  host_id?: string | null
+  observer_ids?: string[] | null
+  participant_ids?: string[] | null
+  department_id?: string | null
+  objective?: string | null
+  agenda?: string | null
+  preparation_checklist?: PrepChecklistItem[] | null
+  related_task_ids?: string[] | null
 }
 
 type RecurringTaskForm = {
@@ -1674,6 +1691,12 @@ export default function Home() {
       return
     }
     await fetchRecurring()
+  }
+
+  async function updateRecurringTaskPatch(taskId: string, patch: Partial<RecurringTask>) {
+    const { error } = await supabase.from('recurring_tasks').update(patch as Record<string, unknown>).eq('id', taskId)
+    if (error) { toast('Cập nhật bị lỗi.', 'error'); return }
+    setRecurringTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, ...patch } : t))
   }
 
   async function deleteRecurringTask(task: RecurringTask) {
@@ -4099,9 +4122,12 @@ export default function Home() {
                 <RecurringView
                   dbSetupNeeded={dbSetupNeeded}
                   tasks={recurringTasks}
+                  allTasks={visibleTasks}
+                  departments={departments}
                   now={now}
                   employees={employees}
                   employeeMap={employeeMap}
+                  departmentMap={departmentMap}
                   form={recurringForm}
                   setForm={setRecurringForm}
                   saveTask={saveRecurringTask}
@@ -4109,6 +4135,7 @@ export default function Home() {
                   resetForm={resetRecurringForm}
                   toggleTask={toggleRecurringTask}
                   deleteTask={deleteRecurringTask}
+                  updateTaskPatch={updateRecurringTaskPatch}
                   meetingFiles={recurringMeetingFiles}
                   selectedMeetingTaskId={selectedMeetingTaskId}
                   setSelectedMeetingTaskId={setSelectedMeetingTaskId}
@@ -8476,12 +8503,265 @@ where not exists (select 1 from public.recurring_tasks where title = 'Họp Perf
   )
 }
 
+function getRecurringPrepStatus(task: RecurringTask, now: Date): 'chua_chuan_bi' | 'dang_chuan_bi' | 'du_ho_so' | 'qua_han' {
+  const checklist = task.preparation_checklist || []
+  if (checklist.length === 0) return 'chua_chuan_bi'
+  const allDone = checklist.every((item) => item.done)
+  if (allDone) return 'du_ho_so'
+  const minsLeft = minutesUntil(nextOccurrence(task, now), now)
+  if (minsLeft <= 120) return 'qua_han'
+  return 'dang_chuan_bi'
+}
+
+const PREP_STATUS_LABEL: Record<string, string> = {
+  chua_chuan_bi: 'Chưa chuẩn bị',
+  dang_chuan_bi: 'Đang chuẩn bị',
+  du_ho_so: 'Đủ hồ sơ',
+  qua_han: 'Quá hạn chuẩn bị',
+}
+const PREP_STATUS_CLS: Record<string, string> = {
+  chua_chuan_bi: 'bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border)]',
+  dang_chuan_bi: 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/20',
+  du_ho_so: 'bg-[var(--success-soft)] text-[var(--success)] border-[var(--success)]/20',
+  qua_han: 'bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/20',
+}
+
+function ScheduleDetailModal(p: {
+  task: RecurringTask
+  employeeMap: Map<string, Employee>
+  departmentMap: Map<string, Department>
+  meetingFiles: RecurringMeetingFile[]
+  relatedTasks: Task[]
+  now: Date
+  close: () => void
+}) {
+  const host = p.employeeMap.get(p.task.host_id || '')
+  const dept = p.task.department_id ? p.departmentMap.get(p.task.department_id) : null
+  const observers = (p.task.observer_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
+  const participants = (p.task.participant_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
+  const recipients = (p.task.recipient_ids || []).map((id) => p.employeeMap.get(id)?.full_name).filter(Boolean)
+  const prep = getRecurringPrepStatus(p.task, p.now)
+  const checklist = p.task.preparation_checklist || []
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-card)] px-5 py-4">
+          <div>
+            <p className="font-display text-base font-bold text-[var(--text-primary)]">{p.task.title}</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{recurringKindLabel(p.task.kind)} · {recurringFrequencyLabel(p.task)} · {p.task.time_of_day}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Thông tin chung */}
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            {host && <div><span className="text-[var(--text-muted)]">Chủ trì</span><p className="font-bold mt-0.5">{host.full_name}</p></div>}
+            {dept && <div><span className="text-[var(--text-muted)]">Phòng ban</span><p className="font-bold mt-0.5">{dept.name}</p></div>}
+            {observers.length > 0 && <div><span className="text-[var(--text-muted)]">Người theo dõi</span><p className="font-bold mt-0.5">{observers.join(', ')}</p></div>}
+            {participants.length > 0 && <div><span className="text-[var(--text-muted)]">Tham gia</span><p className="font-bold mt-0.5">{participants.join(', ')}</p></div>}
+            {recipients.length > 0 && <div><span className="text-[var(--text-muted)]">Nhận nhắc</span><p className="font-bold mt-0.5">{recipients.join(', ')}</p></div>}
+            <div><span className="text-[var(--text-muted)]">Lần tiếp theo</span><p className="font-bold mt-0.5">{formatOccurrence(nextOccurrence(p.task, p.now))}</p></div>
+          </div>
+          {p.task.objective && (
+            <div><p className="text-[10px] font-extrabold uppercase text-[var(--text-muted)] mb-1">Mục tiêu</p><p className="text-sm text-[var(--text-secondary)]">{p.task.objective}</p></div>
+          )}
+          {p.task.agenda && (
+            <div><p className="text-[10px] font-extrabold uppercase text-[var(--text-muted)] mb-1">Agenda</p><p className="whitespace-pre-line text-sm text-[var(--text-secondary)]">{p.task.agenda}</p></div>
+          )}
+          {/* Trạng thái chuẩn bị + checklist */}
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-[10px] font-extrabold uppercase text-[var(--text-muted)]">Trạng thái chuẩn bị</p>
+              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${PREP_STATUS_CLS[prep]}`}>{PREP_STATUS_LABEL[prep]}</span>
+            </div>
+            {checklist.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)]">Chưa có checklist. Bấm "Chuẩn bị họp" để thêm.</p>
+            ) : (
+              <div className="space-y-1">{checklist.map((item) => (
+                <div key={item.id} className="flex items-start gap-2 text-xs">
+                  <span className={`mt-0.5 h-3.5 w-3.5 shrink-0 rounded border text-center text-[10px] leading-[14px] ${item.done ? 'bg-[var(--success)] border-[var(--success)] text-white' : 'border-[var(--border)]'}`}>{item.done ? '✓' : ''}</span>
+                  <span className={item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-secondary)]'}>{item.text}</span>
+                </div>
+              ))}</div>
+            )}
+          </div>
+          {/* Hồ sơ */}
+          {p.meetingFiles.length > 0 && (
+            <div><p className="text-[10px] font-extrabold uppercase text-[var(--text-muted)] mb-1.5">Hồ sơ / Biên bản ({p.meetingFiles.length})</p>
+              <div className="space-y-1.5">{p.meetingFiles.slice(0,5).map((f) => (
+                <a key={f.id} href={f.file_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs hover:bg-[var(--bg-surface)]">
+                  <span className="font-bold text-[var(--text-primary)] truncate">{f.title || f.file_name}</span>
+                  {f.meeting_date && <span className="shrink-0 text-[var(--text-muted)]">{f.meeting_date}</span>}
+                </a>
+              ))}</div>
+            </div>
+          )}
+          {p.meetingFiles.length === 0 && p.task.kind === 'meeting' && (
+            <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-3 text-xs text-[var(--text-muted)]">Chưa có hồ sơ họp. Hãy thêm biên bản, file báo cáo hoặc link dashboard.</p>
+          )}
+          {/* Đầu việc liên quan */}
+          {p.relatedTasks.length > 0 && (
+            <div><p className="text-[10px] font-extrabold uppercase text-[var(--text-muted)] mb-1.5">Đầu việc liên quan ({p.relatedTasks.length})</p>
+              <div className="space-y-1">{p.relatedTasks.map((t) => (
+                <div key={t.id} className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs">
+                  <span className="font-bold">{t.title}</span>
+                  <span className="ml-2 text-[var(--text-muted)]">{t.status}</span>
+                </div>
+              ))}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MeetingPrepModal(p: {
+  task: RecurringTask
+  employeeMap: Map<string, Employee>
+  updateTaskPatch: (taskId: string, patch: Partial<RecurringTask>) => Promise<void>
+  close: () => void
+}) {
+  const [checklist, setChecklist] = useState<PrepChecklistItem[]>(p.task.preparation_checklist || [])
+  const [newText, setNewText] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function toggleItem(id: string) {
+    const next = checklist.map((item) => item.id === id ? { ...item, done: !item.done } : item)
+    setChecklist(next)
+    setSaving(true)
+    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
+    setSaving(false)
+  }
+
+  async function addItem() {
+    if (!newText.trim()) return
+    const next = [...checklist, { id: crypto.randomUUID(), text: newText.trim(), done: false }]
+    setChecklist(next)
+    setNewText('')
+    setSaving(true)
+    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
+    setSaving(false)
+  }
+
+  async function removeItem(id: string) {
+    const next = checklist.filter((item) => item.id !== id)
+    setChecklist(next)
+    setSaving(true)
+    await p.updateTaskPatch(p.task.id, { preparation_checklist: next })
+    setSaving(false)
+  }
+
+  const done = checklist.filter((i) => i.done).length
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <p className="font-display text-sm font-bold">Chuẩn bị họp</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{p.task.title}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+        </div>
+        <div className="p-5 space-y-3">
+          {checklist.length > 0 && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[var(--text-muted)]">Hoàn thành {done}/{checklist.length}</span>
+              {saving && <span className="text-[var(--text-muted)]">Đang lưu...</span>}
+            </div>
+          )}
+          <div className="space-y-1.5">
+            {checklist.map((item) => (
+              <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
+                <button type="button" onClick={() => toggleItem(item.id)}
+                  className={`h-4 w-4 shrink-0 rounded border text-[10px] leading-[14px] text-center transition-colors ${item.done ? 'bg-[var(--success)] border-[var(--success)] text-white' : 'border-[var(--border-strong)] hover:border-[var(--success)]'}`}>
+                  {item.done ? '✓' : ''}
+                </button>
+                <span className={`flex-1 text-xs ${item.done ? 'line-through text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>{item.text}</span>
+                <button type="button" onClick={() => removeItem(item.id)} className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger)]"><Ico d={IC.x} size={12}/></button>
+              </div>
+            ))}
+            {checklist.length === 0 && (
+              <p className="rounded-xl bg-[var(--bg-surface)] px-4 py-4 text-center text-xs text-[var(--text-muted)]">Chưa có mục nào. Thêm việc cần chuẩn bị bên dưới.</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input className="vyvy-input flex-1 text-sm" placeholder="Thêm mục chuẩn bị..." value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addItem() } }}
+            />
+            <button type="button" onClick={() => void addItem()} className="vyvy-button text-sm px-4">Thêm</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LinkTaskModal(p: {
+  task: RecurringTask
+  allTasks: Task[]
+  updateTaskPatch: (taskId: string, patch: Partial<RecurringTask>) => Promise<void>
+  close: () => void
+}) {
+  const [linked, setLinked] = useState<string[]>(p.task.related_task_ids || [])
+  const [search, setSearch] = useState('')
+  const [saving, setSaving] = useState(false)
+  const filtered = p.allTasks.filter((t) => t.title.toLowerCase().includes(search.toLowerCase())).slice(0, 30)
+
+  async function toggle(taskId: string) {
+    const next = linked.includes(taskId) ? linked.filter((id) => id !== taskId) : [...linked, taskId]
+    setLinked(next)
+    setSaving(true)
+    await p.updateTaskPatch(p.task.id, { related_task_ids: next })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <p className="font-display text-sm font-bold">Gắn đầu việc</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{p.task.title}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+            <span>Đã gắn: {linked.length} đầu việc</span>
+            {saving && <span>Đang lưu...</span>}
+          </div>
+          <input className="vyvy-input w-full text-sm" placeholder="Tìm đầu việc..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div className="space-y-1 max-h-64 overflow-y-auto">
+            {filtered.map((t) => {
+              const on = linked.includes(t.id)
+              return (
+                <button key={t.id} type="button" onClick={() => void toggle(t.id)}
+                  className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${on ? 'border-[var(--accent)] bg-[var(--accent-soft)] font-semibold' : 'border-[var(--border)] hover:bg-[var(--bg-surface)]'}`}>
+                  <span className={`h-3.5 w-3.5 shrink-0 rounded border text-center text-[10px] leading-[14px] ${on ? 'bg-[var(--olive)] border-[var(--olive)] text-white' : 'border-[var(--border-strong)]'}`}>{on ? '✓' : ''}</span>
+                  <span className="truncate flex-1">{t.title}</span>
+                  <span className="shrink-0 text-[var(--text-muted)]">{t.status}</span>
+                </button>
+              )
+            })}
+            {filtered.length === 0 && <p className="py-4 text-center text-xs text-[var(--text-muted)]">Không tìm thấy đầu việc.</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RecurringView(props: {
   dbSetupNeeded: boolean
   tasks: RecurringTask[]
+  allTasks: Task[]
+  departments: Department[]
   now: Date
   employees: Employee[]
   employeeMap: Map<string, Employee>
+  departmentMap: Map<string, Department>
   form: RecurringTaskForm
   setForm: React.Dispatch<React.SetStateAction<RecurringTaskForm>>
   saveTask: (event: React.FormEvent) => void
@@ -8489,6 +8769,7 @@ function RecurringView(props: {
   resetForm: () => void
   toggleTask: (task: RecurringTask) => void
   deleteTask: (task: RecurringTask) => void
+  updateTaskPatch: (taskId: string, patch: Partial<RecurringTask>) => Promise<void>
   meetingFiles: RecurringMeetingFile[]
   selectedMeetingTaskId: string
   setSelectedMeetingTaskId: (taskId: string) => void
@@ -8501,21 +8782,22 @@ function RecurringView(props: {
 }) {
   const [meetingArchiveOpen, setMeetingArchiveOpen] = useState(false)
   const [meetingArchiveQuery, setMeetingArchiveQuery] = useState('')
+  const [detailTask, setDetailTask] = useState<RecurringTask | null>(null)
+  const [prepTask, setPrepTask] = useState<RecurringTask | null>(null)
+  const [linkTask, setLinkTask] = useState<RecurringTask | null>(null)
+
   const activeTasks = props.tasks.filter((task) => task.is_active)
   const upcoming = [...props.tasks].sort(
     (a, b) => nextOccurrence(a, props.now).getTime() - nextOccurrence(b, props.now).getTime()
   )
-  const nearTasks = activeTasks.filter((task) => {
-    const occ = nextOccurrence(task, props.now)
-    return minutesUntil(occ, props.now) <= task.remind_minutes_before
-  })
-  const prepTasks = activeTasks.filter((task) => {
-    const occ = nextOccurrence(task, props.now)
-    const mins = minutesUntil(occ, props.now)
-    return (task.frequency === 'weekly' || task.frequency === 'monthly') &&
-      mins <= task.remind_days_before * 24 * 60 &&
-      mins > task.remind_minutes_before
-  })
+
+  // 4 stat counters
+  const todayStr = props.now.toISOString().slice(0, 10)
+  const todayTasks = activeTasks.filter((t) => nextOccurrence(t, props.now).toISOString().slice(0, 10) === todayStr)
+  const within24h = activeTasks.filter((t) => minutesUntil(nextOccurrence(t, props.now), props.now) <= 24 * 60)
+  const needPrep = activeTasks.filter((t) => ['chua_chuan_bi', 'dang_chuan_bi'].includes(getRecurringPrepStatus(t, props.now)))
+  const overduePrep = activeTasks.filter((t) => getRecurringPrepStatus(t, props.now) === 'qua_han')
+
   const meetingTasks = upcoming.filter((task) => task.kind === 'meeting')
   const normalizedArchiveQuery = meetingArchiveQuery.trim().toLowerCase()
   const filteredMeetingTasks = normalizedArchiveQuery
@@ -8546,49 +8828,31 @@ function RecurringView(props: {
   return (
     <div className="space-y-4">
       {props.dbSetupNeeded && <DbSetupBanner />}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <MetricCard
-          label="Đang theo dõi"
-          value={activeTasks.length}
-          icon={<Ico d={IC.clock} size={18}/>}
-          tone="green"
-        />
-        <MetricCard
-          label="Cần chuẩn bị trước"
-          value={prepTasks.length}
-          icon={<Ico d={IC.warning} size={18}/>}
-          tone="purple"
-        />
-        <MetricCard
-          label="Sắp tới giờ"
-          value={nearTasks.length}
-          icon={<Ico d={IC.bell} size={18}/>}
-          tone="red"
-        />
+
+      {/* 4 stat cards */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricCard label="Họp hôm nay" value={todayTasks.length} icon={<Ico d={IC.clock} size={18}/>} tone="green" />
+        <MetricCard label="Cần chuẩn bị" value={needPrep.length} icon={<Ico d={IC.warning} size={18}/>} tone="purple" />
+        <MetricCard label="Sắp tới 24h" value={within24h.length} icon={<Ico d={IC.bell} size={18}/>} tone="blue" />
+        <MetricCard label="Quá hạn chuẩn bị" value={overduePrep.length} icon={<Ico d={IC.alertCircle} size={18}/>} tone="red" />
       </div>
 
-
       <div className="grid grid-cols-1 gap-4">
-
         <Card>
           <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-extrabold">Lịch sắp tới</h3>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                Bây giờ: {formatOccurrence(props.now)}
-              </p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">Bây giờ: {formatOccurrence(props.now)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {meetingTasks.length > 0 && (
-                <button type="button"
-                  onClick={() => setMeetingArchiveOpen(true)}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs font-extrabold"
-                >
+                <button type="button" onClick={() => setMeetingArchiveOpen(true)}
+                  className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-2 text-xs font-extrabold">
                   Tìm hồ sơ họp
                 </button>
               )}
               <span className="rounded-full bg-[var(--bg-surface)] px-3 py-1 text-xs font-extrabold text-[var(--text-secondary)]">
-                {props.tasks.length} việc định kỳ
+                {props.tasks.length} lịch
               </span>
             </div>
           </div>
@@ -8600,172 +8864,74 @@ function RecurringView(props: {
               {upcoming.map((task) => {
                 const occ = nextOccurrence(task, props.now)
                 const alert = recurringAlertState(task, props.now)
-                const recipientNames = recurringRecipientNames(task, props.employeeMap)
-                const tone =
-                  alert.tone === 'red' ? 'bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/20' :
-                  alert.tone === 'amber' ? 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/20' :
-                  'bg-[var(--success-soft)] text-[var(--success)] border-[var(--accent)]/30'
-                const taskMeetingFiles = task.kind === 'meeting'
-                  ? props.meetingFiles.filter((file) => file.recurring_task_id === task.id)
-                  : []
-                const taskMeetingDraft = task.kind === 'meeting'
-                  ? { ...DEFAULT_MEETING_FILE_DRAFT, ...(props.meetingFileDrafts[task.id] || {}) }
-                  : DEFAULT_MEETING_FILE_DRAFT
-
+                const prep = getRecurringPrepStatus(task, props.now)
+                const checklist = task.preparation_checklist || []
+                const filesCount = props.meetingFiles.filter((f) => f.recurring_task_id === task.id).length
+                const relatedCount = (task.related_task_ids || []).length
+                const host = props.employeeMap.get(task.host_id || '')
+                const dept = task.department_id ? props.departmentMap.get(task.department_id) : null
+                const alertTone =
+                  alert.tone === 'red' ? 'text-[var(--danger)]' :
+                  alert.tone === 'amber' ? 'text-[var(--warning)]' : ''
                 return (
-                  <div
-                    key={task.id}
-                    className={`rounded-xl border px-3 py-2.5 ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[var(--border)] bg-[var(--bg-surface)] opacity-70'}`}
-                  >
-                    <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-extrabold ${tone}`}>{alert.label}</span>
-                          <h4 className="min-w-[180px] flex-1 truncate text-sm font-extrabold text-[var(--text-primary)]">{task.title}</h4>
-                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
-                            {recurringKindLabel(task.kind)}
-                          </span>
-                          <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
-                            {recurringFrequencyLabel(task)}
-                          </span>
-                          {!task.is_active && <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-500">Đang tắt</span>}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[var(--text-secondary)]">
-                          <span>Tiếp: {formatOccurrence(occ)}</span>
-                          <span>Còn: {formatTimeLeft(occ, props.now)}</span>
-                          <span className="min-w-0 truncate">Nhận: {recipientNames}</span>
-                        </div>
-                        {task.description && task.kind !== 'meeting' && (
-                          <p className="mt-1 max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">{task.description}</p>
-                        )}
-                      </div>
-
-                      <div className="flex shrink-0 flex-wrap gap-1.5 xl:justify-end">
-                        {task.kind === 'meeting' && (
-                          <button type="button"
-                            onClick={() => {
-                              props.setSelectedMeetingTaskId(task.id)
-                              setMeetingArchiveQuery('')
-                              setMeetingArchiveOpen(true)
-                            }}
-                            className="h-8 rounded-lg border border-[var(--border)] bg-[var(--success-soft)] px-2.5 text-xs font-bold text-[var(--success)]"
-                          >
-                            Hồ sơ
-                          </button>
-                        )}
-                        <button type="button"
-                          onClick={() => props.editTask(task)}
-                          className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-xs font-bold"
-                          title="Sửa việc định kỳ"
-                        >
-                          <Ico d={IC.edit} size={13}/>
-                          Sửa
-                        </button>
-                        <button type="button"
-                          onClick={() => props.toggleTask(task)}
-                          className="h-8 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-xs font-bold"
-                        >
-                          {task.is_active ? 'Tắt' : 'Bật'}
-                        </button>
-                        <button type="button"
-                          onClick={() => props.deleteTask(task)}
-                          className="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--danger-soft)] px-2.5 text-xs font-bold text-[var(--danger)]"
-                          title="Xóa việc định kỳ"
-                        >
-                          <Ico d={IC.trash} size={13}/>
-                          Xóa
-                        </button>
-                      </div>
+                  <div key={task.id}
+                    className={`rounded-xl border px-3 py-3 ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[var(--border)] bg-[var(--bg-surface)] opacity-70'}`}>
+                    {/* Dòng 1: badge chuẩn bị + tên + loại + lặp lại */}
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${PREP_STATUS_CLS[prep]}`}>{PREP_STATUS_LABEL[prep]}</span>
+                      <h4 className="min-w-[140px] flex-1 truncate text-sm font-extrabold text-[var(--text-primary)]">{task.title}</h4>
+                      <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">{recurringKindLabel(task.kind)}</span>
+                      <span className="shrink-0 rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">{recurringFrequencyLabel(task)}</span>
+                      {!task.is_active && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Đang tắt</span>}
                     </div>
-                    {task.description && task.kind === 'meeting' && (
-                      <details className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2">
-                        <summary className="cursor-pointer text-xs font-extrabold uppercase text-[var(--text-secondary)] outline-none">
-                          Chi tiết họp
-                        </summary>
-                        <div className="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_330px]">
-                          <RecurringMeetingSummary description={task.description} compact />
-                          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2">
-                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                              <div>
-                                <p className="text-xs font-extrabold uppercase text-[var(--text-muted)]">Kho file họp</p>
-                                <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{taskMeetingFiles.length} file/link đã lưu</p>
-                              </div>
-                              <button type="button"
-                                onClick={() => {
-                                  props.setSelectedMeetingTaskId(task.id)
-                                  setMeetingArchiveQuery('')
-                                  setMeetingArchiveOpen(true)
-                                }}
-                                className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-bold"
-                              >
-                                Mở hồ sơ
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-2">
-                              <input
-                                type="date"
-                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
-                                value={taskMeetingDraft.meetingDate}
-                                onChange={(event) => props.updateMeetingFileDraft(task.id, { meetingDate: event.target.value })}
-                                aria-label="Ngày họp"
-                              />
-                              <input
-                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
-                                placeholder="Tên file/link"
-                                value={taskMeetingDraft.title}
-                                onChange={(event) => props.updateMeetingFileDraft(task.id, { title: event.target.value })}
-                              />
-                              <input
-                                className="h-9 rounded-lg border border-[var(--border)] px-2.5 text-xs outline-none"
-                                placeholder="Dán link Google Drive, Notex, Dashboard..."
-                                value={taskMeetingDraft.fileUrl}
-                                onChange={(event) => props.updateMeetingFileDraft(task.id, { fileUrl: event.target.value })}
-                              />
-                            </div>
-
-                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <button type="button"
-                                onClick={() => props.saveMeetingLink(task)}
-                                className="rounded-lg bg-[var(--bg-card)] px-3 py-2 text-xs font-extrabold text-[var(--text-primary)]"
-                              >
-                                Lưu link
-                              </button>
-                              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-bold">
-                                Tải file lên
-                                <input
-                                  type="file"
-                                  onChange={(event) => props.uploadMeetingFile(task, event.target.files?.[0])}
-                                  className="sr-only"
-                                />
-                              </label>
-                            </div>
-                            {props.uploadingMeetingFileFor === task.id && (
-                              <p className="mt-2 text-xs font-bold text-[var(--accent-hover)]">Đang upload file họp...</p>
-                            )}
-
-                            {taskMeetingFiles.length > 0 && (
-                              <div className="mt-2 space-y-1.5">
-                                {taskMeetingFiles.slice(0, 3).map((file) => (
-                                  <a
-                                    key={file.id}
-                                    href={file.file_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block min-w-0 rounded-lg bg-[var(--bg-surface)] px-2.5 py-2 text-xs font-bold hover:bg-[var(--bg-surface)]"
-                                  >
-                                    <span className="block truncate">{file.title || file.file_name}</span>
-                                    <span className="mt-0.5 block truncate font-normal text-[var(--text-secondary)]">
-                                      {file.meeting_date || file.note || 'Mở file/link'}
-                                    </span>
-                                  </a>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </details>
-                    )}
+                    {/* Dòng 2: thời gian + còn bao lâu + chủ trì + phòng ban */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-secondary)] mb-1.5">
+                      <span className="font-bold">Tiếp: {formatOccurrence(occ)}</span>
+                      <span className={`font-bold ${alertTone}`}>Còn: {formatTimeLeft(occ, props.now)}</span>
+                      {host && <span>Chủ trì: <b>{host.full_name}</b></span>}
+                      {dept && <span>BP: <b>{dept.name}</b></span>}
+                    </div>
+                    {/* Dòng 3: mục tiêu + hồ sơ + checklist + task */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
+                      {task.objective && <span className="italic truncate max-w-[240px]">{task.objective}</span>}
+                      {task.kind === 'meeting' && <span>Hồ sơ: <b className="text-[var(--text-secondary)]">{filesCount}</b></span>}
+                      {checklist.length > 0 && <span>Checklist: <b className="text-[var(--text-secondary)]">{checklist.filter((c) => c.done).length}/{checklist.length}</b></span>}
+                      {relatedCount > 0 && <span>Task: <b className="text-[var(--text-secondary)]">{relatedCount}</b></span>}
+                    </div>
+                    {/* Nút thao tác */}
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <button type="button" onClick={() => setDetailTask(task)}
+                        className="h-7 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-[11px] font-bold hover:bg-[var(--bg-surface)]">
+                        Mở chi tiết
+                      </button>
+                      <button type="button" onClick={() => setPrepTask(task)}
+                        className={`h-7 rounded-lg border px-2.5 text-[11px] font-bold ${prep === 'qua_han' ? 'border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]' : 'border-[var(--border)] bg-[var(--bg-card)] hover:bg-[var(--bg-surface)]'}`}>
+                        Chuẩn bị họp
+                      </button>
+                      {task.kind === 'meeting' && (
+                        <button type="button"
+                          onClick={() => { props.setSelectedMeetingTaskId(task.id); setMeetingArchiveOpen(true) }}
+                          className="h-7 rounded-lg border border-[var(--border)] bg-[var(--success-soft)] px-2.5 text-[11px] font-bold text-[var(--success)]">
+                          Biên bản
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setLinkTask(task)}
+                        className="h-7 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-[11px] font-bold hover:bg-[var(--bg-surface)]">
+                        Gắn đầu việc
+                      </button>
+                      <button type="button" onClick={() => props.editTask(task)}
+                        className="flex h-7 items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-[11px] font-bold hover:bg-[var(--bg-surface)]">
+                        <Ico d={IC.edit} size={12}/>Sửa lịch
+                      </button>
+                      <button type="button" onClick={() => props.toggleTask(task)}
+                        className="h-7 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-[11px] font-bold hover:bg-[var(--bg-surface)]">
+                        {task.is_active ? 'Tạm tắt định kỳ' : 'Bật lại'}
+                      </button>
+                      <button type="button" onClick={() => props.deleteTask(task)}
+                        className="flex h-7 items-center gap-1 rounded-lg bg-[var(--danger-soft)] px-2.5 text-[11px] font-bold text-[var(--danger)]">
+                        <Ico d={IC.trash} size={12}/>Xóa
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -8774,6 +8940,40 @@ function RecurringView(props: {
         </Card>
       </div>
 
+      {/* Modal: Mở chi tiết */}
+      {detailTask && (
+        <ScheduleDetailModal
+          task={detailTask}
+          employeeMap={props.employeeMap}
+          departmentMap={props.departmentMap}
+          meetingFiles={props.meetingFiles.filter((f) => f.recurring_task_id === detailTask.id)}
+          relatedTasks={props.allTasks.filter((t) => (detailTask.related_task_ids || []).includes(t.id))}
+          now={props.now}
+          close={() => setDetailTask(null)}
+        />
+      )}
+
+      {/* Modal: Chuẩn bị họp */}
+      {prepTask && (
+        <MeetingPrepModal
+          task={prepTask}
+          employeeMap={props.employeeMap}
+          updateTaskPatch={props.updateTaskPatch}
+          close={() => setPrepTask(null)}
+        />
+      )}
+
+      {/* Modal: Gắn đầu việc */}
+      {linkTask && (
+        <LinkTaskModal
+          task={linkTask}
+          allTasks={props.allTasks}
+          updateTaskPatch={props.updateTaskPatch}
+          close={() => setLinkTask(null)}
+        />
+      )}
+
+      {/* ───────── Hồ sơ họp (archive panel) ───────── */}
       {meetingArchiveOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/30">
           <button type="button" className="flex-1" onClick={() => setMeetingArchiveOpen(false)} aria-label="Đóng hồ sơ họp" />
@@ -8971,6 +9171,7 @@ function RecurringView(props: {
     </div>
   )
 }
+
 
 function RecurringMeetingSummary({ description, compact = false }: { description: string; compact?: boolean }) {
   const parts = parseMeetingDescription(description)
