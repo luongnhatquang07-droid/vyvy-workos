@@ -573,6 +573,11 @@ type MeetingSession = {
   created_by: string | null
   created_at: string
   updated_at: string
+  // Reschedule fields (migration 010)
+  original_occurred_at?: string | null   // original date before rescheduling
+  original_start_time?: string | null    // original start time before rescheduling
+  reschedule_reason?: string | null
+  rescheduled_by?: string | null
 }
 
 const SESSION_STATUS_LABEL: Record<MeetingSession['status'], string> = {
@@ -4591,6 +4596,7 @@ export default function Home() {
                   uploadMeetingFile={uploadRecurringMeetingFile}
                   deleteMeetingFile={deleteRecurringMeetingFile}
                   uploadingMeetingFileFor={uploadingMeetingFileFor}
+                  currentEmployeeId={currentEmployee?.id ?? null}
                 />
               )}
 
@@ -9893,6 +9899,186 @@ function MeetingPrepModal(p: {
   )
 }
 
+function RescheduleMeetingModal(p: {
+  task: RecurringTask
+  now: Date
+  meetingSessions: MeetingSession[]
+  employeeMap: Map<string, Employee>
+  currentEmployeeId: string | null
+  updateTaskPatch: (taskId: string, patch: Partial<RecurringTask>) => Promise<void>
+  onSessionSaved: () => Promise<void>
+  close: () => void
+}) {
+  const occ = nextOccurrence(p.task, p.now)
+  const occStr = occ.toISOString().slice(0, 10)
+
+  // Existing rescheduled session for this occurrence (if any)
+  const existingSession = p.meetingSessions.find(
+    (s) => s.original_occurred_at === occStr && s.occurred_at !== occStr
+  ) || null
+
+  const [scope, setScope] = useState<'single' | 'recurring'>('single')
+  const [newDate, setNewDate] = useState(existingSession?.occurred_at ?? occStr)
+  const [newTime, setNewTime] = useState(
+    existingSession?.start_time?.slice(0, 5) ?? p.task.time_of_day?.slice(0, 5) ?? ''
+  )
+  const [reason, setReason] = useState(existingSession?.reschedule_reason ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const [y, m, d] = occStr.split('-')
+  const occLabel = `${d}/${m}/${y}`
+
+  async function handleSave() {
+    if (!newDate) { setError('Vui lòng chọn ngày mới.'); return }
+    if (newDate === occStr && newTime === (p.task.time_of_day?.slice(0, 5) ?? '') && scope === 'single') {
+      setError('Ngày/giờ mới phải khác ngày gốc.'); return
+    }
+    setSaving(true); setError(null)
+    try {
+      if (scope === 'single') {
+        // Upsert meeting_sessions record for this occurrence
+        const payload: Record<string, unknown> = {
+          schedule_id: p.task.id,
+          occurred_at: newDate,
+          start_time: newTime || null,
+          original_occurred_at: occStr,
+          original_start_time: p.task.time_of_day || null,
+          reschedule_reason: reason || null,
+          rescheduled_by: p.currentEmployeeId || null,
+          status: 'planned',
+        }
+        if (existingSession) {
+          await supabase.from('meeting_sessions').update(payload).eq('id', existingSession.id)
+        } else {
+          await supabase.from('meeting_sessions').insert(payload)
+        }
+
+        // Notify participants (host + participant_ids from recurring_task)
+        const recipientIds: string[] = []
+        if (p.task.host_id) recipientIds.push(p.task.host_id)
+        for (const pid of (p.task.participant_ids || [])) {
+          if (!recipientIds.includes(pid)) recipientIds.push(pid)
+        }
+        const [ny, nm, nd] = newDate.split('-')
+        const notifRows = recipientIds
+          .filter((id) => id !== p.currentEmployeeId)
+          .map((id) => ({
+            recipient_id: id,
+            type: 'meeting_rescheduled',
+            title: `Lịch họp "${p.task.title}" đã dời`,
+            body: `Dời từ ${occLabel} → ${nd}/${nm}/${ny}${reason ? ` · ${reason}` : ''}`,
+            actor_id: p.currentEmployeeId,
+          }))
+        if (notifRows.length > 0) await pushNotify(notifRows)
+
+        await p.onSessionSaved()
+        p.close()
+      } else {
+        // Change recurring schedule
+        if (!window.confirm(`Đổi lịch định kỳ "${p.task.title}" từ nay về sau? Tất cả buổi chưa tổ chức sẽ theo lịch mới.`)) {
+          setSaving(false); return
+        }
+        // Compute new weekday from newDate
+        const newDateObj = new Date(newDate + 'T12:00:00')
+        const newWeekday = newDateObj.getDay()
+        const newMonthDay = newDateObj.getDate()
+        const patch: Partial<RecurringTask> = { time_of_day: newTime || p.task.time_of_day }
+        if (p.task.frequency === 'weekly') patch.weekday = newWeekday
+        if (p.task.frequency === 'monthly') patch.month_day = newMonthDay
+        await p.updateTaskPatch(p.task.id, patch)
+        p.close()
+      }
+    } catch {
+      setError('Có lỗi khi lưu. Vui lòng thử lại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={p.close}>
+      <div className="w-full max-w-md rounded-2xl bg-[var(--bg-card)] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <p className="font-display text-sm font-bold">Dời cuộc họp</p>
+            <p className="mt-0.5 text-xs text-[var(--text-muted)] truncate">{p.task.title}</p>
+          </div>
+          <button type="button" onClick={p.close} className="rounded-lg p-1.5 hover:bg-[var(--bg-surface)]"><Ico d={IC.x} size={16}/></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Current info */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs space-y-1">
+            <p className="font-bold text-amber-800">Lịch gốc buổi sắp tới</p>
+            <p className="text-amber-700">Ngày: <b>{occLabel}</b></p>
+            {p.task.time_of_day && <p className="text-amber-700">Giờ: <b>{p.task.time_of_day.slice(0, 5)}</b></p>}
+          </div>
+
+          {/* Scope selector */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-[var(--text-secondary)]">Phạm vi dời</p>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input type="radio" className="mt-0.5" checked={scope === 'single'} onChange={() => setScope('single')} />
+              <div>
+                <p className="text-xs font-bold">Chỉ dời buổi này</p>
+                <p className="text-[10px] text-[var(--text-muted)]">Chỉ buổi ngày {occLabel} bị dời; các buổi sau không đổi.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input type="radio" className="mt-0.5" checked={scope === 'recurring'} onChange={() => setScope('recurring')} />
+              <div>
+                <p className="text-xs font-bold">Đổi lịch định kỳ từ nay về sau</p>
+                <p className="text-[10px] text-[var(--text-muted)]">Cập nhật lịch {p.task.frequency === 'weekly' ? 'ngày trong tuần' : p.task.frequency === 'monthly' ? 'ngày trong tháng' : 'giờ'} cho toàn bộ lịch định kỳ.</p>
+              </div>
+            </label>
+          </div>
+
+          {/* New date + time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-[var(--text-secondary)] mb-1 block">Ngày mới *</label>
+              <input type="date" className="vyvy-input w-full text-sm" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-[var(--text-secondary)] mb-1 block">Giờ mới</label>
+              <input type="time" className="vyvy-input w-full text-sm" value={newTime} onChange={(e) => setNewTime(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Reason */}
+          {scope === 'single' && (
+            <div>
+              <label className="text-[10px] font-bold text-[var(--text-secondary)] mb-1 block">Lý do dời lịch</label>
+              <textarea
+                className="vyvy-input w-full text-sm resize-none"
+                rows={3}
+                placeholder="VD: Họp khẩn cần ưu tiên, phòng họp bận..."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+          )}
+
+          {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={p.close}
+              className="h-9 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 text-xs font-bold hover:bg-[var(--border)]">
+              Huỷ
+            </button>
+            <button type="button" onClick={() => void handleSave()} disabled={saving}
+              className="h-9 rounded-xl bg-amber-600 px-5 text-xs font-extrabold text-white hover:bg-amber-700 disabled:opacity-60">
+              {saving ? 'Đang lưu...' : 'Xác nhận dời lịch'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LinkTaskModal(p: {
   task: RecurringTask
   allTasks: Task[]
@@ -9976,6 +10162,7 @@ function RecurringView(props: {
   uploadMeetingFile: (task: RecurringTask, file?: File) => void
   deleteMeetingFile: (file: RecurringMeetingFile) => void
   uploadingMeetingFileFor: string
+  currentEmployeeId?: string | null
 }) {
   const [meetingArchiveOpen, setMeetingArchiveOpen] = useState(false)
   const [meetingArchiveQuery, setMeetingArchiveQuery] = useState('')
@@ -9985,6 +10172,7 @@ function RecurringView(props: {
   const [openMenuTaskId, setOpenMenuTaskId] = useState<string | null>(null)
   const [addSessionTask, setAddSessionTask] = useState<RecurringTask | null>(null)
   const [viewSession, setViewSession] = useState<MeetingSession | null>(null)
+  const [rescheduleTask, setRescheduleTask] = useState<RecurringTask | null>(null)
 
   const activeTasks = props.tasks.filter((task) => task.is_active)
   const upcoming = [...props.tasks].sort(
@@ -10073,6 +10261,13 @@ function RecurringView(props: {
                   .filter((s) => s.schedule_id === task.id)
                   .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
                 const lastSession = taskSessions[0] || null
+                const occStr = occ.toISOString().slice(0, 10)
+                const rescheduledSession = taskSessions.find(
+                  (s) => s.original_occurred_at === occStr && s.occurred_at !== occStr
+                ) || null
+                const displayOcc = rescheduledSession
+                  ? new Date(rescheduledSession.occurred_at + 'T' + (rescheduledSession.start_time || task.time_of_day || '00:00'))
+                  : occ
                 const host = props.employeeMap.get(task.host_id || '')
                 const deptIds = task.department_ids && task.department_ids.length > 0
                   ? task.department_ids
@@ -10094,6 +10289,7 @@ function RecurringView(props: {
                         <span className="shrink-0 rounded-full bg-[var(--bg-surface)] border border-[var(--border)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">{recurringKindLabel(task.kind)}</span>
                         <span className="shrink-0 rounded-full bg-[var(--bg-surface)] border border-[var(--border)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">{recurringFrequencyLabel(task)}</span>
                         {!task.is_active && <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">Tạm tắt</span>}
+                        {rescheduledSession && <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">Đã dời lịch</span>}
                       </div>
                       {/* Badge trạng thái chuẩn bị */}
                       <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${PREP_STATUS_CLS[prep]}`}>{PREP_STATUS_LABEL[prep]}</span>
@@ -10101,8 +10297,13 @@ function RecurringView(props: {
 
                     {/* ── Dòng 2: thời gian + chủ trì + phòng ban ── */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-2">
-                      <span className="font-bold text-[var(--text-secondary)]">Tiếp theo: {formatOccurrence(occ)}</span>
-                      <span className={`font-bold ${alertTone || 'text-[var(--text-muted)]'}`}>Còn {formatTimeLeft(occ, props.now)}</span>
+                      <span className="font-bold text-[var(--text-secondary)]">Tiếp theo: {formatOccurrence(displayOcc)}</span>
+                      <span className={`font-bold ${alertTone || 'text-[var(--text-muted)]'}`}>Còn {formatTimeLeft(displayOcc, props.now)}</span>
+                      {rescheduledSession && (
+                        <span className="text-amber-600 font-bold">
+                          Dời từ: {(() => { const [y,m,d] = occ.toISOString().slice(0,10).split('-'); return `${d}/${m}/${y}` })()}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-2">
                       <span className="text-[var(--text-muted)]">Chủ trì: <b className={host ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)] font-normal italic'}>{host ? host.full_name : 'Chưa có chủ trì'}</b></span>
@@ -10195,6 +10396,13 @@ function RecurringView(props: {
                                   Biên bản họp
                                 </button>
                               )}
+                              {task.kind === 'meeting' && (
+                                <button type="button"
+                                  onClick={() => { setOpenMenuTaskId(null); setRescheduleTask(task) }}
+                                  className="flex w-full items-center gap-2 px-3.5 py-2 text-xs font-bold text-amber-700 hover:bg-[var(--bg-surface)]">
+                                  Dời cuộc họp
+                                </button>
+                              )}
                               <button type="button"
                                 onClick={() => { setOpenMenuTaskId(null); setLinkTask(task) }}
                                 className="flex w-full items-center gap-2 px-3.5 py-2 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface)]">
@@ -10273,6 +10481,20 @@ function RecurringView(props: {
           allTasks={props.allTasks}
           updateTaskPatch={props.updateTaskPatch}
           close={() => setLinkTask(null)}
+        />
+      )}
+
+      {/* Modal: Dời cuộc họp */}
+      {rescheduleTask && (
+        <RescheduleMeetingModal
+          task={rescheduleTask}
+          now={props.now}
+          meetingSessions={props.meetingSessions.filter((s) => s.schedule_id === rescheduleTask.id)}
+          employeeMap={props.employeeMap}
+          currentEmployeeId={props.currentEmployeeId ?? null}
+          updateTaskPatch={props.updateTaskPatch}
+          onSessionSaved={props.onSessionSaved}
+          close={() => setRescheduleTask(null)}
         />
       )}
 
