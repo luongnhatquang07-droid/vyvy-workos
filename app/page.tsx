@@ -78,10 +78,18 @@ async function pushNotify(rows: Array<{
 }>) {
   const valid = rows.filter((r) => r.recipient_id)
   if (valid.length === 0) return
-  const { error } = await supabase.from('notifications').insert(valid.map((r) => ({ type: 'info', ...r })))
-  if (error) {
-    console.error('pushNotify failed:', error.message)
-    toast('Không gửi được thông báo — bảng notifications chưa tạo. Chạy supabase_notifications.sql trong Supabase Dashboard.', 'error')
+  try {
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(valid.map((r) => ({ type: 'info', ...r }))),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error('pushNotify failed:', err)
+    }
+  } catch (e) {
+    console.error('pushNotify error:', e)
   }
 }
 
