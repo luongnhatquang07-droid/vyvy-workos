@@ -1915,20 +1915,21 @@ export default function Home() {
 
     if (error) {
       console.error(error)
-      const errorMessage = error.message || ''
-      if (errorMessage.includes('recurring_tasks') || errorMessage.includes('recipient_ids')) {
-        const localId = recurringForm.id || `local-recurring-${Date.now()}`
-        const localTask = recurringTaskFromForm(localId)
-        setRecurringTasks((prev) => {
-          const exists = prev.some((task) => task.id === localId)
-          return exists ? prev.map((task) => (task.id === localId ? localTask : task)) : [localTask, ...prev]
-        })
-        toast('Đã cập nhật trên màn hình. Chạy SQL Supabase để lưu vĩnh viễn.', 'warning')
-        resetRecurringForm()
-        setRecurringPanelOpen(false)
-        return
+      // Khi DB lỗi (cột chưa có, RLS chặn, v.v.) — luôn optimistic update local state
+      const localId = recurringForm.id || `local-recurring-${Date.now()}`
+      const localTask = recurringTaskFromForm(localId)
+      setRecurringTasks((prev) => {
+        const exists = prev.some((task) => task.id === localId)
+        return exists ? prev.map((task) => (task.id === localId ? localTask : task)) : [localTask, ...prev]
+      })
+      const errorMessage = (error as { message?: string }).message || ''
+      if (errorMessage.includes('does not exist') || errorMessage.includes('column') || !errorMessage) {
+        toast('Đã cập nhật trên màn hình. Cần chạy SQL 011 trong Supabase để lưu vĩnh viễn.', 'warning')
+      } else {
+        toast(`Lưu lỗi: ${errorMessage || 'Lỗi không xác định'}. Đã cập nhật tạm trên màn hình.`, 'warning')
       }
-      toast('Lưu việc định kỳ bị lỗi. Kiểm tra bảng recurring_tasks trong Supabase.', 'error')
+      resetRecurringForm()
+      setRecurringPanelOpen(false)
       return
     }
 
