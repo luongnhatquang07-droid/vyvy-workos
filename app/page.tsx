@@ -4676,6 +4676,9 @@ export default function Home() {
                   employeeMap={employeeMap}
                   currentEmployee={currentEmployee}
                   onOpenTask={(task) => setSelectedTask(task)}
+                  recurringTasks={recurringTasks}
+                  meetingSessions={meetingSessions}
+                  onOpenRecurring={() => setView('recurring')}
                 />
               )}
 
@@ -9926,6 +9929,14 @@ function RescheduleMeetingModal(p: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Compute recipient list to show warning
+  const notifRecipients: string[] = []
+  if (p.task.host_id) notifRecipients.push(p.task.host_id)
+  for (const pid of (p.task.participant_ids || [])) {
+    if (!notifRecipients.includes(pid)) notifRecipients.push(pid)
+  }
+  const hasNoRecipients = notifRecipients.filter(id => id !== p.currentEmployeeId).length === 0
+
   const [y, m, d] = occStr.split('-')
   const occLabel = `${d}/${m}/${y}`
 
@@ -10058,6 +10069,12 @@ function RescheduleMeetingModal(p: {
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
+            </div>
+          )}
+
+          {scope === 'single' && hasNoRecipients && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+              ⚠️ Cuộc họp chưa có chủ trì/người tham gia nên chưa gửi thông báo cho ai. Thêm chủ trì trong <b>Sửa lịch</b> để kích hoạt thông báo.
             </div>
           )}
 
@@ -14703,6 +14720,9 @@ function CalendarView(props: {
   employeeMap: Map<string, Employee>
   currentEmployee: Employee | null
   onOpenTask: (task: Task) => void
+  recurringTasks?: RecurringTask[]
+  meetingSessions?: MeetingSession[]
+  onOpenRecurring?: (task: RecurringTask) => void
 }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -14727,6 +14747,77 @@ function CalendarView(props: {
     })
     return m
   }, [props.tasks])
+
+  type MeetingCalEvent = { rt: RecurringTask; session?: MeetingSession; rescheduled?: boolean }
+
+  // Build map: 'YYYY-MM-DD' -> MeetingCalEvent[]
+  // Computed when cursor/mode changes (depends on visible day range)
+  const meetingEventsByDate = useMemo(() => {
+    const m = new Map<string, MeetingCalEvent[]>()
+    const rts = props.recurringTasks || []
+    const sessions = props.meetingSessions || []
+    if (rts.length === 0) return m
+
+    function dayKey(d: Date) {
+      const y = d.getFullYear()
+      const mo = String(d.getMonth() + 1).padStart(2, '0')
+      const da = String(d.getDate()).padStart(2, '0')
+      return `${y}-${mo}-${da}`
+    }
+    function addEvt(k: string, ev: MeetingCalEvent) {
+      if (!m.has(k)) m.set(k, [])
+      m.get(k)!.push(ev)
+    }
+
+    // Map: scheduleId:originalDate -> rescheduled MeetingSession
+    const rescheduledMap = new Map<string, MeetingSession>()
+    sessions.forEach(s => {
+      if (s.original_occurred_at && s.occurred_at !== s.original_occurred_at) {
+        rescheduledMap.set(`${s.schedule_id}:${s.original_occurred_at}`, s)
+      }
+    })
+
+    // Compute visible date range for current mode
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
+    const last  = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+    // Pad to full calendar grid (42 cells, Monday-first) + extra week buffer
+    const startPad = first.getDay() === 0 ? 6 : first.getDay() - 1
+    const startDate = new Date(first); startDate.setDate(startDate.getDate() - startPad)
+    const endDate   = new Date(last);  endDate.setDate(endDate.getDate() + (42 - last.getDate() - startPad + 1))
+
+    rts.filter(rt => rt.is_active && rt.kind === 'meeting').forEach(rt => {
+      // Walk every day in visible range
+      const cur = new Date(startDate)
+      while (cur <= endDate) {
+        let occurs = false
+        if (rt.frequency === 'weekly' && rt.weekday !== null) {
+          occurs = cur.getDay() === rt.weekday
+        } else if (rt.frequency === 'monthly' && rt.month_day !== null) {
+          occurs = cur.getDate() === rt.month_day
+        } else if (rt.frequency === 'daily') {
+          occurs = true
+        }
+        if (occurs) {
+          const k = dayKey(cur)
+          const rescheduled = rescheduledMap.get(`${rt.id}:${k}`)
+          if (rescheduled) {
+            // Skip original date — will appear at new date below
+          } else {
+            addEvt(k, { rt })
+          }
+        }
+        cur.setDate(cur.getDate() + 1)
+      }
+
+      // Add rescheduled sessions at their NEW date
+      sessions
+        .filter(s => s.schedule_id === rt.id && s.original_occurred_at && s.occurred_at !== s.original_occurred_at)
+        .forEach(s => { addEvt(s.occurred_at, { rt, session: s, rescheduled: true }) })
+    })
+
+    return m
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.recurringTasks, props.meetingSessions, cursor, mode])
 
   const STATUS_COLOR: Record<string, string> = {
     completed:  'bg-[var(--success-soft)] text-[var(--success)] border border-[var(--success)]/20',
@@ -14805,14 +14896,18 @@ function CalendarView(props: {
     else setCursor(addDays(cursor, 1))
   }
 
-  const selectedTasks = selectedDay ? (tasksByDate.get(fmtKey(selectedDay)) || []) : null
+  const selectedTasks    = selectedDay ? (tasksByDate.get(fmtKey(selectedDay)) || []) : null
+  const selectedMeetings = selectedDay ? (meetingEventsByDate.get(fmtKey(selectedDay)) || []) : null
 
   function DayCell({ day, inMonth }: { day: Date; inMonth: boolean }) {
     const key = fmtKey(day)
-    const dayTasks = tasksByDate.get(key) || []
+    const dayTasks    = tasksByDate.get(key) || []
+    const dayMeetings = meetingEventsByDate.get(key) || []
     const isToday = isSameDay(day, today)
     const isSel = selectedDay && isSameDay(day, selectedDay)
     const MAX_SHOW = 2
+    const totalEvents = dayTasks.length + dayMeetings.length
+    const shownMeetings = dayMeetings.slice(0, Math.max(0, MAX_SHOW - dayTasks.slice(0, MAX_SHOW).length))
     return (
       <div
         onClick={() => setSelectedDay(isSel ? null : day)}
@@ -14827,17 +14922,24 @@ function CalendarView(props: {
               {t.title}
             </div>
           ))}
-          {dayTasks.length > MAX_SHOW && (
-            <div className="text-[10px] text-[var(--text-muted)] pl-1">+{dayTasks.length - MAX_SHOW} việc</div>
+          {shownMeetings.map((ev, i) => (
+            <div key={`m-${i}`} onClick={(e) => { e.stopPropagation(); props.onOpenRecurring?.(ev.rt) }}
+              className={`truncate rounded px-1 py-0.5 text-[10px] font-bold cursor-pointer ${ev.rescheduled ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+              {ev.rescheduled ? '↔ ' : '◆ '}{ev.rt.title}
+            </div>
+          ))}
+          {totalEvents > MAX_SHOW && (
+            <div className="text-[10px] text-[var(--text-muted)] pl-1">+{totalEvents - MAX_SHOW} thêm</div>
           )}
         </div>
       </div>
     )
   }
 
-  const monthDays = mode === 'month' ? getMonthDays(cursor) : []
-  const weekDays  = mode === 'week'  ? getWeekDays(cursor)  : []
-  const dayTasks  = mode === 'day'   ? (tasksByDate.get(fmtKey(cursor)) || []) : []
+  const monthDays   = mode === 'month' ? getMonthDays(cursor) : []
+  const weekDays    = mode === 'week'  ? getWeekDays(cursor)  : []
+  const dayTasks    = mode === 'day'   ? (tasksByDate.get(fmtKey(cursor)) || []) : []
+  const dayMeetings = mode === 'day'   ? (meetingEventsByDate.get(fmtKey(cursor)) || []) : []
 
   return (
     <div className="space-y-4">
@@ -14874,6 +14976,8 @@ function CalendarView(props: {
           { label: 'Pending', cls: 'bg-[var(--warning)]' },
           { label: 'Chưa bắt đầu', cls: 'bg-[var(--bg-surface)] border border-[var(--border)]' },
           { label: 'Trễ deadline', cls: 'bg-[var(--danger)]' },
+          { label: 'Cuộc họp', cls: 'bg-blue-100 border border-blue-200' },
+          { label: 'Họp đã dời', cls: 'bg-amber-100 border border-amber-200' },
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1.5">
             <span className={`w-3 h-3 rounded-sm inline-block ${l.cls}`}/>
@@ -14921,12 +15025,27 @@ function CalendarView(props: {
             <span className={`text-sm font-bold px-3 py-1 rounded-lg ${isSameDay(cursor, today) ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'bg-[var(--bg-surface)]'}`}>
               {DOW_LABELS[(cursor.getDay() + 6) % 7]} — {cursor.getDate()}/{cursor.getMonth()+1}/{cursor.getFullYear()}
             </span>
-            <span className="text-xs text-[var(--text-muted)]">{dayTasks.length} đầu việc</span>
+            <span className="text-xs text-[var(--text-muted)]">{dayTasks.length} đầu việc{dayMeetings.length > 0 ? ` · ${dayMeetings.length} cuộc họp` : ''}</span>
           </div>
-          {dayTasks.length === 0 ? (
-            <p className="text-sm text-[var(--text-muted)] text-center py-8">Không có đầu việc nào hôm này.</p>
+          {dayTasks.length === 0 && dayMeetings.length === 0 ? (
+            <p className="text-sm text-[var(--text-muted)] text-center py-8">Không có đầu việc hay cuộc họp nào hôm này.</p>
           ) : (
             <div className="space-y-2">
+              {dayMeetings.map((ev, i) => (
+                <div key={`m-${i}`} onClick={() => props.onOpenRecurring?.(ev.rt)}
+                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer hover:opacity-80 ${ev.rescheduled ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'}`}>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${ev.rescheduled ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {ev.rescheduled ? 'Đã dời' : 'Cuộc họp'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{ev.rt.title}</p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {ev.session?.start_time?.slice(0,5) || ev.rt.time_of_day?.slice(0,5)}
+                      {ev.rescheduled && ev.session?.original_occurred_at && ` · Dời từ ${ev.session.original_occurred_at.split('-').reverse().join('/')}`}
+                    </p>
+                  </div>
+                </div>
+              ))}
               {dayTasks.map(t => (
                 <div key={t.id} onClick={() => props.onOpenTask(t)}
                   className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 cursor-pointer hover:border-[var(--olive)]/50 hover:bg-[var(--bg-hover)]">
@@ -14951,22 +15070,40 @@ function CalendarView(props: {
       )}
 
       {/* Selected day task list (month/week only) */}
-      {selectedDay && selectedTasks && (mode === 'month' || mode === 'week') && (
+      {selectedDay && (selectedTasks || selectedMeetings) && (mode === 'month' || mode === 'week') && (
         <div className="rounded-2xl border border-[var(--olive)]/30 bg-[var(--bg-card)] p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-extrabold">
               {selectedDay.getDate()}/{selectedDay.getMonth()+1}/{selectedDay.getFullYear()}
-              <span className="font-normal text-[var(--text-muted)] ml-2">— {selectedTasks.length} đầu việc</span>
+              <span className="font-normal text-[var(--text-muted)] ml-2">
+                — {(selectedTasks?.length || 0)} đầu việc{(selectedMeetings?.length || 0) > 0 ? ` · ${selectedMeetings!.length} cuộc họp` : ''}
+              </span>
             </h3>
             <button onClick={() => setSelectedDay(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
               <Ico d={IC.x} size={16}/>
             </button>
           </div>
-          {selectedTasks.length === 0 ? (
-            <p className="text-sm text-[var(--text-muted)]">Không có đầu việc nào ngày này.</p>
+          {(selectedTasks?.length || 0) === 0 && (selectedMeetings?.length || 0) === 0 ? (
+            <p className="text-sm text-[var(--text-muted)]">Không có đầu việc hay cuộc họp nào ngày này.</p>
           ) : (
             <div className="space-y-2">
-              {selectedTasks.map(t => (
+              {(selectedMeetings || []).map((ev, i) => (
+                <div key={`m-${i}`} onClick={() => props.onOpenRecurring?.(ev.rt)}
+                  className={`flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer hover:opacity-80 ${ev.rescheduled ? 'border-amber-200 bg-amber-50' : 'border-blue-200 bg-blue-50'}`}>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${ev.rescheduled ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                    {ev.rescheduled ? 'Đã dời' : 'Cuộc họp'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate">{ev.rt.title}</p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {ev.session?.start_time?.slice(0,5) || ev.rt.time_of_day?.slice(0,5)}
+                      {ev.rescheduled && ev.session?.original_occurred_at && ` · Dời từ ${ev.session.original_occurred_at.split('-').reverse().join('/')}`}
+                      {ev.session?.reschedule_reason && ` · ${ev.session.reschedule_reason}`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {(selectedTasks || []).map(t => (
                 <div key={t.id} onClick={() => props.onOpenTask(t)}
                   className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] px-4 py-3 cursor-pointer hover:border-[var(--olive)]/50 hover:bg-[var(--bg-hover)]">
                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${taskColor(t)}`}>
