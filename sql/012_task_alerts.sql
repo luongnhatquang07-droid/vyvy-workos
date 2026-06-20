@@ -28,6 +28,9 @@ CREATE INDEX IF NOT EXISTS idx_task_alerts_status    ON public.task_alerts(statu
 CREATE INDEX IF NOT EXISTS idx_task_alerts_entity_id ON public.task_alerts(entity_id);
 CREATE INDEX IF NOT EXISTS idx_task_alerts_type      ON public.task_alerts(alert_type);
 
+-- Grant permissions cho anon và authenticated roles
+GRANT ALL ON public.task_alerts TO anon, authenticated;
+
 -- RLS: cho phép anon đọc/ghi (khớp pattern các bảng khác)
 ALTER TABLE public.task_alerts ENABLE ROW LEVEL SECURITY;
 

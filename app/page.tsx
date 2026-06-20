@@ -917,6 +917,9 @@ type TaskAlert = {
 }
 
 function notificationVisual(n: AppNotification) {
+  if (n.type === 'coo_alert') {
+    return { label: 'Cảnh báo', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]', dot: 'bg-[var(--danger)]' }
+  }
   const text = `${n.type || ''} ${n.title || ''} ${n.body || ''}`.toLowerCase()
   if (text.includes('gia hạn') || text.includes('deadline')) {
     return { label: 'Deadline', cls: 'bg-[var(--warning-soft)] text-[var(--warning)]', dot: 'bg-[var(--warning)]' }
@@ -935,9 +938,6 @@ function notificationVisual(n: AppNotification) {
   }
   if (n.type === 'recurring_reminder') {
     return { label: 'Định kỳ', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--olive)]' }
-  }
-  if (n.type === 'coo_alert') {
-    return { label: 'Cảnh báo', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]', dot: 'bg-[var(--danger)]' }
   }
   return { label: 'Thông báo', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--text-muted)]' }
 }
@@ -1447,7 +1447,7 @@ export default function Home() {
   }, [])
 
   const fetchEmployees = useCallback(async () => {
-    const { data, error } = await supabase.from('employees').select('id, full_name, email, position, department_id').order('full_name')
+    const { data, error } = await supabase.from('employees').select('id, full_name, email, position, department_id, role').order('full_name')
     if (error) {
       console.error(error)
       setEmployees([])
@@ -1579,6 +1579,21 @@ export default function Home() {
     const tomorrowStr = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
+    // issue_status severity map (values: normal, watch, slow, problem)
+    const ISSUE_SEVERITY: Record<string, 'critical' | 'warning' | 'info'> = {
+      problem: 'critical', slow: 'warning', watch: 'info',
+    }
+    const ISSUE_LABEL: Record<string, string> = {
+      problem: 'Có vấn đề', slow: 'Đang chậm', watch: 'Cần theo dõi',
+    }
+
+    // Index reports by task_id and steps by task_id for missing_file detection
+    const reportTaskIds = new Set(reports.map((r) => r.task_id))
+    const doneStepsByTask = new Map<string, number>()
+    for (const s of steps) {
+      if (s.is_done) doneStepsByTask.set(s.task_id, (doneStepsByTask.get(s.task_id) ?? 0) + 1)
+    }
+
     type AlertCandidate = {
       key: string; alert_type: string; entity_type: string; entity_id: string
       severity: 'critical' | 'warning' | 'info'; title: string; body: string; task_id: string
@@ -1603,8 +1618,11 @@ export default function Home() {
         detected.push({ key: `extension_pending:task:${task.id}`, alert_type: 'extension_pending', entity_type: 'task', entity_id: task.id, severity: 'warning', title: `Đang xin gia hạn: ${task.title}`, body: 'Đề xuất gia hạn đang chờ duyệt', task_id: task.id })
       }
 
-      if (task.issue_status && task.issue_status !== 'none' && task.issue_status !== '') {
-        detected.push({ key: `has_issue:task:${task.id}`, alert_type: 'has_issue', entity_type: 'task', entity_id: task.id, severity: 'critical', title: `Có vướng mắc: ${task.title}`, body: task.issue_status, task_id: task.id })
+      // has_issue: only when issue_status is watch/slow/problem (NOT normal/none/empty)
+      const issueLevel = task.issue_status && ISSUE_SEVERITY[task.issue_status]
+      if (issueLevel) {
+        const issueLabel = ISSUE_LABEL[task.issue_status!] || task.issue_status!
+        detected.push({ key: `has_issue:task:${task.id}`, alert_type: 'has_issue', entity_type: 'task', entity_id: task.id, severity: issueLevel, title: `${issueLabel}: ${task.title}`, body: issueLabel, task_id: task.id })
       }
 
       if (!task.assignee_id && (!task.head_ids || task.head_ids.length === 0) && !task.head_id && task.task_level === 'workstream') {
@@ -1613,6 +1631,12 @@ export default function Home() {
 
       if (task.status === 'not_started' && task.created_at && task.created_at.slice(0, 10) <= sevenDaysAgo && task.task_level === 'workstream') {
         detected.push({ key: `no_progress:task:${task.id}`, alert_type: 'no_progress', entity_type: 'task', entity_id: task.id, severity: 'info', title: `Chưa bắt đầu sau 7 ngày: ${task.title}`, body: '', task_id: task.id })
+      }
+
+      // missing_file: workstream đã có bước hoàn thành nhưng chưa có file báo cáo
+      const doneCount = doneStepsByTask.get(task.id) ?? 0
+      if (doneCount > 0 && !reportTaskIds.has(task.id) && task.task_level === 'workstream') {
+        detected.push({ key: `missing_file:task:${task.id}`, alert_type: 'missing_file', entity_type: 'task', entity_id: task.id, severity: 'info', title: `Chưa có file báo cáo: ${task.title}`, body: `${doneCount} bước đã xong nhưng chưa upload file`, task_id: task.id })
       }
     }
 
@@ -1647,10 +1671,11 @@ export default function Home() {
       }
 
       if (toNotify.length > 0) {
-        const notifyNow = new Date().toISOString()
-        await supabase.from('task_alerts').update({ last_notified_at: notifyNow }).in('alert_key', toNotify.map((a) => a.key))
         const cooEmps = employees.filter((e) => ['admin', 'coo', 'ceo'].includes((e.role || '').toLowerCase()))
+        // Chỉ set last_notified_at khi thực sự gửi được — tránh race khi employees chưa load
         if (cooEmps.length > 0) {
+          const notifyNow = new Date().toISOString()
+          await supabase.from('task_alerts').update({ last_notified_at: notifyNow }).in('alert_key', toNotify.map((a) => a.key))
           await pushNotify(
             toNotify.flatMap((a) =>
               cooEmps.map((emp) => ({ recipient_id: emp.id, type: 'coo_alert', title: a.title, body: a.body || undefined, task_id: a.task_id }))
@@ -1662,7 +1687,7 @@ export default function Home() {
       // table chưa được tạo — in-memory only, bỏ qua lỗi DB
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, employees])
+  }, [tasks, employees, steps, reports])
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => { fetchAll() }, 0)
@@ -1834,17 +1859,20 @@ export default function Home() {
     return () => window.clearInterval(t)
   }, [])
 
+  // Ref để tránh stale closure — luôn trỏ đến phiên bản runCooAlertScan mới nhất
+  const runScanRef = useRef<(() => Promise<void>) | null>(null)
+  useEffect(() => { runScanRef.current = runCooAlertScan }, [runCooAlertScan])
+
   // COO Alert scan mỗi 15 phút
   useEffect(() => {
-    const t = window.setInterval(() => { if (tasks.length > 0) runCooAlertScan() }, 15 * 60_000)
+    const t = window.setInterval(() => { if (tasks.length > 0) runScanRef.current?.() }, 15 * 60_000)
     return () => window.clearInterval(t)
-  }, [runCooAlertScan, tasks.length])
+  }, [tasks.length])
 
-  // Scan ngay khi vào COO board và dữ liệu đã load
+  // Scan khi vào COO board hoặc khi tasks load xong lần đầu
   useEffect(() => {
-    if (view === 'coo' && tasks.length > 0) runCooAlertScan()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view])
+    if (view === 'coo' && tasks.length > 0) runScanRef.current?.()
+  }, [view, tasks.length])
 
   useEffect(() => {
     const refreshWhenActive = () => fetchAllRef.current?.({ silent: true })
@@ -4315,7 +4343,7 @@ export default function Home() {
           <div className="flex shrink-0 items-center gap-2">
             <div className="relative">
               <button type="button"
-                onClick={() => setInboxOpen((v) => !v)}
+                onClick={() => { setInboxOpen((v) => !v); fetchNotifications() }}
                 title="Thông báo & chờ duyệt"
                 className="relative rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-2.5 hover:bg-[var(--bg-surface)]"
               >
