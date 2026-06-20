@@ -5403,7 +5403,6 @@ function CooBoard(props: {
   useEffect(() => {
     const id = props.selectedProjectId
     if (!id || id === 'all') return
-    // Expand tất cả workstream của project này
     const wsList = props.workstreams.filter((ws) => ws.project_id === id)
     if (wsList.length > 0) {
       setExpandedWorkstreams((prev) => {
@@ -5412,9 +5411,14 @@ function CooBoard(props: {
         return s
       })
     }
-    // Scroll về đầu sau một tick
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.workstreams])
+
+  // Scroll về đầu CHỈ khi selectedProjectId thay đổi (không trigger khi data refresh)
+  useEffect(() => {
+    if (!props.selectedProjectId || props.selectedProjectId === 'all') return
     setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
-  }, [props.selectedProjectId, props.workstreams])
+  }, [props.selectedProjectId])
 
   // Deep-link: expand dúng workstream + scroll + highlight item
   useEffect(() => {
