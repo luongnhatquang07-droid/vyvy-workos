@@ -9929,12 +9929,15 @@ function RescheduleMeetingModal(p: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Compute recipient list to show warning
+  // Compute recipient list — use all available person fields
   const notifRecipients: string[] = []
-  if (p.task.host_id) notifRecipients.push(p.task.host_id)
-  for (const pid of (p.task.participant_ids || [])) {
-    if (!notifRecipients.includes(pid)) notifRecipients.push(pid)
+  const addRecip = (...ids: (string | null | undefined)[]) => {
+    ids.forEach(id => { if (id && !notifRecipients.includes(id)) notifRecipients.push(id) })
   }
+  addRecip(p.task.host_id, p.task.assignee_id)
+  ;(p.task.participant_ids || []).forEach(id => addRecip(id))
+  ;(p.task.recipient_ids || []).forEach(id => addRecip(id))
+  ;(p.task.observer_ids || []).forEach(id => addRecip(id))
   const hasNoRecipients = notifRecipients.filter(id => id !== p.currentEmployeeId).length === 0
 
   const [y, m, d] = occStr.split('-')
@@ -9965,12 +9968,15 @@ function RescheduleMeetingModal(p: {
           await supabase.from('meeting_sessions').insert(payload)
         }
 
-        // Notify participants (host + participant_ids from recurring_task)
+        // Notify all known people on this schedule
         const recipientIds: string[] = []
-        if (p.task.host_id) recipientIds.push(p.task.host_id)
-        for (const pid of (p.task.participant_ids || [])) {
-          if (!recipientIds.includes(pid)) recipientIds.push(pid)
+        const addR = (...ids: (string | null | undefined)[]) => {
+          ids.forEach(id => { if (id && !recipientIds.includes(id)) recipientIds.push(id) })
         }
+        addR(p.task.host_id, p.task.assignee_id)
+        ;(p.task.participant_ids || []).forEach(id => addR(id))
+        ;(p.task.recipient_ids || []).forEach(id => addR(id))
+        ;(p.task.observer_ids || []).forEach(id => addR(id))
         const [ny, nm, nd] = newDate.split('-')
         const notifRows = recipientIds
           .filter((id) => id !== p.currentEmployeeId)
