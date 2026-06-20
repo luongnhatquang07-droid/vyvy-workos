@@ -2350,34 +2350,34 @@ export default function Home() {
     })
   }
 
-  async function createSubtask(parent: Task) {
-    if (!subtaskForm.title.trim()) {
+  async function createSubtask(parent: Task, form: SubtaskForm) {
+    if (!form.title.trim()) {
       toast('Nhập tên đầu việc con trước.', 'warning')
       return
     }
 
     const newSubId = crypto.randomUUID()
-    const mainOwnerId = subtaskForm.assigneeId || null
-    const headId = (subtaskForm.headIds?.[0]) || subtaskForm.headId || null
+    const mainOwnerId = form.assigneeId || null
+    const headId = (form.headIds?.[0]) || form.headId || null
     const { error } = await supabase.from('tasks').insert({
       id: newSubId,
-      title: subtaskForm.title.trim(),
-      description: subtaskForm.description.trim() || null,
+      title: form.title.trim(),
+      description: form.description.trim() || null,
       parent_task_id: parent.id,
       task_level: 'subtask',
       status: 'not_started',
-      priority: subtaskForm.priority,
+      priority: form.priority,
       progress_percent: 0,
-      due_date: subtaskForm.dueDate || null,
-      department_id: subtaskForm.departmentId || employees.find((e) => e.id === headId)?.department_id || employees.find((e) => e.id === mainOwnerId)?.department_id || null,
+      due_date: form.dueDate || null,
+      department_id: form.departmentId || employees.find((e) => e.id === headId)?.department_id || employees.find((e) => e.id === mainOwnerId)?.department_id || null,
       assignee_id: mainOwnerId,
       head_id: headId,
-      head_ids: subtaskForm.headIds?.length ? subtaskForm.headIds : (headId ? [headId] : null),
-      co_owner_ids: idsWithout(subtaskForm.coOwnerIds, mainOwnerId, headId),
-      supporter_ids: idsWithout(subtaskForm.supporterIds, mainOwnerId, headId),
-      approver_ids: idsWithout(subtaskForm.reviewerIds, mainOwnerId),
-      reviewer_ids: idsWithout(subtaskForm.reviewerIds, mainOwnerId),
-      watcher_ids: idsWithout(subtaskForm.watcherIds, mainOwnerId, headId),
+      head_ids: form.headIds?.length ? form.headIds : (headId ? [headId] : null),
+      co_owner_ids: idsWithout(form.coOwnerIds, mainOwnerId, headId),
+      supporter_ids: idsWithout(form.supporterIds, mainOwnerId, headId),
+      approver_ids: idsWithout(form.reviewerIds, mainOwnerId),
+      reviewer_ids: idsWithout(form.reviewerIds, mainOwnerId),
+      watcher_ids: idsWithout(form.watcherIds, mainOwnerId, headId),
       project_id: parent.project_id || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -2389,12 +2389,12 @@ export default function Home() {
       return
     }
 
-    await commitDeadlineMeta(newSubId, subtaskForm.dueDate || null, 'manual')
+    await commitDeadlineMeta(newSubId, form.dueDate || null, 'manual')
     await notifyAssignmentRecipients(
       newSubId,
-      subtaskForm.title.trim(),
+      form.title.trim(),
       parent.project_id || null,
-      uniqueIds([mainOwnerId || ''], subtaskForm.coOwnerIds, subtaskForm.supporterIds, subtaskForm.reviewerIds),
+      uniqueIds([mainOwnerId || ''], form.coOwnerIds, form.supporterIds, form.reviewerIds),
       'phân công',
     )
 
@@ -2417,8 +2417,8 @@ export default function Home() {
     })
   }
 
-  async function createStep(taskId: string) {
-    if (!stepForm.title.trim()) {
+  async function createStep(taskId: string, form: StepForm) {
+    if (!form.title.trim()) {
       toast('Nhập tên bước trước.', 'warning')
       return
     }
@@ -2426,20 +2426,20 @@ export default function Home() {
     const currentSteps = steps.filter((step) => step.task_id === taskId)
     const nextOrder = currentSteps.length + 1
     const task = tasks.find((item) => item.id === taskId)
-    const departmentApproverId = stepForm.approverId || getDefaultDepartmentApprover(task?.department_id || null, departments, employees)
+    const departmentApproverId = form.approverId || getDefaultDepartmentApprover(task?.department_id || null, departments, employees)
     const cooApproverId = getCooApprover(employees)
     const ceoApproverId = getCeoApprover(employees)
 
     const { error } = await insertTaskStepsCompat({
       task_id: taskId,
-      step_title: stepForm.title.trim(),
-      description: stepForm.description.trim() || null,
+      step_title: form.title.trim(),
+      description: form.description.trim() || null,
       step_order: nextOrder,
       is_done: false,
-      owner_id: stepForm.ownerId || null,
-      supporter_ids: idsWithout(stepForm.supporterIds, stepForm.ownerId),
+      owner_id: form.ownerId || null,
+      supporter_ids: idsWithout(form.supporterIds, form.ownerId),
       approver_id: departmentApproverId || null,
-      approver_ids: uniqueIds(stepForm.approverIds, departmentApproverId ? [departmentApproverId] : []),
+      approver_ids: uniqueIds(form.approverIds, departmentApproverId ? [departmentApproverId] : []),
       department_approver_id: departmentApproverId || null,
       coo_approver_id: cooApproverId || null,
       ceo_approver_id: ceoApproverId || null,
@@ -2449,7 +2449,7 @@ export default function Home() {
       department_approval_status: 'not_submitted',
       coo_approval_status: 'not_required',
       ceo_approval_status: 'not_required',
-      due_date: stepForm.dueDate || null,
+      due_date: form.dueDate || null,
       approval_status: 'not_submitted',
     })
 
@@ -4443,13 +4443,11 @@ export default function Home() {
                   subtaskOpenFor={subtaskOpenFor}
                   setSubtaskOpenFor={setSubtaskOpenFor}
                   subtaskForm={subtaskForm}
-                  setSubtaskForm={setSubtaskForm}
                   createSubtask={createSubtask}
                   openStepForm={openStepForm}
                   stepOpenFor={stepOpenFor}
                   setStepOpenFor={setStepOpenFor}
                   stepForm={stepForm}
-                  setStepForm={setStepForm}
                   createStep={createStep}
                   updateTaskStatus={updateTaskStatus}
                   updateIssueStatus={updateIssueStatus}
@@ -5335,14 +5333,12 @@ function CooBoard(props: {
   subtaskOpenFor: string
   setSubtaskOpenFor: (value: string) => void
   subtaskForm: SubtaskForm
-  setSubtaskForm: (value: SubtaskForm) => void
-  createSubtask: (parent: Task) => void
+  createSubtask: (parent: Task, form: SubtaskForm) => void
   openStepForm: (task: Task) => void
   stepOpenFor: string
   setStepOpenFor: (value: string) => void
   stepForm: StepForm
-  setStepForm: (value: StepForm) => void
-  createStep: (taskId: string) => void
+  createStep: (taskId: string, form: StepForm) => void
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
@@ -5624,8 +5620,7 @@ function CooBoard(props: {
                   <div className="pl-10 pr-4 pb-3">
                     <InlineSubtaskForm
                       parent={ws}
-                      form={props.subtaskForm}
-                      setForm={props.setSubtaskForm}
+                      initialForm={props.subtaskForm}
                       departments={props.departments}
                       employees={props.employees}
                       createSubtask={props.createSubtask}
@@ -5765,7 +5760,6 @@ function CooBoard(props: {
                                   stepOpenFor={props.stepOpenFor}
                                   setStepOpenFor={props.setStepOpenFor}
                                   stepForm={props.stepForm}
-                                  setStepForm={props.setStepForm}
                                   createStep={props.createStep}
                                   updateTaskStatus={props.updateTaskStatus}
                                   updateIssueStatus={props.updateIssueStatus}
@@ -6321,13 +6315,13 @@ function CooBoard(props: {
 
 function InlineSubtaskForm(props: {
   parent: Task
-  form: SubtaskForm
-  setForm: (value: SubtaskForm) => void
+  initialForm: SubtaskForm
   departments: Department[]
   employees: Employee[]
-  createSubtask: (parent: Task) => void
+  createSubtask: (parent: Task, form: SubtaskForm) => void
   cancel: () => void
 }) {
+  const [form, setForm] = useState<SubtaskForm>(props.initialForm)
   return (
     <div className="mt-5 rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4">
       <h4 className="mb-3 font-extrabold">Tạo đầu việc con</h4>
@@ -6335,19 +6329,19 @@ function InlineSubtaskForm(props: {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Input
           placeholder="Tên đầu việc con"
-          value={props.form.title}
-          onChange={(value) => props.setForm({ ...props.form, title: value })}
+          value={form.title}
+          onChange={(value) => setForm({ ...form, title: value })}
         />
         <textarea
           rows={2}
           placeholder="Mô tả — mục tiêu, yêu cầu đầu ra..."
           className="resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--accent-hover)] xl:col-span-1"
-          value={props.form.description}
-          onChange={(e) => props.setForm({ ...props.form, description: e.target.value })}
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
         <Select
-          value={props.form.departmentId}
-          onChange={(value) => props.setForm({ ...props.form, departmentId: value })}
+          value={form.departmentId}
+          onChange={(value) => setForm({ ...form, departmentId: value })}
         >
           <option value="">Chọn phòng ban</option>
           {props.departments.map((department) => (
@@ -6359,14 +6353,14 @@ function InlineSubtaskForm(props: {
         <div className="flex flex-col gap-1">
           <label className="text-xs font-bold text-[var(--text-secondary)]">Lead / ngu?i giao vi?c</label>
           <HeadPicker
-            headIds={props.form.headIds || []}
+            headIds={form.headIds || []}
             employees={props.employees}
-            onSave={(ids) => props.setForm({ ...props.form, headIds: ids, headId: ids[0] || '' })}
+            onSave={(ids) => setForm({ ...form, headIds: ids, headId: ids[0] || '' })}
           />
         </div>
         <Select
-          value={props.form.assigneeId}
-          onChange={(value) => props.setForm({ ...props.form, assigneeId: value })}
+          value={form.assigneeId}
+          onChange={(value) => setForm({ ...form, assigneeId: value })}
         >
           <option value="">Ch?n ngu?i ch?u trách nhi?m chính</option>
           {props.employees.map((employee) => (
@@ -6377,41 +6371,41 @@ function InlineSubtaskForm(props: {
         </Select>
         <MultiPersonField
           label="Đồng phụ trách"
-          ids={props.form.coOwnerIds}
+          ids={form.coOwnerIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, coOwnerIds: ids })}
+          onSave={(ids) => setForm({ ...form, coOwnerIds: ids })}
           placeholder="Chọn đồng phụ trách"
         />
         <MultiPersonField
           label="Người hỗ trợ"
-          ids={props.form.supporterIds}
+          ids={form.supporterIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, supporterIds: ids })}
+          onSave={(ids) => setForm({ ...form, supporterIds: ids })}
           placeholder="Chọn người hỗ trợ"
         />
         <MultiPersonField
           label="Người duyệt"
-          ids={props.form.reviewerIds}
+          ids={form.reviewerIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, reviewerIds: ids })}
+          onSave={(ids) => setForm({ ...form, reviewerIds: ids })}
           placeholder="Chọn người duyệt"
         />
         <MultiPersonField
           label="Người theo dõi"
-          ids={props.form.watcherIds}
+          ids={form.watcherIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, watcherIds: ids })}
+          onSave={(ids) => setForm({ ...form, watcherIds: ids })}
           placeholder="Chọn người theo dõi"
         />
         <input
           type="date"
           className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
-          value={props.form.dueDate}
-          onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
+          value={form.dueDate}
+          onChange={(event) => setForm({ ...form, dueDate: event.target.value })}
         />
         <Select
-          value={props.form.priority}
-          onChange={(value) => props.setForm({ ...props.form, priority: value })}
+          value={form.priority}
+          onChange={(value) => setForm({ ...form, priority: value })}
         >
           <option value="low">Ưu tiên thấp</option>
           <option value="medium">Uu tiên trung bình</option>
@@ -6421,7 +6415,7 @@ function InlineSubtaskForm(props: {
 
       <div className="mt-4 flex gap-2">
         <button type="button"
-          onClick={() => props.createSubtask(props.parent)}
+          onClick={() => props.createSubtask(props.parent, form)}
           className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
         >
           Lưu đầu việc con
@@ -6453,8 +6447,7 @@ function SubtaskCard(props: {
   stepOpenFor: string
   setStepOpenFor: (value: string) => void
   stepForm: StepForm
-  setStepForm: (value: StepForm) => void
-  createStep: (taskId: string) => void
+  createStep: (taskId: string, form: StepForm) => void
   updateTaskStatus: (taskId: string, status: string) => void
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
@@ -6657,8 +6650,7 @@ function SubtaskCard(props: {
         {props.stepOpenFor === props.task.id && (
           <InlineStepForm
             taskId={props.task.id}
-            form={props.stepForm}
-            setForm={props.setStepForm}
+            initialForm={props.stepForm}
             employees={props.employees}
             createStep={props.createStep}
             cancel={() => props.setStepOpenFor('')}
@@ -6731,12 +6723,12 @@ function SubtaskCard(props: {
 
 function InlineStepForm(props: {
   taskId: string
-  form: StepForm
-  setForm: (value: StepForm) => void
+  initialForm: StepForm
   employees: Employee[]
-  createStep: (taskId: string) => void
+  createStep: (taskId: string, form: StepForm) => void
   cancel: () => void
 }) {
+  const [form, setForm] = useState<StepForm>(props.initialForm)
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
       <h4 className="mb-3 font-extrabold">Tạo bước thực hiện</h4>
@@ -6744,19 +6736,19 @@ function InlineStepForm(props: {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Input
           placeholder="Tên bước"
-          value={props.form.title}
-          onChange={(value) => props.setForm({ ...props.form, title: value })}
+          value={form.title}
+          onChange={(value) => setForm({ ...form, title: value })}
         />
         <textarea
           rows={2}
           placeholder="Mô tả bước (yêu cầu đầu ra, tiêu chí hoàn thành...)"
           className="col-span-full resize-none rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-sm outline-none focus:border-[var(--border-strong)]"
-          value={props.form.description}
-          onChange={(e) => props.setForm({ ...props.form, description: e.target.value })}
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
         <Select
-          value={props.form.ownerId}
-          onChange={(value) => props.setForm({ ...props.form, ownerId: value })}
+          value={form.ownerId}
+          onChange={(value) => setForm({ ...form, ownerId: value })}
         >
           <option value="">Ch?n ngu?i th?c hi?n chính</option>
           {props.employees.map((employee) => (
@@ -6766,8 +6758,8 @@ function InlineStepForm(props: {
           ))}
         </Select>
         <Select
-          value={props.form.approverId}
-          onChange={(value) => props.setForm({ ...props.form, approverId: value })}
+          value={form.approverId}
+          onChange={(value) => setForm({ ...form, approverId: value })}
         >
           <option value="">Chọn trưởng bộ phận duyệt</option>
           {props.employees.map((employee) => (
@@ -6778,29 +6770,29 @@ function InlineStepForm(props: {
         </Select>
         <MultiPersonField
           label="Người hỗ trợ bước"
-          ids={props.form.supporterIds}
+          ids={form.supporterIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, supporterIds: ids })}
+          onSave={(ids) => setForm({ ...form, supporterIds: ids })}
           placeholder="Chọn người hỗ trợ"
         />
         <MultiPersonField
           label="Người duyệt bổ sung"
-          ids={props.form.approverIds}
+          ids={form.approverIds}
           employees={props.employees}
-          onSave={(ids) => props.setForm({ ...props.form, approverIds: ids })}
+          onSave={(ids) => setForm({ ...form, approverIds: ids })}
           placeholder="Chọn người duyệt"
         />
         <input
           type="date"
           className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
-          value={props.form.dueDate}
-          onChange={(event) => props.setForm({ ...props.form, dueDate: event.target.value })}
+          value={form.dueDate}
+          onChange={(event) => setForm({ ...form, dueDate: event.target.value })}
         />
       </div>
 
       <div className="mt-4 flex gap-2">
         <button type="button"
-          onClick={() => props.createStep(props.taskId)}
+          onClick={() => props.createStep(props.taskId, form)}
           className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
         >
           Lưu bước
