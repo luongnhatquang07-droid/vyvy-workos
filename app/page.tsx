@@ -904,6 +904,18 @@ type AppNotification = {
   created_at: string
 }
 
+type TaskAlert = {
+  key: string
+  alert_type: string
+  entity_type: string
+  entity_id: string
+  severity: 'critical' | 'warning' | 'info'
+  title: string
+  body: string
+  task_id: string
+  status: 'active' | 'resolved'
+}
+
 function notificationVisual(n: AppNotification) {
   const text = `${n.type || ''} ${n.title || ''} ${n.body || ''}`.toLowerCase()
   if (text.includes('gia hạn') || text.includes('deadline')) {
@@ -923,6 +935,9 @@ function notificationVisual(n: AppNotification) {
   }
   if (n.type === 'recurring_reminder') {
     return { label: 'Định kỳ', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--olive)]' }
+  }
+  if (n.type === 'coo_alert') {
+    return { label: 'Cảnh báo', cls: 'bg-[var(--danger-soft)] text-[var(--danger)]', dot: 'bg-[var(--danger)]' }
   }
   return { label: 'Thông báo', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--text-muted)]' }
 }
@@ -1156,6 +1171,7 @@ export default function Home() {
   const [selectedWorkstreamId, setSelectedWorkstreamId] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [cooTarget, setCooTarget] = useState<CooTarget | null>(null)
+  const [cooAlerts, setCooAlerts] = useState<TaskAlert[]>([])
   const [editingProject, setEditingProject] = useState<Project | null>(null)
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -1555,6 +1571,99 @@ export default function Home() {
     fetchAllRef.current = fetchAll
   }, [fetchAll])
 
+  const ALERT_REPEAT_HOURS: Record<string, number> = { critical: 2, warning: 4, info: 24 }
+
+  const runCooAlertScan = useCallback(async () => {
+    const today = new Date()
+    const todayStr = today.toISOString().slice(0, 10)
+    const tomorrowStr = new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+    type AlertCandidate = {
+      key: string; alert_type: string; entity_type: string; entity_id: string
+      severity: 'critical' | 'warning' | 'info'; title: string; body: string; task_id: string
+    }
+    const detected: AlertCandidate[] = []
+
+    for (const task of tasks) {
+      if (task.status === 'completed') continue
+      if (!task.project_id) continue
+
+      if (task.due_date && task.due_date < todayStr) {
+        detected.push({ key: `overdue:task:${task.id}`, alert_type: 'overdue', entity_type: 'task', entity_id: task.id, severity: 'critical', title: `Trễ deadline: ${task.title}`, body: `Hạn: ${task.due_date}`, task_id: task.id })
+      } else if (task.due_date === tomorrowStr || task.due_date === todayStr) {
+        detected.push({ key: `due_soon:task:${task.id}`, alert_type: 'due_soon', entity_type: 'task', entity_id: task.id, severity: 'warning', title: `Sắp đến hạn: ${task.title}`, body: `Hạn: ${task.due_date}`, task_id: task.id })
+      }
+
+      if (!task.due_date && task.task_level === 'workstream') {
+        detected.push({ key: `missing_deadline:task:${task.id}`, alert_type: 'missing_deadline', entity_type: 'task', entity_id: task.id, severity: 'warning', title: `Chưa có deadline: ${task.title}`, body: 'Đầu việc lớn cần có deadline', task_id: task.id })
+      }
+
+      if (task.deadline_status === 'extension_requested') {
+        detected.push({ key: `extension_pending:task:${task.id}`, alert_type: 'extension_pending', entity_type: 'task', entity_id: task.id, severity: 'warning', title: `Đang xin gia hạn: ${task.title}`, body: 'Đề xuất gia hạn đang chờ duyệt', task_id: task.id })
+      }
+
+      if (task.issue_status && task.issue_status !== 'none' && task.issue_status !== '') {
+        detected.push({ key: `has_issue:task:${task.id}`, alert_type: 'has_issue', entity_type: 'task', entity_id: task.id, severity: 'critical', title: `Có vướng mắc: ${task.title}`, body: task.issue_status, task_id: task.id })
+      }
+
+      if (!task.assignee_id && (!task.head_ids || task.head_ids.length === 0) && !task.head_id && task.task_level === 'workstream') {
+        detected.push({ key: `no_assignee:task:${task.id}`, alert_type: 'no_assignee', entity_type: 'task', entity_id: task.id, severity: 'info', title: `Chưa có người phụ trách: ${task.title}`, body: '', task_id: task.id })
+      }
+
+      if (task.status === 'not_started' && task.created_at && task.created_at.slice(0, 10) <= sevenDaysAgo && task.task_level === 'workstream') {
+        detected.push({ key: `no_progress:task:${task.id}`, alert_type: 'no_progress', entity_type: 'task', entity_id: task.id, severity: 'info', title: `Chưa bắt đầu sau 7 ngày: ${task.title}`, body: '', task_id: task.id })
+      }
+    }
+
+    const toState = (a: AlertCandidate): TaskAlert => ({ ...a, status: 'active' })
+    setCooAlerts(detected.map(toState))
+
+    try {
+      const activeKeys = new Set(detected.map((d) => d.key))
+      const { data: existing, error: fetchErr } = await supabase.from('task_alerts').select('alert_key,status,last_notified_at,severity').eq('status', 'active')
+      if (fetchErr) throw fetchErr
+
+      const toResolve = (existing || []).filter((e) => !activeKeys.has(e.alert_key)).map((e) => e.alert_key)
+      if (toResolve.length > 0) {
+        await supabase.from('task_alerts').update({ status: 'resolved', resolved_at: new Date().toISOString() }).in('alert_key', toResolve)
+      }
+
+      const existingMap = new Map((existing || []).map((e) => [e.alert_key, e]))
+      const now = new Date()
+      const toNotify = detected.filter((a) => {
+        const ex = existingMap.get(a.key)
+        if (!ex) return true
+        if (!ex.last_notified_at) return true
+        const repeatMs = (ALERT_REPEAT_HOURS[a.severity] ?? 24) * 60 * 60 * 1000
+        return now.getTime() - new Date(ex.last_notified_at).getTime() > repeatMs
+      })
+
+      if (detected.length > 0) {
+        await supabase.from('task_alerts').upsert(
+          detected.map((d) => ({ alert_key: d.key, alert_type: d.alert_type, entity_type: d.entity_type, entity_id: d.entity_id, severity: d.severity, title: d.title, body: d.body, task_id: d.task_id, status: 'active', updated_at: new Date().toISOString() })),
+          { onConflict: 'alert_key' }
+        )
+      }
+
+      if (toNotify.length > 0) {
+        const notifyNow = new Date().toISOString()
+        await supabase.from('task_alerts').update({ last_notified_at: notifyNow }).in('alert_key', toNotify.map((a) => a.key))
+        const cooEmps = employees.filter((e) => ['admin', 'coo', 'ceo'].includes((e.role || '').toLowerCase()))
+        if (cooEmps.length > 0) {
+          await pushNotify(
+            toNotify.flatMap((a) =>
+              cooEmps.map((emp) => ({ recipient_id: emp.id, type: 'coo_alert', title: a.title, body: a.body || undefined, task_id: a.task_id }))
+            )
+          )
+        }
+      }
+    } catch {
+      // table chưa được tạo — in-memory only, bỏ qua lỗi DB
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, employees])
+
   useEffect(() => {
     const loadTimer = window.setTimeout(() => { fetchAll() }, 0)
     return () => window.clearTimeout(loadTimer)
@@ -1724,6 +1833,18 @@ export default function Home() {
     const t = window.setInterval(() => fetchAllRef.current?.({ silent: true }), 5 * 60_000)
     return () => window.clearInterval(t)
   }, [])
+
+  // COO Alert scan mỗi 15 phút
+  useEffect(() => {
+    const t = window.setInterval(() => { if (tasks.length > 0) runCooAlertScan() }, 15 * 60_000)
+    return () => window.clearInterval(t)
+  }, [runCooAlertScan, tasks.length])
+
+  // Scan ngay khi vào COO board và dữ liệu đã load
+  useEffect(() => {
+    if (view === 'coo' && tasks.length > 0) runCooAlertScan()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
 
   useEffect(() => {
     const refreshWhenActive = () => fetchAllRef.current?.({ silent: true })
@@ -4497,6 +4618,8 @@ export default function Home() {
                   deleteTaskReport={deleteTaskReport}
                   cooTarget={cooTarget}
                   onCooTargetHandled={() => setCooTarget(null)}
+                  cooAlerts={cooAlerts}
+                  onScanAlerts={runCooAlertScan}
                 />
               )}
 
@@ -5393,6 +5516,8 @@ function CooBoard(props: {
   deleteTaskReport: (report: TaskReport) => void
   cooTarget?: CooTarget | null
   onCooTargetHandled?: () => void
+  cooAlerts?: TaskAlert[]
+  onScanAlerts?: () => void
 }) {
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
@@ -5400,7 +5525,7 @@ function CooBoard(props: {
   const [boardSearch, setBoardSearch] = useState('')
   const [boardDeptFilter, setBoardDeptFilter] = useState('')
   const [boardStatusFilter, setBoardStatusFilter] = useState('')
-  const [workspaceTab, setWorkspaceTab] = useState<'workstreams' | 'overview' | 'deadline' | 'files' | 'history'>('workstreams')
+  const [workspaceTab, setWorkspaceTab] = useState<'workstreams' | 'overview' | 'deadline' | 'files' | 'history' | 'alerts'>('workstreams')
 
   // Auto-expand workstreams khi nhảy từ dashboard
   useEffect(() => {
@@ -5874,12 +5999,17 @@ function CooBoard(props: {
     const totalSubtasks = allProjectWorkstreams.reduce((s, ws) => s + (props.tasksByParent.get(ws.id) || []).length, 0)
     const overdueWS = allProjectWorkstreams.filter((ws) => isTaskOverdue(ws)).length
 
+    const projectAlerts = (props.cooAlerts || []).filter((a) => {
+      const ws = props.workstreams.find((w) => w.id === a.task_id)
+      return ws && ws.project_id === project.id
+    })
     const WORKSPACE_TABS = [
       { id: 'workstreams', label: 'Đầu việc lớn' },
       { id: 'overview', label: 'Tổng quan' },
       { id: 'deadline', label: 'Deadline' },
       { id: 'files', label: 'File & Báo cáo' },
       { id: 'history', label: 'Lịch sử' },
+      { id: 'alerts', label: projectAlerts.length > 0 ? `⚠ Cảnh báo (${projectAlerts.length})` : 'Cảnh báo' },
     ] as const
 
     return (
@@ -6177,6 +6307,59 @@ function CooBoard(props: {
             })()}
           </div>
         )}
+
+        {/* Tab: Cảnh báo vận hành */}
+        {workspaceTab === 'alerts' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-spec text-[var(--text-muted)]">CẢNH BÁO VẬN HÀNH</h3>
+              {props.onScanAlerts && (
+                <button
+                  type="button"
+                  onClick={props.onScanAlerts}
+                  className="flex items-center gap-1 rounded-lg border border-[var(--border)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                >
+                  ↻ Quét lại
+                </button>
+              )}
+            </div>
+            {projectAlerts.length === 0 ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-6 py-10 text-center text-sm text-[var(--text-secondary)]">
+                Không có cảnh báo nào cho dự án này.
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] divide-y divide-[var(--border)]">
+                {(['critical', 'warning', 'info'] as const).map((sev) => {
+                  const group = projectAlerts.filter((a) => a.severity === sev)
+                  if (group.length === 0) return null
+                  const sevLabel = sev === 'critical' ? 'Khẩn cấp' : sev === 'warning' ? 'Cảnh báo' : 'Thông tin'
+                  const sevCls = sev === 'critical' ? 'text-[var(--danger)] bg-[var(--danger-soft)]' : sev === 'warning' ? 'text-[var(--warning)] bg-[var(--warning-soft)]' : 'text-[var(--text-secondary)] bg-[var(--bg-surface)]'
+                  return (
+                    <div key={sev} className="p-4 space-y-2">
+                      <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${sevCls}`}>
+                        {sev === 'critical' ? '🔴' : sev === 'warning' ? '🟡' : 'ℹ'} {sevLabel} · {group.length}
+                      </div>
+                      <div className="space-y-1.5">
+                        {group.map((a) => (
+                          <div
+                            key={a.key}
+                            className="flex items-start gap-3 rounded-xl bg-[var(--bg-surface)] px-4 py-3 cursor-pointer hover:bg-[var(--bg-surface-hover,var(--bg-surface))]"
+                            onClick={() => { if (a.task_id) props.setSelectedTask(props.employees.length > 0 ? (props.workstreams.find(w => w.id === a.task_id) || { id: a.task_id, title: a.title } as Task) : { id: a.task_id, title: a.title } as Task) }}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{a.title}</p>
+                              {a.body && <p className="text-xs text-[var(--text-muted)] mt-0.5">{a.body}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -6184,9 +6367,32 @@ function CooBoard(props: {
   // -- GRID VIEW (selectedProjectId === 'all') --
   const CARD_COLORS = ['bg-purple-500', 'bg-emerald-500', 'bg-blue-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
 
+  const criticalAlerts = (props.cooAlerts || []).filter((a) => a.severity === 'critical' && a.status === 'active')
+  const warningAlerts = (props.cooAlerts || []).filter((a) => a.severity === 'warning' && a.status === 'active')
+  const totalActiveAlerts = (props.cooAlerts || []).filter((a) => a.status === 'active').length
+
   return (
     <div className="space-y-4">
       {filterBar}
+
+      {/* Global COO Alert banner */}
+      {totalActiveAlerts > 0 && (
+        <div className={`rounded-2xl border px-5 py-4 flex flex-wrap items-center gap-4 ${criticalAlerts.length > 0 ? 'border-[var(--danger)] bg-[var(--danger-soft)]' : 'border-[var(--warning)] bg-[var(--warning-soft)]'}`}>
+          <span className="text-sm font-semibold text-[var(--text-primary)]">
+            {criticalAlerts.length > 0 ? '🔴' : '🟡'} Cảnh báo vận hành
+          </span>
+          {criticalAlerts.length > 0 && (
+            <span className="rounded-full bg-[var(--danger)] text-white text-xs font-bold px-2.5 py-0.5">{criticalAlerts.length} khẩn cấp</span>
+          )}
+          {warningAlerts.length > 0 && (
+            <span className="rounded-full bg-[var(--warning)] text-white text-xs font-bold px-2.5 py-0.5">{warningAlerts.length} cảnh báo</span>
+          )}
+          <span className="text-xs text-[var(--text-secondary)] flex-1">Vào tab <b>Cảnh báo</b> của từng dự án để xem chi tiết.</span>
+          {props.onScanAlerts && (
+            <button type="button" onClick={props.onScanAlerts} className="ml-auto text-xs text-[var(--text-secondary)] hover:underline">↻ Quét lại</button>
+          )}
+        </div>
+      )}
 
       {props.projects.length === 0 ? (
         <Card>
