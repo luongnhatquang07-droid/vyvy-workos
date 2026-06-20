@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
@@ -21,31 +21,18 @@ import {
   Download,
   Clock,
   RefreshCw,
-  CheckCircle2,
   AlertCircle,
   Shield,
   Flag,
-  Activity,
 } from 'lucide-react'
-import {
-  Bar,
-  BarChart,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 
-// ─── Module-level toast (no prop drilling needed) ───────────────────────────
+// --- Module-level toast (no prop drilling needed) ---------------------------
 type ToastType = 'success' | 'error' | 'info' | 'warning'
 type ToastItem = { id: string; message: string; type: ToastType }
 let _showToast: ((msg: string, type?: ToastType) => void) | null = null
 function toast(msg: string, type: ToastType = 'success') { _showToast?.(msg, type) }
 
-// ─── Module-level confirm dialog (thay window.confirm) ──────────────────────
+// --- Module-level confirm dialog (thay window.confirm) ----------------------
 let _confirm: ((msg: string) => Promise<boolean>) | null = null
 function confirmDialog(msg: string): Promise<boolean> {
   return _confirm ? _confirm(msg) : Promise.resolve(window.confirm(msg))
@@ -147,6 +134,8 @@ const TASK_STEP_MATRIX_COLUMNS = [
   'step_deadline_submitted_at',
   'step_deadline_approved_at',
   'step_started_at',
+  'supporter_ids',
+  'approver_ids',
 ]
 
 function toLegacyTaskStepPayload(payload: DbPayload) {
@@ -214,6 +203,9 @@ type Project = {
   code: string | null
   description: string | null
   owner_id: string | null
+  member_ids?: string[] | null
+  watcher_ids?: string[] | null
+  approver_ids?: string[] | null
   department_id: string | null
   status: string | null
   priority: string | null
@@ -307,6 +299,11 @@ type Task = {
   task_level: string | null
   head_id: string | null
   head_ids: string[] | null
+  co_owner_ids?: string[] | null
+  supporter_ids?: string[] | null
+  reviewer_ids?: string[] | null
+  watcher_ids?: string[] | null
+  approver_ids?: string[] | null
   issue_status: string | null
   sequential_steps?: boolean | null
   created_at?: string | null
@@ -322,7 +319,7 @@ type Task = {
   deadline_reason?: string | null
   deadline_decided_by?: string | null
   deadline_decided_at?: string | null
-  // ── Meeting session link (008_task_meeting_session_link.sql) ──
+  // -- Meeting session link (008_task_meeting_session_link.sql) --
   meeting_session_id?: string | null
 }
 
@@ -368,6 +365,8 @@ type TaskStep = {
   step_deadline_submitted_at: string | null
   step_deadline_approved_at: string | null
   step_started_at: string | null
+  supporter_ids?: string[] | null
+  approver_ids?: string[] | null
 }
 
 type TaskSupporter = {
@@ -379,6 +378,27 @@ type TaskSupporter = {
     id: string
     full_name: string
   } | null
+}
+
+type PeopleReport = {
+  employee: Employee
+  total: number
+  done: number
+  doing: number
+  pending: number
+  overdue: number
+  problem: number
+  rate: number
+  main: number
+  coOwned: number
+  supported: number
+  approvals: number
+  weighted: number
+  assigned: number
+  assignedDone: number
+  assignedDoing: number
+  assignedOverdue: number
+  assignedTasks: Task[]
 }
 
 type TaskReport = {
@@ -692,13 +712,6 @@ function recurringRecipientIds(task: RecurringTask): string[] {
   return Array.from(ids)
 }
 
-function recurringRecipientNames(task: RecurringTask, employeeMap: Map<string, Employee>): string {
-  const names = recurringRecipientIds(task)
-    .map((id) => employeeMap.get(id)?.full_name)
-    .filter(Boolean)
-  return names.length > 0 ? names.join(', ') : 'Chưa gắn'
-}
-
 // Lần diễn ra kế tiếp của một việc định kỳ (theo giờ máy thật)
 function nextOccurrence(rt: RecurringTask, from = new Date()): Date {
   const [h, m] = (rt.time_of_day || '09:00').split(':').map(Number)
@@ -786,6 +799,10 @@ type SubtaskForm = {
   headId: string
   headIds: string[]
   assigneeId: string
+  coOwnerIds: string[]
+  supporterIds: string[]
+  reviewerIds: string[]
+  watcherIds: string[]
   dueDate: string
   priority: string
 }
@@ -794,11 +811,13 @@ type StepForm = {
   title: string
   description: string
   ownerId: string
+  supporterIds: string[]
   approverId: string
+  approverIds: string[]
   dueDate: string
 }
 
-// ─── Structured meeting recap ────────────────────────────────────────────────
+// --- Structured meeting recap ------------------------------------------------
 type MeetingMetric = { label: string; value: string; badge: string }
 type MeetingIssue = {
   id: string
@@ -852,6 +871,9 @@ type NotexRow = {
   departmentId: string
   headId: string
   assigneeId: string
+  coOwnerIds: string[]
+  supporterIds: string[]
+  reviewerIds: string[]
   dueDate: string
   priority: string
 }
@@ -892,7 +914,113 @@ function notificationVisual(n: AppNotification) {
   return { label: 'Thông báo', cls: 'bg-[var(--bg-surface)] text-[var(--text-secondary)]', dot: 'bg-[var(--text-muted)]' }
 }
 
-// ─── SVG Icon Library ─────────────────────────────────────────────────────────
+function uniqueIds(...groups: Array<Array<string | null | undefined> | null | undefined>) {
+  const ids = new Set<string>()
+  groups.forEach((group) => {
+    ;(group || []).forEach((id) => {
+      if (id) ids.add(id)
+    })
+  })
+  return Array.from(ids)
+}
+
+function idsWithout(ids: string[], ...blocked: Array<string | null | undefined>) {
+  const blockedSet = new Set(blocked.filter(Boolean) as string[])
+  return uniqueIds(ids).filter((id) => !blockedSet.has(id))
+}
+
+function taskHeadIds(task: Task) {
+  return uniqueIds(task.head_ids || [], task.head_id ? [task.head_id] : [])
+}
+
+function taskCoOwnerIds(task: Task) {
+  return idsWithout(task.co_owner_ids || [], task.assignee_id, ...taskHeadIds(task))
+}
+
+function taskSupporterIds(task: Task, supporterRows: TaskSupporter[] = []) {
+  return idsWithout([
+    ...(task.supporter_ids || []),
+    ...supporterRows.map((supporter) => supporter.employee_id),
+  ], task.assignee_id, ...taskHeadIds(task))
+}
+
+function taskApproverIds(task: Task) {
+  return idsWithout([
+    ...(task.approver_ids || []),
+    ...(task.reviewer_ids || []),
+    task.deadline_approver_id || '',
+  ], task.assignee_id)
+}
+
+function taskWatcherIds(task: Task) {
+  return idsWithout(task.watcher_ids || [], task.assignee_id, ...taskHeadIds(task))
+}
+
+function taskParticipantIds(task: Task, supporterRows: TaskSupporter[] = []) {
+  return uniqueIds(
+    task.assignee_id ? [task.assignee_id] : [],
+    taskHeadIds(task),
+    taskCoOwnerIds(task),
+    taskSupporterIds(task, supporterRows),
+    taskApproverIds(task),
+    taskWatcherIds(task),
+  )
+}
+
+function projectParticipantIds(project: Project) {
+  return uniqueIds(
+    project.owner_id ? [project.owner_id] : [],
+    project.member_ids || [],
+    project.watcher_ids || [],
+    project.approver_ids || [],
+  )
+}
+
+function stepApproverIds(step: TaskStep) {
+  return uniqueIds(
+    step.approver_ids || [],
+    step.approver_id ? [step.approver_id] : [],
+    step.department_approver_id ? [step.department_approver_id] : [],
+    step.coo_approver_id ? [step.coo_approver_id] : [],
+    step.ceo_approver_id ? [step.ceo_approver_id] : [],
+  )
+}
+
+function stepParticipantIds(step: TaskStep) {
+  return uniqueIds(
+    step.owner_id ? [step.owner_id] : [],
+    step.supporter_ids || [],
+    stepApproverIds(step),
+  )
+}
+
+function peopleLabel(ids: string[], employeeMap: Map<string, Employee>, empty = 'Chưa gắn', limit = 3) {
+  const names = uniqueIds(ids)
+    .map((id) => employeeMap.get(id)?.full_name)
+    .filter((name): name is string => Boolean(name))
+  if (names.length === 0) return empty
+  if (names.length <= limit) return names.join(', ')
+  return `${names.slice(0, limit).join(', ')} +${names.length - limit}`
+}
+
+function taskRoleForEmployee(task: Task, employeeId: string, supporterRows: TaskSupporter[] = []) {
+  if (!employeeId) return ''
+  if (task.assignee_id === employeeId) return 'Chính'
+  if (taskCoOwnerIds(task).includes(employeeId)) return 'Đồng phụ trách'
+  if (taskSupporterIds(task, supporterRows).includes(employeeId)) return 'Hỗ trợ'
+  if (taskApproverIds(task).includes(employeeId) || taskHeadIds(task).includes(employeeId)) return 'Duyệt/Lead'
+  if (taskWatcherIds(task).includes(employeeId)) return 'Theo dõi'
+  return 'Liên quan'
+}
+
+function weightedTaskLoad(task: Task, employeeId: string, supporterRows: TaskSupporter[] = []) {
+  if (task.assignee_id === employeeId) return 1
+  if (taskCoOwnerIds(task).includes(employeeId)) return 0.7
+  if (taskSupporterIds(task, supporterRows).includes(employeeId)) return 0.3
+  return 0
+}
+
+// --- SVG Icon Library ---------------------------------------------------------
 function Ico({ d, size = 16, className = '' }: { d: string | string[]; size?: number; className?: string }) {
   const paths = Array.isArray(d) ? d : [d]
   return (
@@ -961,7 +1089,7 @@ export default function Home() {
   const [authChecked, setAuthChecked] = useState(false)
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null)
 
-  // ─── Toast system ──────────────────────────────────────────────────────────
+  // --- Toast system ----------------------------------------------------------
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const toastTimers = useRef<ReturnType<typeof setTimeout>[]>([])
   const showToast = useCallback((msg: string, type: ToastType = 'success') => {
@@ -973,7 +1101,7 @@ export default function Home() {
   useEffect(() => () => { toastTimers.current.forEach(clearTimeout) }, [])
   useEffect(() => { _showToast = showToast; return () => { _showToast = null } }, [showToast])
 
-  // ─── Confirm dialog ────────────────────────────────────────────────────────
+  // --- Confirm dialog --------------------------------------------------------
   const [confirmState, setConfirmState] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null)
   useEffect(() => {
     _confirm = (message: string) => new Promise<boolean>((resolve) => setConfirmState({ message, resolve }))
@@ -986,7 +1114,7 @@ export default function Home() {
     })
   }, [])
 
-  // ─── Realtime sync ─────────────────────────────────────────────────────────
+  // --- Realtime sync ---------------------------------------------------------
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'live' | 'off'>('connecting')
   const fetchAllRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null)
 
@@ -1024,6 +1152,9 @@ export default function Home() {
   const [projectCode, setProjectCode] = useState('')
   const [projectDesc, setProjectDesc] = useState('')
   const [projectOwnerId, setProjectOwnerId] = useState('')
+  const [projectMemberIds, setProjectMemberIds] = useState<string[]>([])
+  const [projectWatcherIds, setProjectWatcherIds] = useState<string[]>([])
+  const [projectApproverIds, setProjectApproverIds] = useState<string[]>([])
   const [projectDepartmentId, setProjectDepartmentId] = useState('')
 
   const [workTitle, setWorkTitle] = useState('')
@@ -1033,6 +1164,9 @@ export default function Home() {
   const [workHeadId, setWorkHeadId] = useState('')
   const [workHeadIds, setWorkHeadIds] = useState<string[]>([])
   const [workAssigneeId, setWorkAssigneeId] = useState('')
+  const [workCoOwnerIds, setWorkCoOwnerIds] = useState<string[]>([])
+  const [workSupporterIds, setWorkSupporterIds] = useState<string[]>([])
+  const [workApproverIds, setWorkApproverIds] = useState<string[]>([])
   const [workDueDate, setWorkDueDate] = useState('')
   const [workPriority, setWorkPriority] = useState('medium')
 
@@ -1044,6 +1178,10 @@ export default function Home() {
     headId: '',
     headIds: [],
     assigneeId: '',
+    coOwnerIds: [],
+    supporterIds: [],
+    reviewerIds: [],
+    watcherIds: [],
     dueDate: '',
     priority: 'medium',
   })
@@ -1053,7 +1191,9 @@ export default function Home() {
     title: '',
     description: '',
     ownerId: '',
+    supporterIds: [],
     approverId: '',
+    approverIds: [],
     dueDate: '',
   })
 
@@ -1407,7 +1547,7 @@ export default function Home() {
     return () => window.clearTimeout(loadTimer)
   }, [fetchAll])
 
-  // ─── Thông báo trong app ───────────────────────────────────────────────────
+  // --- Thông báo trong app ---------------------------------------------------
   const [notifications, setNotifications] = useState<AppNotification[]>([])
 
   const fetchNotifications = useCallback(async () => {
@@ -2030,6 +2170,26 @@ export default function Home() {
     ])
   }, [fetchComments, fetchEmployees, fetchReports, fetchSteps, fetchSupporters, fetchTasks])
 
+  async function notifyAssignmentRecipients(
+    taskId: string,
+    taskTitle: string,
+    projectId: string | null | undefined,
+    ids: string[],
+    roleLabel: string,
+  ) {
+    const recipients = uniqueIds(ids).filter((id) => id !== currentEmployee?.id)
+    if (recipients.length === 0) return
+    await pushNotify(recipients.map((recipient_id) => ({
+      recipient_id,
+      actor_id: currentEmployee?.id || null,
+      type: 'task_assigned',
+      title: `Bạn được thêm vào đầu việc (${roleLabel})`,
+      body: taskTitle,
+      task_id: taskId,
+      project_id: projectId || null,
+    })))
+  }
+
   async function createProject() {
     if (!projectName.trim()) {
       toast('Nhập tên dự án trước.', 'warning')
@@ -2043,6 +2203,9 @@ export default function Home() {
       code: projectCode.trim() || null,
       description: projectDesc.trim() || null,
       owner_id: projectOwnerId || null,
+      member_ids: uniqueIds(projectMemberIds, projectOwnerId ? [projectOwnerId] : []),
+      watcher_ids: projectWatcherIds,
+      approver_ids: projectApproverIds,
       department_id: projectDepartmentId || null,
       status: 'not_started',
       priority: 'medium',
@@ -2062,6 +2225,10 @@ export default function Home() {
     setProjectName('')
     setProjectCode('')
     setProjectDesc('')
+    setProjectOwnerId('')
+    setProjectMemberIds([])
+    setProjectWatcherIds([])
+    setProjectApproverIds([])
     await fetchAll({ silent: true })
   }
 
@@ -2079,6 +2246,8 @@ export default function Home() {
     setSaving(true)
 
     const newWorkId = crypto.randomUUID()
+    const workLeadId = workHeadId || workHeadIds[0] || (SOLO_PILOT_MODE ? currentEmployee?.id : '') || ''
+    const workOwnerId = workAssigneeId || workLeadId || null
     const { error } = await supabase.from('tasks').insert({
       id: newWorkId,
       title: workTitle.trim(),
@@ -2089,9 +2258,13 @@ export default function Home() {
       priority: workPriority,
       progress_percent: 0,
       due_date: workDueDate || null,
-      department_id: workDepartmentId || employees.find((e) => e.id === (workHeadIds[0]))?.department_id || null,
-      assignee_id: workAssigneeId || (SOLO_PILOT_MODE ? currentEmployee?.id : null) || null,
-      head_id: workHeadIds[0] || (SOLO_PILOT_MODE ? currentEmployee?.id : null) || null,
+      department_id: workDepartmentId || employees.find((e) => e.id === workLeadId)?.department_id || employees.find((e) => e.id === workOwnerId)?.department_id || null,
+      assignee_id: workOwnerId,
+      head_id: workLeadId || null,
+      head_ids: workLeadId ? [workLeadId] : null,
+      co_owner_ids: idsWithout(workCoOwnerIds, workOwnerId, workLeadId),
+      supporter_ids: idsWithout(workSupporterIds, workOwnerId, workLeadId),
+      approver_ids: idsWithout(workApproverIds, workOwnerId),
       project_id: workProjectId || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -2107,12 +2280,42 @@ export default function Home() {
 
     // Deadline do cấp trên giao trực tiếp → coi như đã chốt (committed)
     await commitDeadlineMeta(newWorkId, workDueDate || null, 'manual')
+    await notifyAssignmentRecipients(
+      newWorkId,
+      workTitle.trim(),
+      workProjectId || null,
+      taskParticipantIds({
+        id: newWorkId,
+        title: workTitle.trim(),
+        description: null,
+        status: 'not_started',
+        priority: workPriority,
+        progress_percent: 0,
+        due_date: workDueDate || null,
+        department_id: null,
+        assignee_id: workOwnerId,
+        project_id: workProjectId || null,
+        parent_task_id: null,
+        task_level: 'workstream',
+        head_id: workLeadId || null,
+        head_ids: workLeadId ? [workLeadId] : null,
+        co_owner_ids: idsWithout(workCoOwnerIds, workOwnerId, workLeadId),
+        supporter_ids: idsWithout(workSupporterIds, workOwnerId, workLeadId),
+        approver_ids: idsWithout(workApproverIds, workOwnerId),
+        issue_status: 'normal',
+      }),
+      'lead/đồng phụ trách',
+    )
 
     setWorkTitle('')
     setWorkDesc('')
     setWorkDueDate('')
+    setWorkHeadId('')
     setWorkHeadIds([])
     setWorkAssigneeId('')
+    setWorkCoOwnerIds([])
+    setWorkSupporterIds([])
+    setWorkApproverIds([])
     await refreshDataSilent()
   }
 
@@ -2125,6 +2328,10 @@ export default function Home() {
       headId: parent.head_id || parent.assignee_id || employees[0]?.id || '',
       headIds: [],
       assigneeId: parent.assignee_id || parent.head_id || employees[0]?.id || '',
+      coOwnerIds: taskCoOwnerIds(parent),
+      supporterIds: taskSupporterIds(parent, supportersByTask.get(parent.id) || []),
+      reviewerIds: taskApproverIds(parent),
+      watcherIds: taskWatcherIds(parent),
       dueDate: parent.due_date || '',
       priority: parent.priority || 'medium',
     })
@@ -2137,6 +2344,8 @@ export default function Home() {
     }
 
     const newSubId = crypto.randomUUID()
+    const mainOwnerId = subtaskForm.assigneeId || null
+    const headId = (subtaskForm.headIds?.[0]) || subtaskForm.headId || null
     const { error } = await supabase.from('tasks').insert({
       id: newSubId,
       title: subtaskForm.title.trim(),
@@ -2147,9 +2356,15 @@ export default function Home() {
       priority: subtaskForm.priority,
       progress_percent: 0,
       due_date: subtaskForm.dueDate || null,
-      department_id: subtaskForm.departmentId || employees.find((e) => e.id === (subtaskForm.headIds?.[0] || subtaskForm.headId))?.department_id || employees.find((e) => e.id === subtaskForm.assigneeId)?.department_id || null,
-      assignee_id: subtaskForm.assigneeId || null,
-      head_id: (subtaskForm.headIds?.[0]) || subtaskForm.headId || null,
+      department_id: subtaskForm.departmentId || employees.find((e) => e.id === headId)?.department_id || employees.find((e) => e.id === mainOwnerId)?.department_id || null,
+      assignee_id: mainOwnerId,
+      head_id: headId,
+      head_ids: subtaskForm.headIds?.length ? subtaskForm.headIds : (headId ? [headId] : null),
+      co_owner_ids: idsWithout(subtaskForm.coOwnerIds, mainOwnerId, headId),
+      supporter_ids: idsWithout(subtaskForm.supporterIds, mainOwnerId, headId),
+      approver_ids: idsWithout(subtaskForm.reviewerIds, mainOwnerId),
+      reviewer_ids: idsWithout(subtaskForm.reviewerIds, mainOwnerId),
+      watcher_ids: idsWithout(subtaskForm.watcherIds, mainOwnerId, headId),
       project_id: parent.project_id || null,
       issue_status: 'normal',
       approval_status: 'not_submitted',
@@ -2162,6 +2377,13 @@ export default function Home() {
     }
 
     await commitDeadlineMeta(newSubId, subtaskForm.dueDate || null, 'manual')
+    await notifyAssignmentRecipients(
+      newSubId,
+      subtaskForm.title.trim(),
+      parent.project_id || null,
+      uniqueIds([mainOwnerId || ''], subtaskForm.coOwnerIds, subtaskForm.supporterIds, subtaskForm.reviewerIds),
+      'phân công',
+    )
 
     setSubtaskOpenFor('')
     await refreshDataSilent()
@@ -2175,7 +2397,9 @@ export default function Home() {
       title: '',
       description: '',
       ownerId: task.assignee_id || task.head_id || employees[0]?.id || '',
+      supporterIds: taskSupporterIds(task, supportersByTask.get(task.id) || []),
       approverId: departmentApproverId || task.head_id || employees[0]?.id || '',
+      approverIds: uniqueIds(taskApproverIds(task), departmentApproverId ? [departmentApproverId] : []),
       dueDate: task.due_date || '',
     })
   }
@@ -2200,7 +2424,9 @@ export default function Home() {
       step_order: nextOrder,
       is_done: false,
       owner_id: stepForm.ownerId || null,
+      supporter_ids: idsWithout(stepForm.supporterIds, stepForm.ownerId),
       approver_id: departmentApproverId || null,
+      approver_ids: uniqueIds(stepForm.approverIds, departmentApproverId ? [departmentApproverId] : []),
       department_approver_id: departmentApproverId || null,
       coo_approver_id: cooApproverId || null,
       ceo_approver_id: ceoApproverId || null,
@@ -2232,6 +2458,7 @@ export default function Home() {
     if (can('subtask', 'edit', { department_id: task.department_id, head_id: task.head_id })) return true
     if (task.head_id === currentEmployee.id) return true
     if (Array.isArray(task.head_ids) && task.head_ids.includes(currentEmployee.id)) return true
+    if (taskApproverIds(task).includes(currentEmployee.id)) return true
     return false
   }
 
@@ -2272,9 +2499,13 @@ export default function Home() {
   }
 
   async function updateTaskHead(taskId: string, headIds: string[]) {
-    const headEmp = employees.find((e) => e.id === headIds[0])
+    const cleanHeadIds = uniqueIds(headIds)
+    const headEmp = employees.find((e) => e.id === cleanHeadIds[0])
     const deptId = headEmp?.department_id ?? null
-    const patch: Record<string, unknown> = { head_id: headIds[0] || null }
+    const patch: Record<string, unknown> = {
+      head_id: cleanHeadIds[0] || null,
+      head_ids: cleanHeadIds.length > 0 ? cleanHeadIds : null,
+    }
     if (deptId) patch.department_id = deptId
     const result = await supabase.from('tasks').update(patch).eq('id', taskId)
     const fallback = result
@@ -2285,6 +2516,26 @@ export default function Home() {
       return
     }
     toast('Đã cập nhật người giao việc.', 'success')
+    await refreshDataSilent()
+  }
+
+  async function updateTaskRoleIds(
+    taskId: string,
+    field: 'co_owner_ids' | 'supporter_ids' | 'reviewer_ids' | 'watcher_ids' | 'approver_ids',
+    ids: string[],
+    label: string,
+  ) {
+    const task = tasks.find((t) => t.id === taskId)
+    const blocked = task ? [task.assignee_id, ...taskHeadIds(task)] : []
+    const cleanIds = idsWithout(ids, ...blocked)
+    const { error } = await supabase.from('tasks').update({ [field]: cleanIds }).eq('id', taskId)
+    if (error) {
+      console.error(error)
+      toast(`Cập nhật ${label} bị lỗi.`, 'error')
+      return
+    }
+    if (task) await notifyAssignmentRecipients(task.id, task.title, task.project_id, cleanIds, label)
+    toast(`Đã cập nhật ${label}.`, 'success')
     await refreshDataSilent()
   }
 
@@ -2432,22 +2683,24 @@ export default function Home() {
       ceo_approval_status: step.requires_ceo_approval ? 'not_submitted' : 'not_required',
       submitted_at: new Date().toISOString(),
     } as Partial<TaskStep>)
-    const approverId = step.department_approver_id || step.approver_id
-    if (approverId && approverId !== currentEmployee?.id) {
-      pushNotify([{
-        recipient_id: approverId,
+    const approverIds = stepApproverIds(step).filter((id) => id !== currentEmployee?.id)
+    if (approverIds.length > 0) {
+      pushNotify(approverIds.map((recipient_id) => ({
+        recipient_id,
         actor_id: currentEmployee?.id || null,
         type: 'step_submitted',
         title: 'Có bước chờ bạn duyệt',
         body: step.step_title,
         task_id: step.task_id,
-      }])
-      const approverEmp = employees.find((e) => e.id === approverId)
+      })))
       const stepTask = tasks.find((t) => t.id === step.task_id)
-      if (approverEmp?.email) {
-        sendNotifyEmail({ type: 'step_submitted', to: approverEmp.email, toName: approverEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name })
-      }
-      sendPush([approverId], '⏳ Có bước chờ bạn duyệt', `${step.step_title} — ${stepTask?.title || ''}`)
+      approverIds.forEach((approverId) => {
+        const approverEmp = employees.find((e) => e.id === approverId)
+        if (approverEmp?.email) {
+          sendNotifyEmail({ type: 'step_submitted', to: approverEmp.email, toName: approverEmp.full_name, taskTitle: stepTask?.title || '', stepTitle: step.step_title, actorName: currentEmployee?.full_name })
+        }
+      })
+      sendPush(approverIds, 'Có bước chờ bạn duyệt', `${step.step_title} - ${stepTask?.title || ''}`)
     }
     toast('Đã gửi duyệt.', 'info')
   }
@@ -2455,6 +2708,7 @@ export default function Home() {
   function notifyStepResult(step: TaskStep, title: string, extraRecipient?: string | null, emailType?: 'step_approved' | 'step_revision', revisionNote?: string) {
     const recipients = new Set<string>()
     if (step.owner_id) recipients.add(step.owner_id)
+    ;(step.supporter_ids || []).forEach((id) => recipients.add(id))
     if (extraRecipient) recipients.add(extraRecipient)
     recipients.delete(currentEmployee?.id || '')
     pushNotify(Array.from(recipients).map((recipient_id) => ({
@@ -2482,13 +2736,14 @@ export default function Home() {
     const stage = step.approval_stage || 'department'
     if (stage === 'coo') return step.coo_approver_id || null
     if (stage === 'ceo') return step.ceo_approver_id || null
-    return step.department_approver_id || step.approver_id || null
+    return step.department_approver_id || step.approver_id || step.approver_ids?.[0] || null
   }
   function canApproveStep(step: TaskStep): boolean {
     if (!currentEmployee?.id) return false
     // Named approver always wins
     const appId = stageApproverId(step)
     if (appId && appId === currentEmployee.id) return true
+    if (stepApproverIds(step).includes(currentEmployee.id)) return true
     // Permission-based: check scope against task's dept
     const stepTask = tasks.find((t) => t.id === step.task_id)
     return can('step', 'approve', { department_id: stepTask?.department_id })
@@ -2813,7 +3068,7 @@ export default function Home() {
     await fetchReports()
   }
 
-  // ── Deep-link navigation ──────────────────────────────────────────────────────
+  // -- Deep-link navigation ------------------------------------------------------
   // Gọi từ alert card / notification để nhảy đúng vào item cần xử lý.
   function openCooTarget(opts: CooTarget & { task?: Task | null }) {
     const { task } = opts
@@ -2880,7 +3135,7 @@ export default function Home() {
     const subtaskIds = tasks.filter((t) => t.parent_task_id === task.id).map((t) => t.id)
     const allTaskIds = [task.id, ...subtaskIds]
 
-    // Xóa cascade: comments → steps → supporters → reports → tasks
+    // Xóa cascade: comments -> steps -> supporters -> reports -> tasks
     const { data: stepRows } = await supabase.from('task_steps').select('id').in('task_id', allTaskIds)
     const stepIds = (stepRows || []).map((s) => s.id)
     if (stepIds.length > 0) {
@@ -2996,7 +3251,8 @@ export default function Home() {
       for (const ws of (result.workstreams || [])) {
         for (const st of (ws?.subtasks || [])) {
           const owner = String(st?.owner || '').trim()
-          const emp = employees.find((e) => (e.full_name || '').toLowerCase() === owner.toLowerCase())
+          const empIds = guessEmployeeIds(owner, employees)
+          const emp = employees.find((e) => e.id === empIds[0])
           rows.push({
             id: `ai-${rows.length}-${Date.now()}`,
             workstreamTitle: ws?.title || 'Đầu việc lớn',
@@ -3006,6 +3262,9 @@ export default function Home() {
             departmentId: '',
             headId: emp?.id || '',
             assigneeId: emp?.id || '',
+            coOwnerIds: empIds.slice(1),
+            supporterIds: [],
+            reviewerIds: [],
             dueDate: st?.deadline && st.deadline !== 'null' ? String(st.deadline) : '',
             priority: 'medium',
           })
@@ -3038,6 +3297,9 @@ export default function Home() {
           departmentId: emp?.department_id || '',
           headId: asgn.personId,
           assigneeId: asgn.personId,
+          coOwnerIds: [],
+          supporterIds: [],
+          reviewerIds: [],
           dueDate: asgn.deadline || '',
           priority: 'medium',
         })
@@ -3080,6 +3342,13 @@ export default function Home() {
 
       if (!projectId) {
         const firstRow = notexRows[0]
+        const projectPeople = uniqueIds(
+          notexRows.map((row) => row.headId),
+          notexRows.map((row) => row.assigneeId),
+          notexRows.flatMap((row) => row.coOwnerIds),
+          notexRows.flatMap((row) => row.supporterIds),
+          notexRows.flatMap((row) => row.reviewerIds),
+        )
         const { data, error } = await supabase
           .from('projects')
           .insert({
@@ -3092,6 +3361,7 @@ export default function Home() {
             priority: 'medium',
             progress_percent: 0,
             issue_status: 'normal',
+            member_ids: projectPeople,
           })
           .select('id')
           .single()
@@ -3130,6 +3400,10 @@ export default function Home() {
               department_id: row.departmentId || null,
               assignee_id: row.assigneeId || null,
               head_id: row.headId || row.assigneeId || null,
+              head_ids: row.headId ? [row.headId] : row.assigneeId ? [row.assigneeId] : null,
+              co_owner_ids: idsWithout(row.coOwnerIds || [], row.assigneeId, row.headId),
+              supporter_ids: idsWithout(row.supporterIds || [], row.assigneeId, row.headId),
+              approver_ids: idsWithout(row.reviewerIds || [], row.assigneeId),
               project_id: projectId,
               issue_status: 'normal',
               approval_status: 'not_submitted',
@@ -3163,6 +3437,11 @@ export default function Home() {
             department_id: row.departmentId || null,
             assignee_id: row.assigneeId || null,
             head_id: row.headId || row.assigneeId || null,
+            head_ids: row.headId ? [row.headId] : row.assigneeId ? [row.assigneeId] : null,
+            co_owner_ids: idsWithout(row.coOwnerIds || [], row.assigneeId, row.headId),
+            supporter_ids: idsWithout(row.supporterIds || [], row.assigneeId, row.headId),
+            approver_ids: idsWithout(row.reviewerIds || [], row.assigneeId),
+            reviewer_ids: idsWithout(row.reviewerIds || [], row.assigneeId),
             project_id: projectId,
             issue_status: 'normal',
             approval_status: 'not_submitted',
@@ -3192,7 +3471,9 @@ export default function Home() {
           step_order: index + 1,
           is_done: false,
           owner_id: row.assigneeId || null,
+          supporter_ids: idsWithout(uniqueIds(row.supporterIds || [], row.coOwnerIds || []), row.assigneeId),
           approver_id: departmentApproverId || null,
+          approver_ids: uniqueIds(row.reviewerIds || [], departmentApproverId ? [departmentApproverId] : []),
           department_approver_id: departmentApproverId || null,
           coo_approver_id: cooApproverId || null,
           ceo_approver_id: ceoApproverId || null,
@@ -3216,16 +3497,17 @@ export default function Home() {
         }
 
         // Gom thông báo cho người duyệt phân công (trưởng bộ phận / head)
-        const approverId = row.headId || departmentApproverId
-        if (approverId && approverId !== currentEmployee?.id) {
+        const approverIds = uniqueIds(row.reviewerIds || [], row.headId ? [row.headId] : [], departmentApproverId ? [departmentApproverId] : [])
+          .filter((id) => id !== currentEmployee?.id)
+        approverIds.forEach((recipientId) => {
           approvalNotices.push({
-            recipient_id: approverId,
+            recipient_id: recipientId,
             title: 'Phân công mới chờ bạn duyệt',
             body: row.subtaskTitle.trim(),
             task_id: subtaskId,
             project_id: projectId,
           })
-        }
+        })
       }
 
       // Gửi thông báo duyệt phân công
@@ -3458,27 +3740,34 @@ export default function Home() {
   })
 
   const peopleReports = employees.map((employee) => {
-    // Workload = chỉ tính task người này đang THỰC HIỆN (assignee_id)
-    // Không tính head_id vì head là người giao, không phải người làm
-    const doingTasks = tasks.filter((task) => task.assignee_id === employee.id)
-    const done = doingTasks.filter((task) => task.status === 'completed').length
-
-    // Assigned = task người này GIAO cho người khác (head_id / head_ids)
-    const assignedTasks = tasks.filter((task) =>
-      task.head_id === employee.id || (task.head_ids || []).includes(employee.id)
+    const relatedTasks = tasks.filter((task) =>
+      taskParticipantIds(task, supportersByTask.get(task.id) || []).includes(employee.id)
     )
+    const mainTasks = tasks.filter((task) => task.assignee_id === employee.id)
+    const coOwnedTasks = tasks.filter((task) => taskCoOwnerIds(task).includes(employee.id))
+    const supportedTasks = tasks.filter((task) =>
+      taskSupporterIds(task, supportersByTask.get(task.id) || []).includes(employee.id)
+    )
+    const approvalTasks = tasks.filter((task) => taskApproverIds(task).includes(employee.id))
+    const done = relatedTasks.filter((task) => task.status === 'completed').length
+    const weighted = tasks.reduce((sum, task) =>
+      sum + weightedTaskLoad(task, employee.id, supportersByTask.get(task.id) || []), 0)
+    const assignedTasks = tasks.filter((task) => taskHeadIds(task).includes(employee.id))
 
     return {
       employee,
-      // Thực hiện (workload thật sự)
-      total: doingTasks.length,
+      total: relatedTasks.length,
       done,
-      doing: doingTasks.filter((task) => task.status === 'in_progress').length,
-      pending: doingTasks.filter((task) => task.status === 'pending').length,
-      overdue: doingTasks.filter((task) => isTaskOverdue(task)).length,
-      problem: doingTasks.filter((task) => isTaskProblem(task)).length,
-      rate: doingTasks.length === 0 ? 0 : Math.round((done / doingTasks.length) * 100),
-      // Giao việc (management view)
+      doing: relatedTasks.filter((task) => task.status === 'in_progress').length,
+      pending: relatedTasks.filter((task) => task.status === 'pending').length,
+      overdue: relatedTasks.filter((task) => isTaskOverdue(task)).length,
+      problem: relatedTasks.filter((task) => isTaskProblem(task)).length,
+      rate: relatedTasks.length === 0 ? 0 : Math.round((done / relatedTasks.length) * 100),
+      main: mainTasks.length,
+      coOwned: coOwnedTasks.length,
+      supported: supportedTasks.length,
+      approvals: approvalTasks.length,
+      weighted: Math.round(weighted * 10) / 10,
       assigned: assignedTasks.length,
       assignedDone: assignedTasks.filter((task) => task.status === 'completed').length,
       assignedDoing: assignedTasks.filter((task) => task.status === 'in_progress').length,
@@ -3505,7 +3794,7 @@ export default function Home() {
     // Dept head / employee: chỉ thấy project có task liên quan
     const visibleProjectIds = new Set(visibleTasks.map((t) => t.project_id).filter(Boolean))
     return projects.filter(
-      (p) => visibleProjectIds.has(p.id) || p.owner_id === currentEmployee.id
+      (p) => visibleProjectIds.has(p.id) || projectParticipantIds(p).includes(currentEmployee.id)
     )
   }, [currentEmployee, projects, visibleTasks])
 
@@ -3526,30 +3815,24 @@ export default function Home() {
     return steps.filter((step) => {
       // Kết quả chờ duyệt
       if (step.approval_status !== 'pending') return false
-      const stage = step.approval_stage || 'department'
-      const approverId =
-        stage === 'coo' ? step.coo_approver_id :
-        stage === 'ceo' ? step.ceo_approver_id :
-        (step.department_approver_id || step.approver_id)
-      return approverId === currentEmployee.id
+      return stepApproverIds(step).includes(currentEmployee.id)
     })
   }, [steps, currentEmployee])
 
   async function approveAssignment(task: Task) {
     const { error } = await supabase.from('tasks').update({ status: 'not_started' }).eq('id', task.id)
     if (error) { toast('Duyệt phân công bị lỗi.', 'error'); return }
-    const notices = []
-    if (task.assignee_id && task.assignee_id !== currentEmployee?.id) {
-      notices.push({
-        recipient_id: task.assignee_id,
+    const participantIds = taskParticipantIds(task, supportersByTask.get(task.id) || [])
+      .filter((id) => id !== currentEmployee?.id)
+    const notices = participantIds.map((recipientId) => ({
+        recipient_id: recipientId,
         actor_id: currentEmployee?.id || null,
         type: 'assigned',
         title: 'Bạn được giao việc mới',
         body: task.title,
         task_id: task.id,
         project_id: task.project_id,
-      })
-    }
+      }))
     await pushNotify(notices)
     toast('Đã duyệt — việc được chia xuống người làm.')
     await fetchAll({ silent: true })
@@ -3574,7 +3857,7 @@ export default function Home() {
     }
   }, [searchQuery, visibleProjects, visibleTasks])
 
-  // ─── Permission system ──────────────────────────────────────────────────────
+  // --- Permission system ------------------------------------------------------
   const role = currentEmployee?.role || 'employee'
   const isDeptHead = role === 'department_head' || Boolean(currentEmployee?.is_department_head)
   const isTopLevel = role === 'ceo' || role === 'coo' || role === 'admin'
@@ -4000,7 +4283,7 @@ export default function Home() {
                   {notifications.length === 0 ? (
                     <div className="vyvy-empty-state mx-2 my-2 px-4 py-6">
                       <div className="vyvy-empty-mark" />
-                      <p className="text-sm font-bold text-[var(--text-primary)]">Chưa có thông báo</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)]">Chua có thông báo</p>
                       <p className="mt-1 text-xs text-[var(--text-secondary)]">Các tag, deadline và duyệt việc sẽ xuất hiện tại đây.</p>
                     </div>
                   ) : (
@@ -4159,6 +4442,7 @@ export default function Home() {
                   updateIssueStatus={updateIssueStatus}
                   updateTaskHead={updateTaskHead}
                   updateTaskAssignee={updateTaskAssignee}
+                  updateTaskRoleIds={updateTaskRoleIds}
                   updateTaskDescription={updateTaskDescription}
                   updateStep={updateStep}
                   submitStep={submitStep}
@@ -4224,6 +4508,7 @@ export default function Home() {
                   tasks={visibleTasks}
                   allSteps={steps}
                   stepsByTask={stepsByTask}
+                  supportersByTask={supportersByTask}
                   currentEmployee={currentEmployee}
                   employeeMap={employeeMap}
                   setSelectedTask={setSelectedTask}
@@ -4425,6 +4710,12 @@ export default function Home() {
         setProjectDesc={setProjectDesc}
         projectOwnerId={projectOwnerId}
         setProjectOwnerId={setProjectOwnerId}
+        projectMemberIds={projectMemberIds}
+        setProjectMemberIds={setProjectMemberIds}
+        projectWatcherIds={projectWatcherIds}
+        setProjectWatcherIds={setProjectWatcherIds}
+        projectApproverIds={projectApproverIds}
+        setProjectApproverIds={setProjectApproverIds}
         projectDepartmentId={projectDepartmentId}
         setProjectDepartmentId={setProjectDepartmentId}
         createProject={createProject}
@@ -4442,6 +4733,12 @@ export default function Home() {
         setWorkHeadIds={setWorkHeadIds}
         workAssigneeId={workAssigneeId}
         setWorkAssigneeId={setWorkAssigneeId}
+        workCoOwnerIds={workCoOwnerIds}
+        setWorkCoOwnerIds={setWorkCoOwnerIds}
+        workSupporterIds={workSupporterIds}
+        setWorkSupporterIds={setWorkSupporterIds}
+        workApproverIds={workApproverIds}
+        setWorkApproverIds={setWorkApproverIds}
         workDueDate={workDueDate}
         setWorkDueDate={setWorkDueDate}
         workPriority={workPriority}
@@ -4468,6 +4765,7 @@ export default function Home() {
           projectMap={projectMap}
           steps={stepsByTask.get(selectedTask.id) || []}
           reports={reportsByTask.get(selectedTask.id) || []}
+          supporters={supportersByTask.get(selectedTask.id) || []}
           close={() => setSelectedTask(null)}
           uploadTaskFile={uploadTaskFile}
           deleteTaskReport={deleteTaskReport}
@@ -4553,7 +4851,7 @@ function DashboardView(props: {
   steps: TaskStep[]
   urgentTasks: Task[]
   projectCards: ProjectCard[]
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
+  peopleReports: PeopleReport[]
   employeeMap: Map<string, Employee>
   projectMap: Map<string, Project>
   setView: (view: ViewKey) => void
@@ -4574,14 +4872,13 @@ function DashboardView(props: {
   // Mutually exclusive: subtract overdue from doing/pending to avoid double-count
   const doing   = tasks.filter((t) => t.status === 'in_progress' && !isTaskOverdue(t)).length
   const pending = tasks.filter((t) => t.status === 'pending'     && !isTaskOverdue(t)).length
-  const notStarted = Math.max(0, total - done - overdue - doing - pending)
   const attentionProjects = props.projectCards.filter((p) => p.health.level === 'watch' || p.health.level === 'problem')
   const pendingSteps = getPendingApprovalSteps(props.steps)
   const revisionSteps = getRevisionSteps(props.steps)
 
   // My tasks (for employee view)
   const myTasks = currentEmployee?.id
-    ? tasks.filter((t) => t.assignee_id === currentEmployee.id || t.head_id === currentEmployee.id || (t.head_ids || []).includes(currentEmployee.id))
+    ? tasks.filter((t) => taskParticipantIds(t).includes(currentEmployee.id))
     : []
   const myOverdue = myTasks.filter((t) => isTaskOverdue(t))
   const myDueToday = myTasks.filter((t) => {
@@ -4591,31 +4888,10 @@ function DashboardView(props: {
   })
   const myDoing = myTasks.filter((t) => t.status === 'in_progress')
 
-  // Donut — mutually exclusive segments, sum == total
-  const donutData = [
-    { name: 'Hoàn thành',    value: done,       color: 'var(--success)' },
-    { name: 'Đang làm',      value: doing,       color: 'var(--olive)' },
-    { name: 'Pending',        value: pending,     color: 'var(--warning)' },
-    { name: 'Trễ hạn',       value: overdue,     color: 'var(--danger)' },
-    { name: 'Chưa bắt đầu',  value: notStarted,  color: 'var(--text-muted)' },
-  ].filter((d) => d.value > 0)
-
   // Workload bar data (top 8)
   const activePeopleReports = props.peopleReports
     .filter((row) => row.employee.status !== 'inactive')
     .sort((a, b) => b.total - a.total || b.overdue - a.overdue || b.doing - a.doing)
-
-  // Chart tiến độ dự án — stacked bar: xong / đang làm / trễ / chưa bắt đầu
-  const projectChartData = props.projectCards.filter((p) => p.total > 0).slice(0, 8).map((p) => {
-    const projectTasks = props.tasks.filter((t) => t.project_id === p.id)
-    const xong = projectTasks.filter((t) => t.status === 'completed').length
-    const tre = projectTasks.filter((t) => isTaskOverdue(t)).length
-    const dangLam = Math.max(0, projectTasks.filter((t) => t.status === 'in_progress').length - tre)
-    const chuaBatDau = Math.max(0, p.total - xong - tre - dangLam)
-    const words = p.name.split(/[\s\-–—]+/)
-    const shortName = words.length > 2 ? words.slice(0, 2).join(' ') + '…' : p.name
-    return { name: shortName, xong, dangLam, tre, chuaBatDau }
-  })
 
   // Liếc 5 giây
   const today = new Date().toISOString().slice(0, 10)
@@ -4626,8 +4902,6 @@ function DashboardView(props: {
   const noDeadlineTasks = tasks.filter((t) => t.status !== 'completed' && !t.due_date)
   const openTasks = tasks.filter((t) => t.status !== 'completed')
   const extensionPending = tasks.filter((t) => t.deadline_status === 'extension_requested')
-
-  const cardCls = 'vyvy-card p-5'
 
   async function refreshDashboard() {
     setRefreshing(true)
@@ -4643,7 +4917,7 @@ function DashboardView(props: {
 
   return (
     <div className="space-y-6">
-      {/* ── Hero ── */}
+      {/* -- Hero -- */}
       <div className="vyvy-card overflow-hidden">
         <div className="flex items-center justify-between gap-4 px-6 py-5">
           <div className="min-w-0">
@@ -4895,7 +5169,7 @@ function DashboardView(props: {
         <>
           <div className="vyvy-section-header">
             <span className="vyvy-section-number">03</span>
-            <span className="vyvy-label">Tài nguyên · Ai đang gánh bao nhiêu</span>
+            <span className="vyvy-label">Tài nguyên · Ai dang gánh bao nhiêu</span>
           </div>
           <div className="vyvy-card p-5">
             <div className="flex items-center justify-between mb-4">
@@ -4987,85 +5261,7 @@ function DashboardView(props: {
   )
 }
 
-// ─── Dashboard Charts ─────────────────────────────────────────────────────────
-
-function DashboardDonut({ data, total }: { data: Array<{ name: string; value: number; color: string }>; total: number }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <div className="h-56 animate-pulse rounded-xl bg-[var(--bg-surface)]" />
-
-  return (
-    <div>
-      <div className="relative">
-        <ResponsiveContainer width="100%" height={180}>
-          <PieChart>
-            <Pie data={data} cx="50%" cy="50%" innerRadius={56} outerRadius={80} paddingAngle={3} dataKey="value" strokeWidth={0}>
-              {data.map((entry: { name: string; value: number; color: string }, index: number) => (
-                <Cell key={index} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              formatter={(value, name) => {
-                const count = Number(value ?? 0)
-                return [`${count} việc (${total > 0 ? Math.round((count / total) * 100) : 0}%)`, String(name ?? '')]
-              }}
-              contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,.08)' }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-3xl font-extrabold text-[var(--text-primary)] leading-none">{total}</p>
-          <p className="text-[11px] font-medium text-[var(--text-muted)] mt-1">đầu việc</p>
-        </div>
-      </div>
-      <div className="mt-3 space-y-1.5 px-1">
-        {data.map((d) => (
-          <div key={d.name} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: d.color }}/>
-            <span className="flex-1 text-xs text-[var(--text-secondary)] truncate">{d.name}</span>
-            <span className="text-xs font-bold tabular-nums text-[var(--text-primary)]">{d.value}</span>
-            <span className="text-[11px] text-[var(--text-muted)] tabular-nums w-8 text-right">
-              {total > 0 ? Math.round((d.value / total) * 100) : 0}%
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function DashboardProjectBar({ data }: { data: Array<{ name: string; xong: number; dangLam: number; tre: number; chuaBatDau: number }> }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => { setMounted(true) }, [])
-  if (!mounted) return <div className="h-44 skeleton rounded-[var(--radius)]" />
-  if (data.length === 0) return <p className="h-44 flex items-center justify-center text-xs text-[var(--text-muted)]">Chưa có dự án nào có đầu việc</p>
-
-  const maxVal = Math.max(...data.map(d => d.xong + d.dangLam + d.tre + d.chuaBatDau), 1)
-
-  const tooltipFormatter = (value: unknown, name: unknown) => {
-    const labels: Record<string, string> = { xong: 'Xong', dangLam: 'Đang làm', tre: 'Trễ', chuaBatDau: 'Chưa bắt đầu' }
-    const key = String(name ?? '')
-    return [Number(value ?? 0), labels[key] || key]
-  }
-
-  return (
-    <ResponsiveContainer width="100%" height={170}>
-      <BarChart data={data} margin={{ top: 0, right: 0, left: -24, bottom: 0 }} barCategoryGap="30%">
-        <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} interval={0} />
-        <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={[0, maxVal]} />
-        <Tooltip
-          formatter={tooltipFormatter}
-          contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
-          cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-        />
-        <Bar dataKey="xong"       name="xong"        fill="var(--success)" stackId="a" />
-        <Bar dataKey="dangLam"    name="dangLam"     fill="var(--olive)" stackId="a" />
-        <Bar dataKey="tre"        name="tre"         fill="var(--danger)" stackId="a" />
-        <Bar dataKey="chuaBatDau" name="chuaBatDau"  fill="var(--text-muted)" stackId="a" radius={[3,3,0,0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  )
-}
+// --- Dashboard Charts ---------------------------------------------------------
 
 function InlineFilePanel({ task, reports, uploadTaskFile, deleteTaskReport }: {
   task: Task; reports: TaskReport[]
@@ -5134,6 +5330,12 @@ function CooBoard(props: {
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
   updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
+  updateTaskRoleIds: (
+    taskId: string,
+    field: 'co_owner_ids' | 'supporter_ids' | 'reviewer_ids' | 'watcher_ids' | 'approver_ids',
+    ids: string[],
+    label: string,
+  ) => void
   updateTaskDescription: (taskId: string, description: string) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
@@ -5197,7 +5399,7 @@ function CooBoard(props: {
     setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
   }, [props.selectedProjectId, props.workstreams])
 
-  // Deep-link: expand đúng workstream + scroll + highlight item
+  // Deep-link: expand dúng workstream + scroll + highlight item
   useEffect(() => {
     if (!props.cooTarget) return
     const { workstreamId, taskId, highlightId } = props.cooTarget
@@ -5268,7 +5470,7 @@ function CooBoard(props: {
 
   const allSteps = Array.from(props.stepsByTask.values()).flat()
 
-  // ── Workstream accordion (shared between grid project rows and workspace tab) ──
+  // -- Workstream accordion (shared between grid project rows and workspace tab) --
   function WorkstreamList({ project, workstreams }: { project: Project; workstreams: Task[] }) {
     return (
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
@@ -5293,6 +5495,9 @@ function CooBoard(props: {
               ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
               : wsHead ? [wsHead.full_name] : [])
             const wsAssignee = props.employeeMap.get(ws.assignee_id || '')
+            const wsCoOwnerIds = taskCoOwnerIds(ws)
+            const wsSupporterIds = taskSupporterIds(ws, props.supportersByTask.get(ws.id) || [])
+            const wsApproverIds = taskApproverIds(ws)
             const wsHeadNoDept = !!wsHead && !wsHead.department_id
             const wsAssigneeNoDept = !!wsAssignee && !wsAssignee.department_id
             const subtasks = props.tasksByParent.get(ws.id) || []
@@ -5318,8 +5523,11 @@ function CooBoard(props: {
                         </span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}{wsHeadNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
-                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}{wsAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
+                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}{wsHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}{wsAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                        {wsCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(wsCoOwnerIds, props.employeeMap)}</span>}
+                        {wsSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(wsSupporterIds, props.employeeMap)}</span>}
+                        {wsApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(wsApproverIds, props.employeeMap)}</span>}
                         {ws.due_date && <span>· {ws.due_date}</span>}
                         <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
                       </div>
@@ -5332,7 +5540,7 @@ function CooBoard(props: {
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <div className="flex flex-col items-start gap-0.5">
-                      <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO VIỆC</span>
+                      <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
                       <HeadPicker
                         headIds={ws.head_ids?.length ? ws.head_ids : (ws.head_id ? [ws.head_id] : [])}
                         employees={props.employees}
@@ -5341,11 +5549,20 @@ function CooBoard(props: {
                       />
                     </div>
                     <div className="flex flex-col items-start gap-0.5">
-                      <span className="font-spec text-[8px] text-[var(--text-muted)]">PHỤ TRÁCH</span>
+                      <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
                       <PersonPicker
                         value={ws.assignee_id}
                         employees={props.employees}
                         onSave={(id) => props.updateTaskAssignee(ws.id, id)}
+                      />
+                    </div>
+                    <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
+                      <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
+                      <HeadPicker
+                        headIds={wsCoOwnerIds}
+                        employees={props.employees}
+                        onSave={(ids) => props.updateTaskRoleIds(ws.id, 'co_owner_ids', ids, 'đồng phụ trách')}
+                        placeholder="Chưa chọn"
                       />
                     </div>
                     {props.canCreateSubtask(ws) && (
@@ -5412,6 +5629,9 @@ function CooBoard(props: {
                         const subtaskHeadIds = subtask.head_ids && subtask.head_ids.length > 0 ? subtask.head_ids : (subtask.head_id ? [subtask.head_id] : [])
                         const subtaskHeadNames = subtaskHeadIds.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
                         const subtaskHead = props.employeeMap.get(subtask.head_id || '')
+                        const subtaskCoOwnerIds = taskCoOwnerIds(subtask)
+                        const subtaskSupporterIds = taskSupporterIds(subtask, props.supportersByTask.get(subtask.id) || [])
+                        const subtaskApproverIds = taskApproverIds(subtask)
                         const subtaskHeadNoDept = !!subtaskHead && !subtaskHead.department_id
                         const subtaskAssigneeNoDept = !!subtaskAssignee && !subtaskAssignee.department_id
 
@@ -5435,8 +5655,11 @@ function CooBoard(props: {
                                     </span>
                                   </div>
                                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}{subtaskHeadNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
-                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}{subtaskAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">⚠</span>}</span>
+                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}{subtaskHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}{subtaskAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                                    {subtaskCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(subtaskCoOwnerIds, props.employeeMap)}</span>}
+                                    {subtaskSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(subtaskSupporterIds, props.employeeMap)}</span>}
+                                    {subtaskApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(subtaskApproverIds, props.employeeMap)}</span>}
                                     {subtask.due_date && <span>· {subtask.due_date}</span>}
                                     <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
                                   </div>
@@ -5449,7 +5672,7 @@ function CooBoard(props: {
                               </button>
                               <div className="flex shrink-0 items-center gap-1.5">
                                 <div className="flex flex-col items-start gap-0.5">
-                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">GIAO</span>
+                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
                                   <HeadPicker
                                     headIds={subtaskHeadIds}
                                     employees={props.employees}
@@ -5458,11 +5681,20 @@ function CooBoard(props: {
                                   />
                                 </div>
                                 <div className="flex flex-col items-start gap-0.5">
-                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">PHỤ TRÁCH</span>
+                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
                                   <PersonPicker
                                     value={subtask.assignee_id}
                                     employees={props.employees}
                                     onSave={(id) => props.updateTaskAssignee(subtask.id, id)}
+                                  />
+                                </div>
+                                <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
+                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
+                                  <HeadPicker
+                                    headIds={subtaskCoOwnerIds}
+                                    employees={props.employees}
+                                    onSave={(ids) => props.updateTaskRoleIds(subtask.id, 'co_owner_ids', ids, 'đồng phụ trách')}
+                                    placeholder="Chưa chọn"
                                   />
                                 </div>
                                 <button type="button"
@@ -5513,6 +5745,7 @@ function CooBoard(props: {
                                   updateIssueStatus={props.updateIssueStatus}
                                   updateTaskHead={props.updateTaskHead}
                                   updateTaskAssignee={props.updateTaskAssignee}
+                                  updateTaskRoleIds={props.updateTaskRoleIds}
                                   updateTaskDescription={props.updateTaskDescription}
                                   updateStep={props.updateStep}
                                   submitStep={props.submitStep}
@@ -5556,7 +5789,7 @@ function CooBoard(props: {
     )
   }
 
-  // ── Filter bar (shared) ──
+  // -- Filter bar (shared) --
   const filterBar = (
     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
       <div className="relative flex-1 min-w-[180px]">
@@ -5600,7 +5833,7 @@ function CooBoard(props: {
     </div>
   )
 
-  // ── WORKSPACE VIEW ──
+  // -- WORKSPACE VIEW --
   if (props.selectedProjectId !== 'all') {
     const project = props.projects.find((p) => p.id === props.selectedProjectId)
     if (!project) return null
@@ -5744,7 +5977,7 @@ function CooBoard(props: {
                           <div className="mt-1 ml-5 space-y-0.5">
                             {subtasksWithDeadline.map((s) => (
                               <div key={s.id} className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-                                <span className="text-[var(--text-muted)]">└</span>
+                                <span className="text-[var(--text-muted)]">+</span>
                                 <span className="truncate">{s.title}</span>
                                 <span className={`shrink-0 font-semibold ${isTaskOverdue(s) ? 'text-[var(--danger)]' : ''}`}>{s.due_date}</span>
                               </div>
@@ -5834,44 +6067,44 @@ function CooBoard(props: {
               // Workstreams added
               allProjectWorkstreams.forEach((ws) => {
                 if (ws.created_at) {
-                  events.push({ id: `ws-${ws.id}`, at: ws.created_at, icon: '📋', label: `Thêm đầu việc lớn: ${ws.title}`, sub: project.name })
+                  events.push({ id: `ws-${ws.id}`, at: ws.created_at, icon: 'LIST', label: `Thêm đầu việc lớn: ${ws.title}`, sub: project.name })
                 }
                 // Workstream completed
                 if (ws.status === 'completed' && ws.created_at) {
-                  events.push({ id: `ws-done-${ws.id}`, at: ws.created_at, icon: '✅', label: `Hoàn thành: ${ws.title}`, color: 'text-[var(--success)]' })
+                  events.push({ id: `ws-done-${ws.id}`, at: ws.created_at, icon: 'OK', label: `Hoàn thành: ${ws.title}`, color: 'text-[var(--success)]' })
                 }
                 // Subtasks added
                 const subtasks = props.tasksByParent.get(ws.id) || []
                 subtasks.forEach((st) => {
                   if (st.created_at) {
-                    events.push({ id: `st-${st.id}`, at: st.created_at, icon: '📌', label: `Thêm task: ${st.title}`, sub: ws.title })
+                    events.push({ id: `st-${st.id}`, at: st.created_at, icon: 'PIN', label: `Thêm task: ${st.title}`, sub: ws.title })
                   }
                   if (st.status === 'completed' && st.created_at) {
-                    events.push({ id: `st-done-${st.id}`, at: st.created_at, icon: '✅', label: `Hoàn thành task: ${st.title}`, color: 'text-[var(--success)]' })
+                    events.push({ id: `st-done-${st.id}`, at: st.created_at, icon: 'OK', label: `Hoàn thành task: ${st.title}`, color: 'text-[var(--success)]' })
                   }
                   // Steps
                   const steps = props.stepsByTask.get(st.id) || []
                   steps.forEach((step) => {
                     if (step.is_done && step.submitted_at) {
-                      events.push({ id: `step-done-${step.id}`, at: step.submitted_at, icon: '🔖', label: `Bước "${step.step_title}" hoàn thành`, sub: st.title })
+                      events.push({ id: `step-done-${step.id}`, at: step.submitted_at, icon: 'STEP', label: `Bước "${step.step_title}" hoàn thành`, sub: st.title })
                     }
                     // Comments
                     const comments = props.commentsByStep.get(step.id) || []
                     comments.forEach((c) => {
                       const actor = c.employees?.full_name || 'Ai đó'
-                      events.push({ id: `cmt-${c.id}`, at: c.created_at, icon: '💬', label: `${actor} bình luận tại bước "${step.step_title}"`, sub: c.comment.slice(0, 60) + (c.comment.length > 60 ? '…' : '') })
+                      events.push({ id: `cmt-${c.id}`, at: c.created_at, icon: 'CMT', label: `${actor} bình luận tại bước "${step.step_title}"`, sub: c.comment.slice(0, 60) + (c.comment.length > 60 ? '...' : '') })
                     })
                   })
                   // Reports / files
                   const reports = props.reportsByTask.get(st.id) || []
                   reports.forEach((r) => {
-                    events.push({ id: `rpt-${r.id}`, at: r.created_at, icon: '📎', label: `Upload file: ${r.file_name || 'file'}`, sub: st.title })
+                    events.push({ id: `rpt-${r.id}`, at: r.created_at, icon: 'FILE', label: `Upload file: ${r.file_name || 'file'}`, sub: st.title })
                   })
                 })
                 // Workstream-level reports
                 const wsReports = props.reportsByTask.get(ws.id) || []
                 wsReports.forEach((r) => {
-                  events.push({ id: `rpt-ws-${r.id}`, at: r.created_at, icon: '📎', label: `Upload file: ${r.file_name || 'file'}`, sub: ws.title })
+                  events.push({ id: `rpt-ws-${r.id}`, at: r.created_at, icon: 'FILE', label: `Upload file: ${r.file_name || 'file'}`, sub: ws.title })
                 })
               })
 
@@ -5881,7 +6114,7 @@ function CooBoard(props: {
               if (events.length === 0) {
                 return (
                   <div className="flex flex-col items-center gap-3 py-10 text-center">
-                    <div className="text-4xl">📭</div>
+                    <div className="text-4xl">??</div>
                     <p className="font-semibold text-[var(--text-secondary)]">Chưa có lịch sử hoạt động</p>
                     <p className="text-sm text-[var(--text-muted)]">Các thay đổi trong dự án sẽ hiển thị tại đây.</p>
                   </div>
@@ -5920,7 +6153,7 @@ function CooBoard(props: {
     )
   }
 
-  // ── GRID VIEW (selectedProjectId === 'all') ──
+  // -- GRID VIEW (selectedProjectId === 'all') --
   const CARD_COLORS = ['bg-purple-500', 'bg-emerald-500', 'bg-blue-500', 'bg-amber-500', 'bg-rose-500', 'bg-indigo-500', 'bg-teal-500', 'bg-orange-500']
 
   return (
@@ -6096,7 +6329,7 @@ function InlineSubtaskForm(props: {
           ))}
         </Select>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-bold text-[var(--text-secondary)]">Người giao (Head)</label>
+          <label className="text-xs font-bold text-[var(--text-secondary)]">Lead / ngu?i giao vi?c</label>
           <HeadPicker
             headIds={props.form.headIds || []}
             employees={props.employees}
@@ -6107,13 +6340,41 @@ function InlineSubtaskForm(props: {
           value={props.form.assigneeId}
           onChange={(value) => props.setForm({ ...props.form, assigneeId: value })}
         >
-          <option value="">Chọn người phụ trách</option>
+          <option value="">Ch?n ngu?i ch?u trách nhi?m chính</option>
           {props.employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.full_name}
             </option>
           ))}
         </Select>
+        <MultiPersonField
+          label="Đồng phụ trách"
+          ids={props.form.coOwnerIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, coOwnerIds: ids })}
+          placeholder="Chọn đồng phụ trách"
+        />
+        <MultiPersonField
+          label="Người hỗ trợ"
+          ids={props.form.supporterIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, supporterIds: ids })}
+          placeholder="Chọn người hỗ trợ"
+        />
+        <MultiPersonField
+          label="Người duyệt"
+          ids={props.form.reviewerIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, reviewerIds: ids })}
+          placeholder="Chọn người duyệt"
+        />
+        <MultiPersonField
+          label="Người theo dõi"
+          ids={props.form.watcherIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, watcherIds: ids })}
+          placeholder="Chọn người theo dõi"
+        />
         <input
           type="date"
           className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
@@ -6125,8 +6386,8 @@ function InlineSubtaskForm(props: {
           onChange={(value) => props.setForm({ ...props.form, priority: value })}
         >
           <option value="low">Ưu tiên thấp</option>
-          <option value="medium">Ưu tiên trung bình</option>
-          <option value="high">Ưu tiên cao</option>
+          <option value="medium">Uu tiên trung bình</option>
+          <option value="high">Uu tiên cao</option>
         </Select>
       </div>
 
@@ -6170,6 +6431,12 @@ function SubtaskCard(props: {
   updateIssueStatus: (taskId: string, status: string) => void
   updateTaskHead: (taskId: string, headIds: string[]) => void
   updateTaskAssignee: (taskId: string, assigneeId: string | null) => void
+  updateTaskRoleIds: (
+    taskId: string,
+    field: 'co_owner_ids' | 'supporter_ids' | 'reviewer_ids' | 'watcher_ids' | 'approver_ids',
+    ids: string[],
+    label: string,
+  ) => void
   updateTaskDescription: (taskId: string, description: string) => void
   updateStep: (step: TaskStep, patch: Partial<TaskStep>) => void
   submitStep: (step: TaskStep) => void
@@ -6199,6 +6466,9 @@ function SubtaskCard(props: {
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
   const department = props.departmentMap.get(head?.department_id || props.task.department_id || '')
+  const taskCoOwners = taskCoOwnerIds(props.task)
+  const taskSupporters = taskSupporterIds(props.task, props.supporters)
+  const taskApprovers = taskApproverIds(props.task)
   const headHasNoDept = !!head && !head.department_id
   const progress = calculateTaskProgress(props.task, props.steps)
   const slow = isTaskSlow(props.task, props.steps)
@@ -6224,16 +6494,22 @@ function SubtaskCard(props: {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <span>Head:</span>
+            <span>Lead:</span>
             <HeadPicker
               headIds={props.task.head_ids || (props.task.head_id ? [props.task.head_id] : [])}
               employees={props.employees}
               onSave={(ids) => props.updateTaskHead(props.task.id, ids)}
             />
             <span>· Phòng ban: {headHasNoDept
-              ? <b className="text-[var(--warning)]">⚠ Head chưa được gắn phòng ban</b>
+              ? <b className="text-[var(--warning)]">? Head chua du?c g?n phòng ban</b>
               : <b>{department?.name || 'Chưa gắn'}</b>
-            } · Deadline: <b>{props.task.due_date || 'Chưa có'}</b></span>
+            } · Deadline: <b>{props.task.due_date || 'Chua có'}</b></span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+            <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {peopleLabel(props.task.assignee_id ? [props.task.assignee_id] : [], props.employeeMap)}</span>
+            {taskCoOwners.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(taskCoOwners, props.employeeMap)}</span>}
+            {taskSupporters.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">H? TR?</span> {peopleLabel(taskSupporters, props.employeeMap)}</span>}
+            {taskApprovers.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUY?T</span> {peopleLabel(taskApprovers, props.employeeMap)}</span>}
           </div>
         </div>
 
@@ -6305,7 +6581,7 @@ function SubtaskCard(props: {
           className="w-full flex items-center justify-between px-4 py-3 text-sm font-extrabold text-[var(--text-primary)] hover:bg-[var(--bg-card)] transition-colors"
         >
           <span>Mô tả đầu việc</span>
-          <span className={`text-[var(--text-muted)] transition-transform ${descOpen ? 'rotate-180' : ''}`}>▾</span>
+          <span className={`text-[var(--text-muted)] transition-transform ${descOpen ? 'rotate-180' : ''}`}>?</span>
         </button>
         <div className={descOpen ? 'block' : 'hidden'}>
           <div className="px-4 pb-4 pt-1">
@@ -6406,12 +6682,12 @@ function SubtaskCard(props: {
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
         <span className="font-semibold text-[var(--text-secondary)]">Hỗ trợ:</span>
         {props.supporters.length === 0 ? (
-          <span className="text-[var(--text-muted)]">chưa có</span>
+          <span className="text-[var(--text-muted)]">chua có</span>
         ) : (
           props.supporters.map((supporter) => (
             <span key={supporter.id} className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-surface)] px-2 py-0.5">
               {supporter.employees?.full_name || 'Không rõ'}
-              <button type="button" onClick={() => props.deleteSupporter(supporter)} className="text-[var(--danger)] hover:opacity-70">✕</button>
+              <button type="button" onClick={() => props.deleteSupporter(supporter)} className="text-[var(--danger)] hover:opacity-70">?</button>
             </span>
           ))
         )}
@@ -6450,7 +6726,7 @@ function InlineStepForm(props: {
           value={props.form.ownerId}
           onChange={(value) => props.setForm({ ...props.form, ownerId: value })}
         >
-          <option value="">Chọn người phụ trách</option>
+          <option value="">Ch?n ngu?i th?c hi?n chính</option>
           {props.employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.full_name}
@@ -6468,6 +6744,20 @@ function InlineStepForm(props: {
             </option>
           ))}
         </Select>
+        <MultiPersonField
+          label="Người hỗ trợ bước"
+          ids={props.form.supporterIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, supporterIds: ids })}
+          placeholder="Chọn người hỗ trợ"
+        />
+        <MultiPersonField
+          label="Người duyệt bổ sung"
+          ids={props.form.approverIds}
+          employees={props.employees}
+          onSave={(ids) => props.setForm({ ...props.form, approverIds: ids })}
+          placeholder="Chọn người duyệt"
+        />
         <input
           type="date"
           className="h-12 rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] px-4 text-sm outline-none"
@@ -6522,9 +6812,7 @@ function getMentionedEmployeeIds(text: string, employees: Employee[]) {
 
 function getRelatedCommentPeople(task: Task, step: TaskStep, supporters: TaskSupporter[], employeeMap: Map<string, Employee>) {
   const ids = new Set<string>()
-  if (task.head_id) ids.add(task.head_id)
-  ;(task.head_ids || []).forEach((id) => ids.add(id))
-  if (task.assignee_id) ids.add(task.assignee_id)
+  taskParticipantIds(task, supporters).forEach((id) => ids.add(id))
   supporters.forEach((supporter) => ids.add(supporter.employee_id))
   ;[
     step.owner_id,
@@ -6535,6 +6823,7 @@ function getRelatedCommentPeople(task: Task, step: TaskStep, supporters: TaskSup
   ].forEach((id) => {
     if (id) ids.add(id)
   })
+  stepParticipantIds(step).forEach((id) => ids.add(id))
 
   return Array.from(ids)
     .map((id) => employeeMap.get(id))
@@ -6613,7 +6902,6 @@ function StepWorkflowCard(props: {
   }
 
   // Mặc định mở nếu cần hành động
-  const needsAction = status === 'revision' || (status === 'pending' && props.canApprove) || status === 'not_submitted'
   const [expanded, setExpanded] = useState(false)
   const [noteDraft, setNoteDraft] = useState(props.step.note || '')
 
@@ -6639,13 +6927,13 @@ function StepWorkflowCard(props: {
             let label: string
             let cls: string
             if (s.approval_status === 'approved') {
-              label = '✓ Hoàn thành'; cls = 'bg-[var(--success-soft)] text-[var(--success)]'
+              label = 'Hoàn thành'; cls = 'bg-[var(--success-soft)] text-[var(--success)]'
             } else if (s.approval_status === 'pending') {
-              label = '⏳ Chờ duyệt kết quả'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
+              label = 'Chờ duyệt kết quả'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
             } else if (s.approval_status === 'revision') {
-              label = '↩ Kết quả bị trả lại'; cls = 'bg-[var(--danger-soft)] text-[var(--danger)]'
+              label = 'Kết quả bị trả lại'; cls = 'bg-[var(--danger-soft)] text-[var(--danger)]'
             } else if (s.step_in_progress) {
-              label = '🔄 Đang thực hiện'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
+              label = 'Đang thực hiện'; cls = 'bg-[var(--warning-soft)] text-[var(--warning)]'
             } else {
               label = 'Chưa bắt đầu'; cls = 'bg-[var(--bg-surface)] text-[var(--text-muted)]'
             }
@@ -6660,10 +6948,10 @@ function StepWorkflowCard(props: {
         {props.locked && <span className="shrink-0 text-[10px] font-bold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">Khóa</span>}
         <span className="shrink-0 text-xs text-[var(--text-muted)]">{owner?.full_name || '—'}</span>
         {props.step.due_date && <span className="shrink-0 text-[10px] text-[var(--text-muted)] hidden sm:block">{props.step.due_date}</span>}
-        <span className={`shrink-0 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
+        <span className={`shrink-0 text-[var(--text-muted)] transition-transform ${expanded ? 'rotate-180' : ''}`}>v</span>
       </button>
 
-      {/* ── Body collapse ── */}
+      {/* -- Body collapse -- */}
       <div className={`border-t border-[var(--border)] ${expanded ? 'block' : 'hidden'}`}><div className="px-4 pb-4">
       <div className="pt-3 mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-[var(--text-secondary)]">
@@ -6677,7 +6965,7 @@ function StepWorkflowCard(props: {
         </button>
       </div>
 
-      {/* ── Deadline (đã chốt ngay khi giao) ── */}
+      {/* -- Deadline (đã chốt ngay khi giao) -- */}
       <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -6703,14 +6991,14 @@ function StepWorkflowCard(props: {
         </div>
       </div>
 
-      {/* ── Timeline lịch sử ── */}
+      {/* -- Timeline lịch sử -- */}
       {(() => {
         const s = props.step
         const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleString('vi-VN', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null
         const events: { icon: string; label: string; time: string | null; done: boolean }[] = [
-          { icon: '▶', label: 'Bắt đầu thực hiện', time: fmt(s.step_started_at), done: !!s.step_started_at },
-          { icon: '📤', label: 'Gửi duyệt kết quả', time: fmt(s.submitted_at), done: !!s.submitted_at },
-          { icon: '🏁', label: 'Hoàn thành', time: fmt(s.approved_at), done: s.approval_status === 'approved' },
+          { icon: 'START', label: 'Bắt đầu thực hiện', time: fmt(s.step_started_at), done: !!s.step_started_at },
+          { icon: 'SEND', label: 'Gửi duyệt kết quả', time: fmt(s.submitted_at), done: !!s.submitted_at },
+          { icon: 'OK', label: 'Hoàn thành', time: fmt(s.approved_at), done: s.approval_status === 'approved' },
         ]
         return (
           <div className="mb-4 flex items-center gap-0">
@@ -6860,7 +7148,7 @@ function StepWorkflowCard(props: {
               onClick={() => props.saveStepLink(props.step, localLinkDraft)}
               className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
-              Lưu
+              Luu
             </button>
           </div>
 
@@ -6926,7 +7214,7 @@ function StepWorkflowCard(props: {
               onClick={() => props.saveSupportRequest(props.step)}
               className="rounded-lg bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-primary)]"
             >
-              Lưu
+              Luu
             </button>
           </div>
 
@@ -7259,7 +7547,7 @@ function ProjectsView(props: {
                   </div>
                   <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
                     <span className="font-bold text-[var(--success)]">{project.done}<span className="font-normal text-[var(--text-muted)]">/{project.total}</span></span>
-                    {project.overdue > 0 && <span className="font-bold text-[var(--danger)]">⚠ {project.overdue}</span>}
+                    {project.overdue > 0 && <span className="font-bold text-[var(--danger)]">? {project.overdue}</span>}
                     {project.problem > 0 && <span className="font-bold text-[var(--warning)]">! {project.problem}</span>}
                   </div>
                   <Ico d={IC.chevronRight} size={13} className={`shrink-0 text-[var(--text-muted)] transition-transform ${isFocus ? 'rotate-90' : ''}`} />
@@ -7414,8 +7702,8 @@ function ProjectsView(props: {
               </div>
               {(hasSpec || hasTracker) && (
                 <div className="mt-2 flex flex-wrap gap-1">
-                  {hasSpec && <span className="rounded-full bg-[var(--olive)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--olive)]">📋 Strategy Spec</span>}
-                  {hasTracker && <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--accent)]">🗂 Execution Tracker</span>}
+                  {hasSpec && <span className="rounded-full bg-[var(--olive)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--olive)]">?? Strategy Spec</span>}
+                  {hasTracker && <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-[9px] font-bold text-[var(--accent)]">?? Execution Tracker</span>}
                 </div>
               )}
             </button>
@@ -7423,7 +7711,7 @@ function ProjectsView(props: {
         })}
       </div>
 
-      {/* ══ Project Workspace Modal ══ */}
+      {/* -- Project Workspace Modal -- */}
       {boardProjectCard && (() => {
         const pTasks = props.tasks.filter((t) => t.project_id === boardProjectCard.id)
         const pTaskIds = new Set(pTasks.map((t) => t.id))
@@ -7472,14 +7760,14 @@ function ProjectsView(props: {
           if (isTaskOverdue(t)) return { dot: 'bg-[var(--crit)]', txt: 'Trễ', cls: 'text-[var(--crit)] bg-[var(--danger-soft)]' }
           if (t.status === 'in_progress') return { dot: 'bg-[var(--olive)]', txt: 'Đang', cls: 'text-[var(--olive)] bg-[var(--bg-surface)]' }
           if (t.status === 'pending') return { dot: 'bg-[var(--warn)]', txt: 'Kẹt', cls: 'text-[var(--warn)] bg-[var(--warning-soft)]' }
-          return { dot: 'bg-[var(--border)]', txt: 'Chưa', cls: 'text-[var(--text-muted)] bg-[var(--bg-surface)]' }
+          return { dot: 'bg-[var(--border)]', txt: 'Chua', cls: 'text-[var(--text-muted)] bg-[var(--bg-surface)]' }
         }
 
         return (
           <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-2 sm:p-6" onClick={() => setBoardProject(null)}>
             <div className="vyvy-modal-panel w-full max-w-5xl overflow-hidden rounded-[var(--radius-lg)]" onClick={(e) => e.stopPropagation()}>
 
-              {/* ── Header ── */}
+              {/* -- Header -- */}
               <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg-card)]">
                 <div className="flex items-center gap-3 px-5 py-3">
                   <div className="min-w-0 flex-1">
@@ -7527,7 +7815,7 @@ function ProjectsView(props: {
                 </div>
               </div>
 
-              {/* ── Tab content ── */}
+              {/* -- Tab content -- */}
               <div className="p-5 space-y-5">
 
                 {/* TAB: Tổng quan */}
@@ -7546,7 +7834,7 @@ function ProjectsView(props: {
                           className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition-colors hover:bg-[var(--bg-surface)] ${s.linked ? 'border-[var(--success)]/30 text-[var(--success)]' : 'border-dashed border-[var(--border)] text-[var(--text-muted)]'}`}>
                           <span className={`h-2 w-2 rounded-full ${s.linked ? 'bg-[var(--success)]' : 'bg-[var(--border)]'}`} />
                           {s.label}: {s.linked ? 'Đã liên kết' : 'Chưa có'}
-                          <span className="ml-auto text-[10px]">{s.linked ? 'Xem →' : 'Import'}</span>
+                          <span className="ml-auto text-[10px]">{s.linked ? 'Xem ->' : 'Import'}</span>
                         </button>
                       ))}
                     </div>
@@ -7719,7 +8007,7 @@ function ProjectsView(props: {
                           {isOpen && (
                             <div className="border-t border-[var(--border)] divide-y divide-[var(--border)] bg-[var(--bg-surface)]">
                               {children.length === 0 ? (
-                                <p className="px-8 py-3 text-xs text-[var(--text-muted)]">Workstream chưa có subtask.</p>
+                                <p className="px-8 py-3 text-xs text-[var(--text-muted)]">Workstream chua có subtask.</p>
                               ) : children.map((t) => {
                                 const desc = t.description || ''
                                 const ownerM = (desc.match(/owner:\s*([^|]+)/) || [])[1]?.trim()
@@ -7793,7 +8081,7 @@ function ProjectsView(props: {
                   <div className="space-y-3">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Tất cả task ({pTasks.length}) · bấm để mở chi tiết</p>
                     {pTasks.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có task nào.</p>
+                      <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chua có task nào.</p>
                     ) : pTasks.map((t) => {
                       const tSteps = props.steps.filter((s) => s.task_id === t.id)
                       const tStepD = tSteps.filter((s) => s.is_done).length
@@ -7847,7 +8135,7 @@ function ProjectsView(props: {
                     <div className="space-y-4">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Sắp xếp theo deadline</p>
                       {groups.size === 0 ? (
-                        <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chưa có task nào có deadline.</p>
+                        <p className="py-6 text-center text-sm text-[var(--text-muted)]">Chua có task nào có deadline.</p>
                       ) : Array.from(groups.entries()).map(([ym, ts]) => {
                         const [y, m] = ym.split('-')
                         return (
@@ -7919,7 +8207,7 @@ function ProjectsView(props: {
                                 <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-extrabold uppercase ${r.severity === 'high' ? 'bg-[var(--danger-soft)] text-[var(--crit)]' : 'bg-[var(--warning-soft)] text-[var(--warn)]'}`}>{r.severity}</span>
                                 <div>
                                   <p className="text-sm font-bold text-[var(--text-primary)]">{r.risk}</p>
-                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)]">→ {r.mitigation}</p>
+                                  <p className="mt-0.5 text-xs text-[var(--text-secondary)]">? {r.mitigation}</p>
                                 </div>
                               </div>
                             </div>
@@ -7935,7 +8223,7 @@ function ProjectsView(props: {
                   <div className="space-y-4">
                     {!spec && !specDecisions && (
                       <div className="rounded-xl border border-dashed border-[var(--border)] py-8 text-center">
-                        <p className="text-sm font-bold text-[var(--text-muted)]">Chưa có Decision Log</p>
+                        <p className="text-sm font-bold text-[var(--text-muted)]">Chua có Decision Log</p>
                         <p className="mt-1 text-xs text-[var(--text-muted)]">Import Rebuild Spec để hiển thị quyết định đã chốt.</p>
                       </div>
                     )}
@@ -8161,7 +8449,7 @@ function TasksView(props: {
       ]
     })
     const csv = [header, ...rows].map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\r\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -8384,7 +8672,7 @@ function MeetingView(props: {
         <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-[var(--text-secondary)]">Form nhập cũ (ẩn — chỉ dùng khi không phân tích AI)</summary>
         <div className="p-1">
 
-      {/* ── Header info ── */}
+      {/* -- Header info -- */}
       <Card>
         <SH n="①" title="Thông tin cuộc họp" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -8412,9 +8700,9 @@ function MeetingView(props: {
         </div>
       </Card>
 
-      {/* ── Business metrics ── */}
+      {/* -- Business metrics -- */}
       <Card>
-        <SH n="②" title="Tình hình kinh doanh" />
+        <SH n="1" title="Tình hình kinh doanh" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {r.metrics.map((m, i) => (
             <div key={i} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 space-y-2">
@@ -8435,7 +8723,7 @@ function MeetingView(props: {
         </div>
       </Card>
 
-      {/* ── Issues ── */}
+      {/* -- Issues -- */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <SH n="③" title="Vấn đề nổi bật" />
@@ -8478,7 +8766,7 @@ function MeetingView(props: {
         )}
       </Card>
 
-      {/* ── Focuses + Directions ── */}
+      {/* -- Focuses + Directions -- */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
           <SH n="④" title="Trọng tâm được chốt" />
@@ -8528,7 +8816,7 @@ function MeetingView(props: {
         </Card>
       </div>
 
-      {/* ── Assignments ── */}
+      {/* -- Assignments -- */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <SH n="⑥" title="Phân công — Deadline tuần này" />
@@ -8595,7 +8883,7 @@ function MeetingView(props: {
         )}
       </Card>
 
-      {/* ── Quote + Notes ── */}
+      {/* -- Quote + Notes -- */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <Card>
           <SH n="⑦" title="Quote / câu chốt cuộc họp" />
@@ -8615,9 +8903,9 @@ function MeetingView(props: {
         </Card>
       </div>
 
-      {/* ── Import config + actions ── */}
+      {/* -- Import config + actions -- */}
       <Card>
-        <SH n="⑨" title="Import vào COO Board" />
+        <SH n="7" title="Import vào COO Board" />
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[220px] flex-1">
             <label className="mb-1 block text-xs font-semibold text-[var(--text-muted)]">Tên dự án import vào</label>
@@ -8669,7 +8957,7 @@ function MeetingView(props: {
         </div>
       </Card>
 
-      {/* ── Preview table ── */}
+      {/* -- Preview table -- */}
       {props.notexRows.length > 0 && (
       <Card>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -8705,7 +8993,7 @@ function MeetingView(props: {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1500px] text-left text-sm">
+          <table className="w-full min-w-[1850px] text-left text-sm">
             <thead>
               <tr className="border-b bg-[var(--bg-surface)] text-xs uppercase text-[var(--text-secondary)]">
                 <th className="p-3">Đầu việc lớn</th>
@@ -8714,9 +9002,12 @@ function MeetingView(props: {
                 <th className="p-3">Kết quả mong muốn</th>
                 <th className="p-3">Phòng ban</th>
                 <th className="p-3">Head</th>
-                <th className="p-3">Người phụ trách</th>
+                <th className="p-3">Chính</th>
+                <th className="p-3">Đồng phụ trách</th>
+                <th className="p-3">Hỗ trợ</th>
+                <th className="p-3">Người duyệt</th>
                 <th className="p-3">Deadline</th>
-                <th className="p-3">Ưu tiên</th>
+                <th className="p-3">Uu tiên</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
@@ -8756,9 +9047,24 @@ function MeetingView(props: {
                   <td className="p-3">
                     <select className="h-10 w-44 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm outline-none"
                       value={row.assigneeId} onChange={(e) => updateRow(row.id, { assigneeId: e.target.value })}>
-                      <option value="">Người phụ trách</option>
+                      <option value="">Người chính</option>
                       {props.employees.map((em) => <option key={em.id} value={em.id}>{em.full_name}</option>)}
                     </select>
+                  </td>
+                  <td className="p-3">
+                    <div className="w-48">
+                      <HeadPicker headIds={row.coOwnerIds || []} employees={props.employees} onSave={(ids) => updateRow(row.id, { coOwnerIds: ids })} placeholder="Chọn đồng PT" />
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="w-48">
+                      <HeadPicker headIds={row.supporterIds || []} employees={props.employees} onSave={(ids) => updateRow(row.id, { supporterIds: ids })} placeholder="Chọn hỗ trợ" />
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="w-48">
+                      <HeadPicker headIds={row.reviewerIds || []} employees={props.employees} onSave={(ids) => updateRow(row.id, { reviewerIds: ids })} placeholder="Chọn người duyệt" />
+                    </div>
                   </td>
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
@@ -8951,7 +9257,7 @@ function RecurringFormPanel(props: {
                   <span className={props.form.department_ids.length === 0 ? 'text-[var(--text-muted)]' : 'font-bold text-[var(--text-primary)]'}>
                     {props.form.department_ids.length === 0 ? '— Chưa chọn phòng ban —' : `${props.form.department_ids.length} phòng ban đã chọn`}
                   </span>
-                  <span className="text-[var(--text-muted)]">{deptMenuOpen ? '▲' : '▼'}</span>
+                  <span className="text-[var(--text-muted)]">{deptMenuOpen ? 'v' : '>'}</span>
                 </button>
                 {deptMenuOpen && (
                   <>
@@ -9220,7 +9526,7 @@ where not exists (select 1 from public.recurring_tasks where title = 'Họp Perf
     : `https://supabase.com/dashboard`
   return (
     <div className="flex items-start gap-3 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
-      <span className="mt-0.5 text-amber-500">⚠</span>
+      <span className="mt-0.5 text-amber-500">?</span>
       <div className="flex-1">
         <p className="text-sm font-bold text-[var(--warning)]">Cần khởi tạo database lần đầu</p>
         <p className="mt-0.5 text-xs text-[var(--warning)]">Các bảng cần thiết chưa tồn tại trong Supabase. Bấm nút bên dưới — trang SQL Editor sẽ mở với SQL đã điền sẵn, bấm <strong>Run</strong> là xong.</p>
@@ -9781,7 +10087,7 @@ function RecurringView(props: {
                   <div key={task.id}
                     className={`rounded-xl border p-3.5 transition-shadow hover:shadow-sm ${task.is_active ? 'border-[var(--border)] bg-[var(--bg-card)]' : 'border-[var(--border)] bg-[var(--bg-surface)] opacity-60'}`}>
 
-                    {/* ── Dòng 1: tên + badges ── */}
+                    {/* -- Dòng 1: tên + badges -- */}
                     <div className="flex flex-wrap items-start gap-1.5 mb-2">
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                         <h4 className="text-sm font-extrabold text-[var(--text-primary)] leading-snug">{task.title}</h4>
@@ -10113,7 +10419,7 @@ function RecurringView(props: {
                         onClick={() => props.saveMeetingLink(selectedMeeting)}
                         className="rounded-xl bg-[var(--bg-card)] px-4 py-2 text-sm font-extrabold text-[var(--text-primary)]"
                       >
-                        Lưu link
+                        Luu link
                       </button>
                     </div>
 
@@ -10199,7 +10505,7 @@ function RecurringView(props: {
 }
 
 
-// ─── AddMeetingSessionModal ───────────────────────────────────────────────────
+// --- AddMeetingSessionModal ---------------------------------------------------
 function AddMeetingSessionModal(p: {
   task: RecurringTask
   employeeMap: Map<string, Employee>
@@ -10443,7 +10749,7 @@ function AddMeetingSessionModal(p: {
   )
 }
 
-// ─── MeetingSessionDetailModal ────────────────────────────────────────────────
+// --- MeetingSessionDetailModal ------------------------------------------------
 function MeetingSessionDetailModal(p: {
   session: MeetingSession
   scheduleTitle: string
@@ -10466,7 +10772,7 @@ function MeetingSessionDetailModal(p: {
     async function load() {
       setTasksLoading(true)
       try {
-        // Ưu tiên: tasks có meeting_session_id = session.id
+        // Uu tiên: tasks có meeting_session_id = session.id
         const { data: bySessionId } = await supabase
           .from('tasks')
           .select('id,title,status,due_date,task_level,assignee_id,priority')
@@ -10619,49 +10925,6 @@ function MeetingSessionDetailModal(p: {
             </section>
           )}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function RecurringMeetingSummary({ description, compact = false }: { description: string; compact?: boolean }) {
-  const parts = parseMeetingDescription(description)
-  const sections = [
-    { label: 'RECAP cuộc họp trước đó', value: parts.recap },
-    { label: 'File cần chuẩn bị', value: parts.prepFiles },
-    { label: 'Lịch sử họp', value: parts.meetingHistory },
-  ]
-
-  if (compact) {
-    return (
-      <div className="mt-2 space-y-2">
-        {parts.note && <p className="max-h-12 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">{parts.note}</p>}
-        <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
-          {sections.map((section) => (
-            <div key={section.label} className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2">
-              <p className="mb-1 text-[11px] font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
-              <p className="max-h-24 overflow-y-auto whitespace-pre-line text-xs leading-5 text-[var(--text-secondary)]">
-                {section.value || '- Chưa cập nhật.'}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-3 space-y-3">
-      {parts.note && <p className="whitespace-pre-line text-sm text-[var(--text-secondary)]">{parts.note}</p>}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {sections.map((section) => (
-          <div key={section.label} className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3">
-            <p className="mb-2 text-xs font-extrabold uppercase text-[var(--text-muted)]">{section.label}</p>
-            <p className="whitespace-pre-line text-sm leading-6 text-[var(--text-secondary)]">
-              {section.value || '- Chưa cập nhật.'}
-            </p>
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -10886,7 +11149,7 @@ function AssistantView(props: {
   generateProjectReport: () => void
   tasks: Task[]
   projectCards: ProjectCard[]
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
+  peopleReports: PeopleReport[]
   employees: Employee[]
   currentEmployee: Employee | null
 }) {
@@ -10979,6 +11242,12 @@ function CreatePanel(props: {
   setProjectDesc: (value: string) => void
   projectOwnerId: string
   setProjectOwnerId: (value: string) => void
+  projectMemberIds: string[]
+  setProjectMemberIds: (value: string[]) => void
+  projectWatcherIds: string[]
+  setProjectWatcherIds: (value: string[]) => void
+  projectApproverIds: string[]
+  setProjectApproverIds: (value: string[]) => void
   projectDepartmentId: string
   setProjectDepartmentId: (value: string) => void
   createProject: () => void
@@ -10996,6 +11265,12 @@ function CreatePanel(props: {
   setWorkHeadIds: (ids: string[]) => void
   workAssigneeId: string
   setWorkAssigneeId: (value: string) => void
+  workCoOwnerIds: string[]
+  setWorkCoOwnerIds: (value: string[]) => void
+  workSupporterIds: string[]
+  setWorkSupporterIds: (value: string[]) => void
+  workApproverIds: string[]
+  setWorkApproverIds: (value: string[]) => void
   workDueDate: string
   setWorkDueDate: (value: string) => void
   workPriority: string
@@ -11050,14 +11325,36 @@ function CreatePanel(props: {
               ))}
             </Select>
 
-            <Select value={props.projectOwnerId} onChange={props.setProjectOwnerId}>
-              <option value="">Chọn owner</option>
-              {props.employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.full_name}
-                </option>
-              ))}
-            </Select>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Chủ dự án</label>
+              <PersonPicker
+                value={props.projectOwnerId || null}
+                employees={props.employees}
+                onSave={(id) => props.setProjectOwnerId(id || '')}
+                placeholder="Chưa chọn chủ dự án"
+              />
+            </div>
+            <MultiPersonField
+              label="Thành viên dự án"
+              ids={props.projectMemberIds}
+              employees={props.employees}
+              onSave={props.setProjectMemberIds}
+              placeholder="Chọn nhiều người tham gia"
+            />
+            <MultiPersonField
+              label="Người theo dõi"
+              ids={props.projectWatcherIds}
+              employees={props.employees}
+              onSave={props.setProjectWatcherIds}
+              placeholder="Chọn người theo dõi"
+            />
+            <MultiPersonField
+              label="Người duyệt dự án"
+              ids={props.projectApproverIds}
+              employees={props.employees}
+              onSave={props.setProjectApproverIds}
+              placeholder="Chọn người duyệt"
+            />
 
             <button type="button"
               onClick={props.createProject}
@@ -11106,29 +11403,53 @@ function CreatePanel(props: {
             </Select>
 
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Lead đầu việc lớn</label>
               <HeadPicker
                 headIds={props.workHeadIds}
                 employees={props.employees}
-                onSave={props.setWorkHeadIds}
-                placeholder="Chưa chọn người giao việc"
+                onSave={(ids) => {
+                  props.setWorkHeadIds(ids)
+                  props.setWorkHeadId(ids[0] || '')
+                }}
+                placeholder="Chưa chọn lead"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người phụ trách</label>
+              <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người chịu trách nhiệm chính</label>
               <PersonPicker
                 value={props.workAssigneeId || null}
                 employees={props.employees}
                 onSave={(id) => props.setWorkAssigneeId(id || '')}
-                placeholder="Chưa gán người phụ trách"
+                placeholder="Mặc định lấy lead nếu bỏ trống"
               />
             </div>
+            <MultiPersonField
+              label="Đồng phụ trách"
+              ids={props.workCoOwnerIds}
+              employees={props.employees}
+              onSave={props.setWorkCoOwnerIds}
+              placeholder="Chọn đồng phụ trách"
+            />
+            <MultiPersonField
+              label="Người hỗ trợ"
+              ids={props.workSupporterIds}
+              employees={props.employees}
+              onSave={props.setWorkSupporterIds}
+              placeholder="Chọn người hỗ trợ"
+            />
+            <MultiPersonField
+              label="Người duyệt / theo dõi"
+              ids={props.workApproverIds}
+              employees={props.employees}
+              onSave={props.setWorkApproverIds}
+              placeholder="Chọn người duyệt"
+            />
 
             <Select value={props.workPriority} onChange={props.setWorkPriority}>
               <option value="low">Ưu tiên thấp</option>
-              <option value="medium">Ưu tiên trung bình</option>
-              <option value="high">Ưu tiên cao</option>
+              <option value="medium">Uu tiên trung bình</option>
+              <option value="high">Uu tiên cao</option>
             </Select>
 
             <button type="button"
@@ -11160,6 +11481,9 @@ function ProjectEditModal(props: {
   const [status, setStatus] = useState(props.project.status || 'active')
   const [priority, setPriority] = useState(props.project.priority || 'medium')
   const [ownerId, setOwnerId] = useState(props.project.owner_id || '')
+  const [memberIds, setMemberIds] = useState<string[]>(idsWithout(props.project.member_ids || [], props.project.owner_id))
+  const [watcherIds, setWatcherIds] = useState<string[]>(props.project.watcher_ids || [])
+  const [approverIds, setApproverIds] = useState<string[]>(props.project.approver_ids || [])
   const [deptId, setDeptId] = useState(props.project.department_id || '')
   const [issueStatus, setIssueStatus] = useState(props.project.issue_status || 'normal')
 
@@ -11176,6 +11500,9 @@ function ProjectEditModal(props: {
         update.description = desc.trim() || null
         update.priority = priority
         update.owner_id = ownerId || null
+        update.member_ids = uniqueIds(memberIds, ownerId ? [ownerId] : [])
+        update.watcher_ids = watcherIds
+        update.approver_ids = approverIds
         update.department_id = deptId || null
       }
       await supabase.from('projects').update(update).eq('id', props.project.id)
@@ -11241,7 +11568,7 @@ function ProjectEditModal(props: {
           </div>
           {canFullEdit && (
             <label className="block">
-              <span className="text-xs font-semibold text-[var(--text-secondary)]">Ưu tiên</span>
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Uu tiên</span>
               <select className="vyvy-input mt-1 w-full" value={priority} onChange={(e) => setPriority(e.target.value)}>
                 <option value="low">Thấp</option>
                 <option value="medium">Trung bình</option>
@@ -11252,14 +11579,41 @@ function ProjectEditModal(props: {
           )}
           {canFullEdit && (
             <label className="block">
-              <span className="text-xs font-semibold text-[var(--text-secondary)]">Người phụ trách dự án</span>
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Ch? d? án</span>
               <select className="vyvy-input mt-1 w-full" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-                <option value="">— Chưa gán —</option>
+                <option value="">— Chua gán —</option>
                 {props.employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>{emp.full_name}</option>
                 ))}
               </select>
             </label>
+          )}
+          {canFullEdit && (
+            <MultiPersonField
+              label="Thành viên dự án"
+              ids={memberIds}
+              employees={props.employees}
+              onSave={setMemberIds}
+              placeholder="Chọn thành viên"
+            />
+          )}
+          {canFullEdit && (
+            <MultiPersonField
+              label="Người theo dõi"
+              ids={watcherIds}
+              employees={props.employees}
+              onSave={setWatcherIds}
+              placeholder="Chọn người theo dõi"
+            />
+          )}
+          {canFullEdit && (
+            <MultiPersonField
+              label="Người duyệt dự án"
+              ids={approverIds}
+              employees={props.employees}
+              onSave={setApproverIds}
+              placeholder="Chọn người duyệt"
+            />
           )}
           {canFullEdit && (
             <label className="block">
@@ -11296,6 +11650,7 @@ function TaskDetailDrawer(props: {
   projectMap: Map<string, Project>
   steps: TaskStep[]
   reports: TaskReport[]
+  supporters: TaskSupporter[]
   close: () => void
   uploadTaskFile: (task: Task, file?: File) => void
   deleteTaskReport: (report: TaskReport) => void
@@ -11307,6 +11662,11 @@ function TaskDetailDrawer(props: {
 }) {
   const head = props.employeeMap.get(props.task.head_id || '')
   const assignee = props.employeeMap.get(props.task.assignee_id || '')
+  const headIds = taskHeadIds(props.task)
+  const coOwnerIds = taskCoOwnerIds(props.task)
+  const supporterIds = taskSupporterIds(props.task, props.supporters)
+  const approverIds = taskApproverIds(props.task)
+  const watcherIds = taskWatcherIds(props.task)
   const department = props.departmentMap.get(head?.department_id || assignee?.department_id || props.task.department_id || '')
   const project = props.projectMap.get(props.task.project_id || '')
   const progress = calculateTaskProgress(props.task, props.steps)
@@ -11328,6 +11688,10 @@ function TaskDetailDrawer(props: {
   const [editHeadIds, setEditHeadIds] = useState<string[]>(
     (props.task.head_ids?.length ? props.task.head_ids : props.task.head_id ? [props.task.head_id] : [])
   )
+  const [editCoOwnerIds, setEditCoOwnerIds] = useState<string[]>(coOwnerIds)
+  const [editSupporterIds, setEditSupporterIds] = useState<string[]>(supporterIds)
+  const [editApproverIds, setEditApproverIds] = useState<string[]>(approverIds)
+  const [editWatcherIds, setEditWatcherIds] = useState<string[]>(watcherIds)
 
   function startEdit() {
     setEditTitle(props.task.title)
@@ -11338,6 +11702,10 @@ function TaskDetailDrawer(props: {
     setEditProgress(props.task.progress_percent ?? 0)
     setEditAssigneeId(props.task.assignee_id || '')
     setEditHeadIds(props.task.head_ids?.length ? props.task.head_ids : props.task.head_id ? [props.task.head_id] : [])
+    setEditCoOwnerIds(taskCoOwnerIds(props.task))
+    setEditSupporterIds(taskSupporterIds(props.task, props.supporters))
+    setEditApproverIds(taskApproverIds(props.task))
+    setEditWatcherIds(taskWatcherIds(props.task))
     setIsEditing(true)
   }
 
@@ -11357,6 +11725,11 @@ function TaskDetailDrawer(props: {
         update.assignee_id = editAssigneeId || null
         update.head_id = editHeadIds[0] || null
         update.head_ids = editHeadIds.length > 0 ? editHeadIds : null
+        update.co_owner_ids = idsWithout(editCoOwnerIds, editAssigneeId || null, ...editHeadIds)
+        update.supporter_ids = idsWithout(editSupporterIds, editAssigneeId || null, ...editHeadIds)
+        update.approver_ids = idsWithout(editApproverIds, editAssigneeId || null)
+        update.reviewer_ids = idsWithout(editApproverIds, editAssigneeId || null)
+        update.watcher_ids = idsWithout(editWatcherIds, editAssigneeId || null, ...editHeadIds)
       }
       await supabase.from('tasks').update(update).eq('id', props.task.id)
       setIsEditing(false)
@@ -11410,7 +11783,7 @@ function TaskDetailDrawer(props: {
         </div>
 
         {isEditing ? (
-          /* ── EDIT MODE ── */
+          /* -- EDIT MODE -- */
           <div className="space-y-4">
             {canFullEdit && (
               <div>
@@ -11458,17 +11831,53 @@ function TaskDetailDrawer(props: {
             </div>
             {canFullEdit && (
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người giao việc</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Lead / người giao việc</label>
                 <HeadPicker headIds={editHeadIds} employees={props.employees}
-                  onSave={setEditHeadIds} placeholder="Chưa chọn người giao việc" />
+                  onSave={setEditHeadIds} placeholder="Chưa chọn lead" />
               </div>
             )}
             {canFullEdit && (
               <div>
-                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người phụ trách</label>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">Người chịu trách nhiệm chính</label>
                 <PersonPicker value={editAssigneeId || null} employees={props.employees}
-                  onSave={id => setEditAssigneeId(id || '')} placeholder="Chưa chọn người phụ trách" />
+                  onSave={id => setEditAssigneeId(id || '')} placeholder="Chưa chọn người chính" />
               </div>
+            )}
+            {canFullEdit && (
+              <MultiPersonField
+                label="Đồng phụ trách"
+                ids={editCoOwnerIds}
+                employees={props.employees}
+                onSave={setEditCoOwnerIds}
+                placeholder="Chọn đồng phụ trách"
+              />
+            )}
+            {canFullEdit && (
+              <MultiPersonField
+                label="Người hỗ trợ"
+                ids={editSupporterIds}
+                employees={props.employees}
+                onSave={setEditSupporterIds}
+                placeholder="Chọn người hỗ trợ"
+              />
+            )}
+            {canFullEdit && (
+              <MultiPersonField
+                label="Người duyệt"
+                ids={editApproverIds}
+                employees={props.employees}
+                onSave={setEditApproverIds}
+                placeholder="Chọn người duyệt"
+              />
+            )}
+            {canFullEdit && (
+              <MultiPersonField
+                label="Người theo dõi"
+                ids={editWatcherIds}
+                employees={props.employees}
+                onSave={setEditWatcherIds}
+                placeholder="Chọn người theo dõi"
+              />
             )}
             {!isOwner && !canFullEdit && (
               <p className="rounded-xl bg-[var(--warning-soft)] p-3 text-xs text-[var(--warning)]">
@@ -11487,7 +11896,7 @@ function TaskDetailDrawer(props: {
             </div>
           </div>
         ) : (
-          /* ── VIEW MODE ── */
+          /* -- VIEW MODE -- */
           <div>
             <h2 className="text-2xl font-extrabold">{props.task.title}</h2>
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
@@ -11502,10 +11911,19 @@ function TaskDetailDrawer(props: {
             <div className="mt-6 space-y-4">
               <InfoRow label="Dự án" value={project?.name || 'Chưa gắn'} />
               <InfoRow label="Phòng ban" value={department?.name || 'Chưa gắn'} />
-              <InfoRow label="Người giao việc" value={head?.full_name || 'Chưa gán'} />
-              <InfoRow label="Người phụ trách" value={assignee?.full_name || 'Chưa gán'} />
-              <InfoRow label="Deadline" value={props.task.due_date || 'Chưa có'} />
-              <InfoRow label="Ưu tiên" value={PRIORITY_OPTIONS.find(p => p.value === props.task.priority)?.label ?? (props.task.priority || 'Trung bình')} />
+              <div className="vyvy-card-muted p-4">
+                <p className="mb-3 font-extrabold">Phân công &amp; trách nhiệm</p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <AssignmentRow label="Lead / giao việc" ids={headIds} employeeMap={props.employeeMap} />
+                  <AssignmentRow label="Chịu trách nhiệm chính" ids={props.task.assignee_id ? [props.task.assignee_id] : []} employeeMap={props.employeeMap} />
+                  <AssignmentRow label="Đồng phụ trách" ids={coOwnerIds} employeeMap={props.employeeMap} />
+                  <AssignmentRow label="Người hỗ trợ" ids={supporterIds} employeeMap={props.employeeMap} />
+                  <AssignmentRow label="Người duyệt" ids={approverIds} employeeMap={props.employeeMap} />
+                  <AssignmentRow label="Theo dõi" ids={watcherIds} employeeMap={props.employeeMap} />
+                </div>
+              </div>
+              <InfoRow label="Deadline" value={props.task.due_date || 'Chua có'} />
+              <InfoRow label="Uu tiên" value={PRIORITY_OPTIONS.find(p => p.value === props.task.priority)?.label ?? (props.task.priority || 'Trung bình')} />
 
               {props.currentEmployee && (
                 <div className="vyvy-card-muted p-4">
@@ -11545,7 +11963,7 @@ function TaskDetailDrawer(props: {
                 )}
                 <div className="mt-4 space-y-2">
                   {props.reports.length === 0 ? (
-                    <p className="text-sm text-[var(--text-secondary)]">Chưa có file báo cáo.</p>
+                    <p className="text-sm text-[var(--text-secondary)]">Chua có file báo cáo.</p>
                   ) : (
                     props.reports.map((report) => (
                       <div key={report.id} className="flex items-center justify-between gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
@@ -11775,6 +12193,82 @@ function Avatar({ name, size }: { name: string; size?: 'sm' | 'md' }) {
   return (
     <div className={`flex ${dim} shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] font-extrabold text-[var(--text-primary)] ring-1 ring-[var(--border)]`}>
       {(name || 'U').slice(0, 1).toUpperCase()}
+    </div>
+  )
+}
+
+function AssignmentChips({
+  ids,
+  employeeMap,
+  empty = 'Chưa gắn',
+  max = 4,
+}: {
+  ids: string[]
+  employeeMap: Map<string, Employee>
+  empty?: string
+  max?: number
+}) {
+  const people = uniqueIds(ids)
+    .map((id) => employeeMap.get(id))
+    .filter((employee): employee is Employee => Boolean(employee))
+  if (people.length === 0) return <span className="text-[var(--text-muted)]">{empty}</span>
+  const shown = people.slice(0, max)
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {shown.map((employee) => (
+        <span key={employee.id} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-2 py-0.5 text-[11px] font-bold text-[var(--text-secondary)]">
+          <Avatar name={employee.full_name} size="sm" />
+          {employee.full_name}
+        </span>
+      ))}
+      {people.length > max && (
+        <span className="rounded-full bg-[var(--bg-surface)] px-2 py-0.5 text-[11px] font-bold text-[var(--text-muted)]">+{people.length - max}</span>
+      )}
+    </div>
+  )
+}
+
+function AssignmentRow({
+  label,
+  ids,
+  employeeMap,
+  empty,
+}: {
+  label: string
+  ids: string[]
+  employeeMap: Map<string, Employee>
+  empty?: string
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-xs font-extrabold uppercase text-[var(--text-muted)]">{label}</p>
+      <AssignmentChips ids={ids} employeeMap={employeeMap} empty={empty} />
+    </div>
+  )
+}
+
+function MultiPersonField({
+  label,
+  ids,
+  employees,
+  onSave,
+  placeholder,
+}: {
+  label: string
+  ids: string[]
+  employees: Employee[]
+  onSave: (ids: string[]) => void
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-bold text-[var(--text-secondary)]">{label}</label>
+      <HeadPicker
+        headIds={ids}
+        employees={employees}
+        onSave={onSave}
+        placeholder={placeholder || `Chưa chọn ${label.toLowerCase()}`}
+      />
     </div>
   )
 }
@@ -12010,7 +12504,7 @@ type DeadlineStatus =
   | 'extension_rejected'
 
 const DEADLINE_STATUS_LABEL: Record<DeadlineStatus, string> = {
-  no_deadline: 'Chưa có deadline',
+  no_deadline: 'Chua có deadline',
   committed: 'Đã chốt deadline',
   due_soon: 'Sắp tới hạn',
   due_today: 'Đến hạn hôm nay',
@@ -12061,8 +12555,9 @@ function canEditWorkItemDetails(
   const canFullEdit =
     ['admin', 'ceo', 'coo', 'department_head'].includes(role) ||
     task.head_id === user.id ||
-    (task.head_ids?.includes(user.id) ?? false)
-  const isOwner = task.assignee_id === user.id
+    (task.head_ids?.includes(user.id) ?? false) ||
+    taskApproverIds(task).includes(user.id)
+  const isOwner = task.assignee_id === user.id || taskCoOwnerIds(task).includes(user.id) || taskSupporterIds(task).includes(user.id)
   return { canFullEdit, isOwner, canEdit: canFullEdit || isOwner }
 }
 
@@ -12207,11 +12702,11 @@ function getDefaultDepartmentApprover(
   const text = normalizeSearchText(`${department?.name || ''} ${department?.code || ''}`)
 
   if (matchesAny(text, ['marketing', 'ads', 'livestream', 'brand'])) {
-    return findEmployeeId(employees, ['vũ', 'vu']) || employees[0]?.id || ''
+    return findEmployeeId(employees, ['vu', 'vu']) || employees[0]?.id || ''
   }
 
   if (matchesAny(text, ['content', 'nội dung', 'noi dung'])) {
-    return findEmployeeId(employees, ['nhung', 'nhung']) || findEmployeeId(employees, ['vũ', 'vu']) || employees[0]?.id || ''
+    return findEmployeeId(employees, ['nhung', 'nhung']) || findEmployeeId(employees, ['vu', 'vu']) || employees[0]?.id || ''
   }
 
   if (matchesAny(text, ['sales', 'cskh', 'customer', 'bán hàng', 'ban hang'])) {
@@ -12360,6 +12855,9 @@ function parseNotexText(text: string, departments: Department[], employees: Empl
         departmentId: guessDepartmentId(`${currentWorkstream} ${checkboxMatch[1]}`, departments),
         headId: employees[0]?.id || '',
         assigneeId: employees[0]?.id || '',
+        coOwnerIds: [],
+        supporterIds: [],
+        reviewerIds: [],
         dueDate: '',
         priority: 'medium',
       }
@@ -12368,13 +12866,15 @@ function parseNotexText(text: string, departments: Department[], employees: Empl
 
     if (responsibilityMatch && currentRow) {
       const responsibility = responsibilityMatch[1].trim()
-      const employeeId = guessEmployeeId(responsibility, employees)
+      const employeeIds = guessEmployeeIds(responsibility, employees)
+      const employeeId = employeeIds[0] || ''
       currentRow = {
         ...currentRow,
         responsibility,
         departmentId: currentRow.departmentId || guessDepartmentId(responsibility, departments),
         headId: currentRow.headId || employeeId,
         assigneeId: employeeId || currentRow.assigneeId,
+        coOwnerIds: employeeIds.slice(1),
       }
       return
     }
@@ -12416,16 +12916,16 @@ function buildNotexDescription(row: NotexRow) {
     .join('\n')
 }
 
-function guessEmployeeId(text: string, employees: Employee[]) {
+function guessEmployeeIds(text: string, employees: Employee[]) {
   const normalizedText = normalizeSearchText(text)
-  const match = employees.find((employee) => {
+  const matches = employees.filter((employee) => {
     return (
       normalizedText.includes(normalizeSearchText(employee.full_name)) ||
       Boolean(employee.position && normalizedText.includes(normalizeSearchText(employee.position)))
     )
   })
 
-  return match?.id || ''
+  return uniqueIds(matches.map((employee) => employee.id))
 }
 
 function normalizeSearchText(value: string) {
@@ -12441,7 +12941,7 @@ function getUrgentReason(task: Task) {
   if (task.issue_status === 'problem') return 'Có vấn đề'
   if (task.issue_status === 'slow') return 'Đang chậm'
   if (task.status === 'pending') return 'Pending'
-  if (!task.due_date) return 'Chưa có deadline'
+  if (!task.due_date) return 'Chua có deadline'
   return 'Cần theo dõi'
 }
 
@@ -12563,9 +13063,7 @@ ${reportSteps
   .join('\n\n')}`
 }
 
-function buildPeopleReport(
-  peopleReports: Array<{ employee: Employee; total: number; done: number; doing: number; pending: number; overdue: number; problem: number; rate: number; assigned: number; assignedDone: number; assignedDoing: number; assignedOverdue: number; assignedTasks: Task[] }>
-) {
+function buildPeopleReport(peopleReports: PeopleReport[]) {
   if (peopleReports.length === 0) {
     return 'BÁO CÁO THEO NHÂN SỰ\n\n- Chưa có nhân sự.'
   }
@@ -12575,7 +13073,11 @@ function buildPeopleReport(
 ${peopleReports
   .map((person, index) => {
     return `${index + 1}. ${person.employee.full_name}
-- Tổng việc: ${person.total}
+- T?ng vi?c: ${person.total}
+- Chính: ${person.main}
+ - Đồng phụ trách: ${person.coOwned}
+ - Hỗ trợ: ${person.supported}
+ - Chờ/đang duyệt: ${person.approvals}
 - Hoàn thành: ${person.done}
 - Đang làm: ${person.doing}
 - Pending: ${person.pending}
@@ -12608,7 +13110,7 @@ ${projectCards
   .join('\n\n')}`
 }
 
-// ─── Role helpers ────────────────────────────────────────────────────────────
+// --- Role helpers ------------------------------------------------------------
 
 function filterTasksByRole(
   emp: Employee | null,
@@ -12629,10 +13131,8 @@ function filterTasksByRole(
       .filter(
         (s) =>
           s.owner_id === emp.id ||
-          s.approver_id === emp.id ||
-          s.department_approver_id === emp.id ||
-          s.coo_approver_id === emp.id ||
-          s.ceo_approver_id === emp.id
+          (s.supporter_ids || []).includes(emp.id) ||
+          stepApproverIds(s).includes(emp.id)
       )
       .map((s) => s.task_id)
   )
@@ -12640,10 +13140,12 @@ function filterTasksByRole(
   const isHead = role === 'department_head' || Boolean(emp.is_department_head)
 
   return tasks.filter((task) => {
-    // Việc chưa được cấp trên duyệt phân công → người làm chưa thấy
-    const isMyHead = task.head_id === emp.id || (task.head_ids || []).includes(emp.id)
-    if (task.status === 'pending_approval' && !isHead && !isMyHead) return false
-    if (task.assignee_id === emp.id || isMyHead) return true
+    // Việc chưa được cấp trên duyệt phân công -> người làm chưa thấy
+    const supporterRows = supporters.filter((supporter) => supporter.task_id === task.id)
+    const isMyHead = taskHeadIds(task).includes(emp.id)
+    const isMyApprover = taskApproverIds(task).includes(emp.id)
+    if (task.status === 'pending_approval' && !isHead && !isMyHead && !isMyApprover) return false
+    if (taskParticipantIds(task, supporterRows).includes(emp.id)) return true
     if (supportedTaskIds.has(task.id)) return true
     if (stepTaskIds.has(task.id)) return true
     if (
@@ -12656,7 +13158,7 @@ function filterTasksByRole(
   })
 }
 
-// ─── AdminUsersView ───────────────────────────────────────────────────────────
+// --- AdminUsersView -----------------------------------------------------------
 
 type AdminEmployee = {
   id: string
@@ -13147,7 +13649,7 @@ function ResetPasswordButton({ authUserId }: { authUserId: string }) {
   )
 }
 
-// ─── AdminDepartmentsSection ──────────────────────────────────────────────────
+// --- AdminDepartmentsSection --------------------------------------------------
 
 // ─── Góp ý hệ thống ────────────────────────────────────────────────────────
 type FeedbackRow = {
@@ -13279,7 +13781,7 @@ function FeedbackView(props: {
         {loading ? (
           <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="skeleton h-16 rounded-xl" />)}</div>
         ) : list.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">Chưa có góp ý nào.</p>
+          <p className="text-sm text-[var(--text-muted)]">Chua có góp ý nào.</p>
         ) : (
           <div className="space-y-3">
             {list.map((row) => {
@@ -13335,7 +13837,7 @@ function FeedbackView(props: {
   )
 }
 
-// ─── Import Excel ──────────────────────────────────────────────────────────────
+// --- Import Excel --------------------------------------------------------------
 type ImportRow = {
   rowNum: number
   project: string
@@ -13426,7 +13928,7 @@ function ImportExcelView(props: {
     return m
   }, [props.projects])
 
-  // Map Vietnamese level labels → internal
+  // Map Vietnamese level labels -> internal
   const LEVEL_MAP: Record<string, string> = {
     'đầu việc lớn': 'workstream', 'workstream': 'workstream', 'milestone': 'workstream',
     'đầu việc con': 'subtask', 'subtask': 'subtask', 'task': 'subtask',
@@ -13495,8 +13997,8 @@ function ImportExcelView(props: {
     setImporting(true)
     let ok = 0, fail = 0
     const errors: string[] = []
-    const msCache = new Map<string, string>()                           // project|group → workstream id
-    const subCache = new Map<string, { id: string; order: number }>()  // project|group → last subtask
+    const msCache = new Map<string, string>()                           // project|group -> workstream id
+    const subCache = new Map<string, { id: string; order: number }>()  // project|group -> last subtask
     const projectIdByName = new Map(projByName)
 
     // Tập tên trùng để lọc (nếu user chọn bỏ qua)
@@ -13519,8 +14021,11 @@ function ImportExcelView(props: {
           projectIdByName.set(row.project.toLowerCase().trim(), projId)
         }
 
-        const ownerId = empByName.get(row.owner.toLowerCase().trim()) || null
-        const approverId = empByName.get(row.approver.toLowerCase().trim()) || null
+        const ownerIds = guessEmployeeIds(row.owner || '', props.employees)
+        const ownerId = ownerIds[0] || empByName.get(row.owner.toLowerCase().trim()) || null
+        const coOwnerIds = ownerIds.slice(1)
+        const approverIds = guessEmployeeIds(row.approver || '', props.employees)
+        const approverId = approverIds[0] || empByName.get(row.approver.toLowerCase().trim()) || null
 
         let dueDate: string | null = null
         if (row.deadline) {
@@ -13534,7 +14039,10 @@ function ImportExcelView(props: {
 
         const baseTask = {
           description: desc || null, project_id: projId,
-          status: taskStatus, head_id: ownerId, due_date: dueDate,
+          status: taskStatus, head_id: ownerId, head_ids: ownerId ? [ownerId] : null,
+          assignee_id: ownerId, co_owner_ids: coOwnerIds,
+          approver_ids: approverIds, reviewer_ids: approverIds,
+          due_date: dueDate,
           progress_percent: 0, issue_status: 'normal', approval_status: 'not_submitted',
           priority: 'medium',
         }
@@ -13573,6 +14081,8 @@ function ImportExcelView(props: {
           const { error: e } = await insertTaskStepsCompat({
             task_id: sub.id, step_title: row.title, step_order: sub.order,
             owner_id: ownerId, approver_id: approverId || null,
+            supporter_ids: coOwnerIds,
+            approver_ids: approverIds,
             department_approver_id: approverId || null,
             due_date: dueDate, description: desc || null,
             approval_status: 'not_submitted', department_approval_status: 'not_submitted',
@@ -13770,7 +14280,7 @@ function ImportExcelView(props: {
           </p>
         </div>
 
-        {/* Lưu ý */}
+        {/* Luu ý */}
         <div className="rounded-[var(--radius)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] p-4">
           <p className="mb-2 text-xs font-extrabold text-[var(--warning)]">Lưu ý quan trọng</p>
           <ul className="space-y-1.5 text-xs text-[var(--text-secondary)] leading-5">
@@ -13880,7 +14390,7 @@ function ImportExcelView(props: {
                       </td>
                       <td className="max-w-[240px] font-medium">{r.title || '—'}</td>
                       <td className="whitespace-nowrap">{r.owner || <span className="text-[var(--warning)]">Chưa gắn</span>}</td>
-                      <td className="whitespace-nowrap">{r.deadline || <span className="text-[var(--warning)]">Chưa có</span>}</td>
+                      <td className="whitespace-nowrap">{r.deadline || <span className="text-[var(--warning)]">Chua có</span>}</td>
                       <td>
                         <div className="flex flex-wrap gap-1">
                           {badges.length === 0 ? (
@@ -13961,7 +14471,7 @@ function ImportExcelView(props: {
   )
 }
 
-// ─── Calendar View ─────────────────────────────────────────────────────────────
+// --- Calendar View -------------------------------------------------------------
 type CalMode = 'month' | 'week' | 'day'
 
 function CalendarView(props: {
@@ -13984,7 +14494,7 @@ function CalendarView(props: {
     return m
   }, [props.projects])
 
-  // Build map: 'YYYY-MM-DD' → Task[]
+  // Build map: 'YYYY-MM-DD' -> Task[]
   const tasksByDate = useMemo(() => {
     const m = new Map<string, Task[]>()
     props.tasks.forEach(t => {
@@ -14030,7 +14540,7 @@ function CalendarView(props: {
   }
   function addWeeks(d: Date, n: number) { return addDays(d, n * 7) }
 
-  // ── Month grid ──────────────────────────────────────────────────────────────
+  // -- Month grid --------------------------------------------------------------
   function getMonthDays(ref: Date) {
     const first = new Date(ref.getFullYear(), ref.getMonth(), 1)
     const last  = new Date(ref.getFullYear(), ref.getMonth() + 1, 0)
@@ -14043,7 +14553,7 @@ function CalendarView(props: {
     for (let i = 1; i <= rem; i++) days.push(addDays(last, i))
     return days
   }
-  // ── Week grid ───────────────────────────────────────────────────────────────
+  // -- Week grid ---------------------------------------------------------------
   function getWeekDays(ref: Date) {
     const dow = ref.getDay()
     const toMon = dow === 0 ? -6 : 1 - dow
@@ -14208,8 +14718,8 @@ function CalendarView(props: {
                   {t.deadline_status === 'extension_requested' && (
                     <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Đang xin gia hạn</span>
                   )}
-                  {t.head_id && props.employeeMap.get(t.head_id) && (
-                    <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
+                  {t.assignee_id && props.employeeMap.get(t.assignee_id) && (
+                    <span className="shrink-0 text-xs text-[var(--text-secondary)]">{props.employeeMap.get(t.assignee_id)!.full_name}</span>
                   )}
                 </div>
               ))}
@@ -14247,8 +14757,8 @@ function CalendarView(props: {
                   {t.deadline_status === 'extension_requested' && (
                     <span className="shrink-0 rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Đang xin gia hạn</span>
                   )}
-                  {t.head_id && props.employeeMap.get(t.head_id) && (
-                    <span className="text-xs text-[var(--text-secondary)] shrink-0">{props.employeeMap.get(t.head_id)!.full_name}</span>
+                  {t.assignee_id && props.employeeMap.get(t.assignee_id) && (
+                    <span className="shrink-0 text-xs text-[var(--text-secondary)]">{props.employeeMap.get(t.assignee_id)!.full_name}</span>
                   )}
                 </div>
               ))}
@@ -14377,7 +14887,7 @@ function HistoryView(props: {
                   >
                     <span className="flex-1 font-semibold text-sm truncate">{task?.title || taskId}</span>
                     <span className="shrink-0 text-xs text-[var(--text-muted)]">{vlist.length} phiên bản</span>
-                    <span className="shrink-0 text-xs text-[var(--text-muted)]">{isOpen ? '▲' : '▼'}</span>
+                    <span className="shrink-0 text-xs text-[var(--text-muted)]">{isOpen ? 'v' : '>'}</span>
                   </button>
                   {isOpen && (
                     <div className="divide-y divide-[var(--border)]">
@@ -14406,7 +14916,7 @@ function HistoryView(props: {
                               disabled={restoring === v.id}
                               className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[11px] font-bold hover:border-[var(--olive)] hover:text-[var(--olive)] disabled:opacity-40 transition-colors"
                             >
-                              {restoring === v.id ? '…' : '↺ Restore'}
+                              {restoring === v.id ? '...' : 'Restore'}
                             </button>
                           </div>
                         )
@@ -14499,7 +15009,7 @@ function AdminDepartmentsSection(props: { departments: Department[]; onRefresh: 
       )}
 
       {props.departments.length === 0 ? (
-        <p className="text-center text-sm text-[var(--text-muted)] py-4">Chưa có phòng ban nào</p>
+        <p className="text-center text-sm text-[var(--text-muted)] py-4">Chua có phòng ban nào</p>
       ) : (
         <div className="divide-y divide-[var(--border)]">
           {props.departments.map((dept) => (
@@ -14543,13 +15053,14 @@ function AdminDepartmentsSection(props: { departments: Department[]; onRefresh: 
   )
 }
 
-// ─── MyWorkView ───────────────────────────────────────────────────────────────
+// --- MyWorkView ---------------------------------------------------------------
 // View "Việc được giao": danh sách task của tôi + inbox deadline
 
 function MyWorkView(props: {
   tasks: Task[]
   allSteps: TaskStep[]
   stepsByTask: Map<string, TaskStep[]>
+  supportersByTask: Map<string, TaskSupporter[]>
   currentEmployee: Employee | null
   employeeMap: Map<string, Employee>
   setSelectedTask: (task: Task) => void
@@ -14574,7 +15085,7 @@ function MyWorkView(props: {
 
   const myTasks = props.tasks.filter((t) => {
     if (t.status === 'completed' || t.status === 'cancelled') return false
-    return t.assignee_id === myId || t.head_id === myId || (t.head_ids || []).includes(myId)
+    return taskParticipantIds(t, props.supportersByTask.get(t.id) || []).includes(myId)
   })
 
   // Bước tôi cần nộp (owner, chưa nộp hoặc cần làm lại)
@@ -14584,7 +15095,7 @@ function MyWorkView(props: {
 
   // Bước chờ tôi duyệt
   const myPendingApprove = props.allSteps.filter((s) =>
-    s.approver_id === myId && s.approval_status === 'pending'
+    stepApproverIds(s).includes(myId) && s.approval_status === 'pending'
   )
 
   // Phân nhóm task theo mức cấp bách
@@ -14610,12 +15121,12 @@ function MyWorkView(props: {
     const steps = props.stepsByTask.get(task.id) || []
     const progress = calculateTaskProgress(task, steps)
     const myStepsToSubmit = steps.filter((s) => s.owner_id === myId && (s.approval_status === 'not_submitted' || s.approval_status === 'revision' || !s.approval_status) && !s.is_done)
-    const myStepsToApprove = steps.filter((s) => s.approver_id === myId && s.approval_status === 'pending')
+    const myStepsToApprove = steps.filter((s) => stepApproverIds(s).includes(myId) && s.approval_status === 'pending')
     const headIds = task.head_ids && task.head_ids.length > 0 ? task.head_ids : (task.head_id ? [task.head_id] : [])
     const headNames = headIds.map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean).join(', ')
     const assignee = props.employeeMap.get(task.assignee_id || '')
     const overdue = isTaskOverdue(task)
-    const myRole = task.assignee_id === myId ? 'PHỤ TRÁCH' : 'GIAO VIỆC'
+    const myRole = taskRoleForEmployee(task, myId, props.supportersByTask.get(task.id) || []).toUpperCase()
 
     // Nút hành động ưu tiên
     let actionLabel = 'Chi tiết'
@@ -14640,7 +15151,9 @@ function MyWorkView(props: {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
             {headNames && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">GIAO</span> {headNames}</span>}
-            {assignee && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">PHỤ TRÁCH</span> {assignee.full_name}</span>}
+            {assignee && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {assignee.full_name}</span>}
+            {taskCoOwnerIds(task).length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(taskCoOwnerIds(task), props.employeeMap)}</span>}
+            {taskSupporterIds(task, props.supportersByTask.get(task.id) || []).length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(taskSupporterIds(task, props.supportersByTask.get(task.id) || []), props.employeeMap)}</span>}
             <span>{steps.length} bước</span>
             {steps.length > 0 && (
               <span className="flex items-center gap-1.5">
@@ -14682,10 +15195,10 @@ function MyWorkView(props: {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-[var(--text-primary)]">{step.step_title}</p>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-[var(--text-secondary)]">
-                      {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
+                      {task && <span className="text-[var(--text-muted)]">? {task.title}</span>}
                       {owner && <span><span className="font-spec text-[9px]">NỘP BỞI</span> {owner.full_name}</span>}
                       {step.due_date && <span>· Hạn {step.due_date}</span>}
-                      {(step.report_file_url || step.report_link || step.note) && <span className="font-bold text-[var(--success)]">Có báo cáo ✓</span>}
+                      {(step.report_file_url || step.report_link || step.note) && <span className="font-bold text-[var(--success)]">Có báo cáo ?</span>}
                     </div>
                   </div>
                   {task && (
@@ -14721,7 +15234,7 @@ function MyWorkView(props: {
                       {isRevision && <span className="rounded-full bg-[var(--danger-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--danger)]">Cần làm lại</span>}
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-[var(--text-secondary)]">
-                      {task && <span className="text-[var(--text-muted)]">↳ {task.title}</span>}
+                      {task && <span className="text-[var(--text-muted)]">? {task.title}</span>}
                       {approver && <span><span className="font-spec text-[9px]">DUYỆT BỞI</span> {approver.full_name}</span>}
                       {step.due_date && <span>· Hạn {step.due_date}</span>}
                       {isRevision && step.approval_note && <span className="text-[var(--danger)]">&quot;{step.approval_note}&quot;</span>}
@@ -14764,7 +15277,7 @@ function MyWorkView(props: {
   )
 }
 
-// ─── PermissionsView ────────────────────────────────────────────────────────
+// --- PermissionsView --------------------------------------------------------
 const RESOURCES = ['project', 'workstream', 'subtask', 'step', 'import', 'export', 'admin_panel'] as const
 const SCOPES    = ['all', 'own_dept', 'assigned', 'none'] as const
 const ROLES     = ['ceo', 'coo', 'admin', 'department_head', 'employee'] as const
@@ -14812,7 +15325,7 @@ function PermissionsView(props: {
     setDraft(prev => {
       const next = { ...prev }
       if (scope === saved) {
-        // revert to saved → remove from draft
+        // revert to saved -> remove from draft
         delete next[`${resource}:${action}`]
       } else {
         next[`${resource}:${action}`] = scope
@@ -14938,7 +15451,7 @@ function PermissionsView(props: {
                                 ${isActive
                                   ? SCOPE_COLOR[sc] + (isSaved ? ' ring-1 ring-[var(--olive)]' : ' ring-2 ring-[var(--warning)]')
                                   : 'bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-input)] opacity-50 hover:opacity-100'}`}>
-                              {isActive ? (isSaved ? '●' : '◉') : '○'}
+                              {isActive ? (isSaved ? '✓' : '*') : ''}
                             </button>
                           </td>
                         )
