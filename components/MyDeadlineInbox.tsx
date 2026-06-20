@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 type Task = {
   id: string; title: string; status: string | null
   assignee_id: string | null; head_id: string | null; head_ids?: string[] | null
+  co_owner_ids?: string[] | null; approver_ids?: string[] | null; reviewer_ids?: string[] | null
   deadline_approval_status?: string | null; proposed_deadline?: string | null
   deadline_approver_id?: string | null; deadline_submitter_id?: string | null
   deadline_note?: string | null
@@ -21,16 +22,21 @@ export default function MyDeadlineInbox({ tasks, currentUserId, employees, seeAl
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({})
   const [sent, setSent] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState('')
+  const approverIdsOf = (t: Task) => Array.from(new Set([
+    t.deadline_approver_id,
+    ...(t.approver_ids || []),
+    ...(t.reviewer_ids || []),
+  ].filter(Boolean) as string[]))
 
   const nameOf = (id: string | null) => (id ? employees.find((e) => e.id === id)?.full_name || '—' : '—')
 
   // ── Chế độ sếp: inbox duyệt deadline ──────────────────────────────────────
   if (seeAll) {
     const pendingApproval = tasks.filter(
-      (t) => t.deadline_approval_status === 'cho_duyet' && t.deadline_approver_id === currentUserId
+      (t) => t.deadline_approval_status === 'cho_duyet' && approverIdsOf(t).includes(currentUserId)
     )
     const alreadyHandled = tasks.filter(
-      (t) => t.deadline_approver_id === currentUserId && (t.deadline_approval_status === 'da_duyet' || t.deadline_approval_status === 'tra_lai')
+      (t) => approverIdsOf(t).includes(currentUserId) && (t.deadline_approval_status === 'da_duyet' || t.deadline_approval_status === 'tra_lai')
     ).slice(0, 5)
 
     async function approve(t: Task) {
@@ -147,7 +153,12 @@ export default function MyDeadlineInbox({ tasks, currentUserId, employees, seeAl
     t.status !== 'completed' && t.status !== 'cancelled' &&
     (!t.deadline_approval_status || t.deadline_approval_status === 'draft' || t.deadline_approval_status === 'tra_lai')
   const isMine = (t: Task) =>
-    !!currentUserId && (t.assignee_id === currentUserId || t.head_id === currentUserId || (t.head_ids || []).includes(currentUserId))
+    !!currentUserId && (
+      t.assignee_id === currentUserId ||
+      (t.co_owner_ids || []).includes(currentUserId) ||
+      t.head_id === currentUserId ||
+      (t.head_ids || []).includes(currentUserId)
+    )
 
   const list = tasks.filter((t) => needsDeadline(t) && isMine(t))
   const remaining = list.filter((t) => !sent[t.id])
@@ -162,7 +173,8 @@ export default function MyDeadlineInbox({ tasks, currentUserId, employees, seeAl
     setBusy(t.id)
     await supabase.from('tasks').update({
       proposed_deadline: d.deadline, deadline_approval_status: 'cho_duyet',
-      deadline_submitter_id: currentUserId || (t.assignee_id ?? null), deadline_approver_id: d.approverId, deadline_round: 1,
+      deadline_submitter_id: currentUserId || (t.assignee_id ?? null), deadline_approver_id: d.approverId,
+      approver_ids: d.approverId ? [d.approverId] : [], deadline_round: 1,
     }).eq('id', t.id)
     await supabase.from('task_deadline_approval_log').insert({
       task_id: t.id, round: 1, submitter_id: currentUserId || (t.assignee_id ?? null), proposed_deadline: d.deadline, approver_id: d.approverId, decision: 'submit',

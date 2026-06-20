@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import HeadPicker from '@/components/HeadPicker'
 
 type Emp = { id: string; full_name: string; role?: string | null }
 type Proj = { id: string; name: string }
@@ -10,8 +11,11 @@ type AiTask = { title: string; owner?: string | null; deadline?: string | null; 
 type Row = {
   title: string
   ownerId: string
+  coOwnerIds: string[]
+  supporterIds: string[]
   deadline: string
   approverId: string
+  approverIds: string[]
   note: string
 }
 
@@ -47,6 +51,14 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
     return employees.find((e) => (e.full_name || '').toLowerCase() === n)?.id || ''
   }
 
+  function matchEmpIds(text?: string | null): string[] {
+    if (!text) return []
+    const normalized = text.toLowerCase()
+    return employees
+      .filter((e) => normalized.includes((e.full_name || '').toLowerCase()))
+      .map((e) => e.id)
+  }
+
   async function readFile(file: File | undefined, into: (v: string) => void) {
     if (!file) return
     if (/\.(txt|md|csv)$/i.test(file.name)) into(await file.text())
@@ -68,9 +80,12 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
       const tasks: AiTask[] = Array.isArray(r.tasks) ? r.tasks : []
       setRows(tasks.map((t) => ({
         title: t.title || '',
-        ownerId: matchEmp(t.owner),
+        ownerId: matchEmpIds(t.owner)[0] || matchEmp(t.owner),
+        coOwnerIds: matchEmpIds(t.owner).slice(1),
+        supporterIds: [],
         deadline: t.deadline && t.deadline !== 'null' ? String(t.deadline) : '',
         approverId: approverList[0]?.id || '',
+        approverIds: approverList[0]?.id ? [approverList[0].id] : [],
         note: [t.note, t.owner && !matchEmp(t.owner) ? `Đề xuất: ${t.owner}` : ''].filter(Boolean).join(' · '),
       })))
       setNewProjectName((cur) => cur || r?.project?.name || '')
@@ -111,6 +126,10 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
         assignee_id: r.ownerId || null,
         head_id: r.ownerId || null,
         head_ids: r.ownerId ? [r.ownerId] : [],
+        co_owner_ids: r.coOwnerIds,
+        supporter_ids: r.supporterIds,
+        approver_ids: r.approverIds.length ? r.approverIds : r.approverId ? [r.approverId] : [],
+        reviewer_ids: r.approverIds.length ? r.approverIds : r.approverId ? [r.approverId] : [],
         project_id: pid || null,
         issue_status: 'normal',
         approval_status: 'not_submitted',
@@ -208,22 +227,24 @@ export default function MeetingStudio({ employees, currentEmployee, onCreated }:
             </div>
           </div>
           <div className="space-y-2">
-            <div className="hidden grid-cols-[1.6fr_1fr_140px_1fr] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)] lg:grid">
+            <div className="hidden grid-cols-[1.6fr_1fr_1fr_1fr_140px_1fr] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)] lg:grid">
               <span>Công việc được giao</span><span>Người phụ trách</span><span>Deadline</span><span>Gửi duyệt tới</span>
             </div>
             {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg-surface)] p-2 lg:grid-cols-[1.6fr_1fr_140px_1fr]">
+              <div key={i} className="grid grid-cols-1 gap-2 rounded-xl bg-[var(--bg-surface)] p-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr_140px_1fr]">
                 <input className={inputCls} value={r.title} onChange={(e) => patchRow(i, { title: e.target.value })} />
                 <select className={inputCls} value={r.ownerId} onChange={(e) => patchRow(i, { ownerId: e.target.value })}>
                   <option value="">— Chọn người —</option>
                   {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                 </select>
+                <HeadPicker headIds={r.coOwnerIds} employees={employees} onSave={(ids) => patchRow(i, { coOwnerIds: ids })} placeholder="Đồng PT" />
+                <HeadPicker headIds={r.supporterIds} employees={employees} onSave={(ids) => patchRow(i, { supporterIds: ids })} placeholder="Hỗ trợ" />
                 <input type="date" className={inputCls} value={r.deadline} onChange={(e) => patchRow(i, { deadline: e.target.value })} />
-                <select className={inputCls} value={r.approverId} onChange={(e) => patchRow(i, { approverId: e.target.value })}>
+                <select className={inputCls} value={r.approverId} onChange={(e) => patchRow(i, { approverId: e.target.value, approverIds: e.target.value ? [e.target.value] : [] })}>
                   <option value="">— Cấp duyệt —</option>
                   {approverList.map((e) => <option key={e.id} value={e.id}>{e.full_name}{e.role ? ` (${e.role})` : ''}</option>)}
                 </select>
-                <div className="flex flex-wrap gap-1 lg:col-span-4">
+                <div className="flex flex-wrap gap-1 lg:col-span-6">
                   {!r.ownerId && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Thiếu owner</span>}
                   {!r.deadline && <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warning)]">Thiếu deadline</span>}
                   {r.note && <span className="text-xs text-[var(--text-muted)]">{r.note}</span>}

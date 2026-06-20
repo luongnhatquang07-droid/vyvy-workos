@@ -81,7 +81,10 @@ async function pushNotify(rows: Array<{
   try {
     const res = await fetch('/api/notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-vyvy-token': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
+      },
       body: JSON.stringify(valid.map((r) => ({ type: 'info', ...r }))),
     })
     if (!res.ok) {
@@ -1863,11 +1866,11 @@ export default function Home() {
   const runScanRef = useRef<(() => Promise<void>) | null>(null)
   useEffect(() => { runScanRef.current = runCooAlertScan }, [runCooAlertScan])
 
-  // COO Alert scan mỗi 15 phút
+  // COO Alert scan mỗi 15 phút — dùng [] vì runScanRef.current luôn up-to-date
   useEffect(() => {
-    const t = window.setInterval(() => { if (tasks.length > 0) runScanRef.current?.() }, 15 * 60_000)
+    const t = window.setInterval(() => { runScanRef.current?.() }, 15 * 60_000)
     return () => window.clearInterval(t)
-  }, [tasks.length])
+  }, [])
 
   // Scan khi vào COO board hoặc khi tasks load xong lần đầu
   useEffect(() => {
@@ -3572,6 +3575,7 @@ export default function Home() {
               co_owner_ids: idsWithout(row.coOwnerIds || [], row.assigneeId, row.headId),
               supporter_ids: idsWithout(row.supporterIds || [], row.assigneeId, row.headId),
               approver_ids: idsWithout(row.reviewerIds || [], row.assigneeId),
+              reviewer_ids: idsWithout(row.reviewerIds || [], row.assigneeId),
               project_id: projectId,
               issue_status: 'normal',
               approval_status: 'not_submitted',
@@ -4468,6 +4472,7 @@ export default function Home() {
                                 openCooTarget({ task: relTask })
                                 setInboxOpen(false)
                               }
+                              else if (n.type === 'coo_alert') { setView('coo'); setInboxOpen(false) }
                               else if (n.type === 'recurring_reminder') { setView('recurring'); setInboxOpen(false) }
                               else if (n.type === 'daily_digest') { setView('tasks'); setInboxOpen(false) }
                             }}
@@ -4851,6 +4856,7 @@ export default function Home() {
                   employeeMap={employeeMap}
                   tasks={tasks}
                   currentEmployee={currentEmployee}
+                  onRefresh={() => fetchAll({ silent: true })}
                 />
               )}
 
@@ -4948,7 +4954,7 @@ export default function Home() {
           refreshTask={async () => {
             const { data } = await supabase.from('tasks').select('*').eq('id', selectedTask.id).maybeSingle()
             if (data) setSelectedTask(data as Task)
-            void fetchTasks()
+            void fetchAll({ silent: true })
           }}
         />
       )}
@@ -7606,6 +7612,19 @@ function StepWorkflowCard(props: {
   )
 }
 
+// Module-scope: không đặt trong ProjectsView để tránh remount
+function Sec({ n, title, desc }: { n: string; title: string; desc?: string }) {
+  return (
+    <div className="vyvy-section-header pt-2">
+      <span className="vyvy-section-number">{n}</span>
+      <div className="min-w-0">
+        <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
+        {desc && <p className="text-xs text-[var(--text-muted)]">{desc}</p>}
+      </div>
+    </div>
+  )
+}
+
 function ProjectsView(props: {
   projectCards: ProjectCard[]
   tasks: Task[]
@@ -7676,18 +7695,7 @@ function ProjectsView(props: {
     return <Card><EmptyState title="Chưa có dự án" description="Bấm + Tạo mới để thêm dự án đầu tiên." /></Card>
   }
 
-  // Section header kiểu VYVY-OS: số thứ tự + tiêu đề + mô tả nhỏ
-  function Sec({ n, title, desc }: { n: string; title: string; desc?: string }) {
-    return (
-      <div className="vyvy-section-header pt-2">
-        <span className="vyvy-section-number">{n}</span>
-        <div className="min-w-0">
-          <h2 className="font-display text-lg text-[var(--text-primary)]">{title}</h2>
-          {desc && <p className="text-xs text-[var(--text-muted)]">{desc}</p>}
-        </div>
-      </div>
-    )
-  }
+  // Sec định nghĩa ở module scope bên ngoài (tránh remount)
 
   return (
     <div className="space-y-5">
@@ -8847,6 +8855,16 @@ function TasksView(props: {
   )
 }
 
+// Module-scope: không đặt trong MeetingView để tránh remount khi re-render
+function SH({ n, title }: { n: string; title: string }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-card)] text-[10px] font-bold text-[var(--accent)]">{n}</span>
+      <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">{title}</p>
+    </div>
+  )
+}
+
 function MeetingView(props: {
   meetingTitle: string
   setMeetingTitle: (value: string) => void
@@ -8921,15 +8939,7 @@ function MeetingView(props: {
     props.setNotexRows(props.notexRows.filter((row) => row.id !== rowId))
   }
 
-  // Section header component
-  function SH({ n, title }: { n: string; title: string }) {
-    return (
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-card)] text-[10px] font-bold text-[var(--accent)]">{n}</span>
-        <p className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">{title}</p>
-      </div>
-    )
-  }
+  // SH định nghĩa ở module scope bên ngoài (tránh remount)
 
   return (
     <div className="space-y-5">
@@ -9230,6 +9240,11 @@ function MeetingView(props: {
           <div>
             <h3 className="text-base font-extrabold">Preview đầu việc</h3>
             <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{props.notexRows.length} dòng — kiểm tra rồi bấm Import.</p>
+            {!props.notexProjectName?.trim() && (
+              <p className="mt-1 text-xs font-semibold text-[var(--danger)]">
+                ⚠ Chưa nhập tên dự án — import sẽ bị chặn. Hãy nhập tên dự án ở trên.
+              </p>
+            )}
             {props.notexRows.filter((r) => !r.dueDate).length > 0 && (
               <p className="mt-1 text-xs font-semibold text-[var(--warning)]">
                 ⚠ {props.notexRows.filter((r) => !r.dueDate).length} đầu việc chưa có deadline — hãy bổ sung trước khi import.
@@ -10593,7 +10608,6 @@ function RecurringView(props: {
                 const cardTodayStr = props.now.toISOString().slice(0, 10)
                 // "Lần họp trước" chỉ lấy session đã qua hoặc completed — không lấy planned/tương lai
                 const lastSession = taskSessions.find(s => s.occurred_at < cardTodayStr || s.status === 'completed') || null
-                const occStr = occ.toISOString().slice(0, 10)
                 // Detect rescheduled: lấy session upcoming gần nhất (occurred_at nhỏ nhất >= hôm nay, khác ngày gốc)
                 const rescheduledSession = [...taskSessions]
                   .filter(s => s.original_occurred_at && s.occurred_at !== s.original_occurred_at && s.occurred_at >= cardTodayStr)
@@ -15480,6 +15494,7 @@ function HistoryView(props: {
   employeeMap: Map<string, Employee>
   tasks: Task[]
   currentEmployee: Employee | null
+  onRefresh?: () => void
 }) {
   const [versions, setVersions] = useState<TaskVersion[]>([])
   const [loading, setLoading] = useState(true)
@@ -15523,6 +15538,7 @@ function HistoryView(props: {
     setToast2('✓ Đã khôi phục về version ' + v.version)
     setTimeout(() => setToast2(''), 3000)
     await load()
+    props.onRefresh?.()
   }
 
   const changeTypeLabel: Record<string, string> = {

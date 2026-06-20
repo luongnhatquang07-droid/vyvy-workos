@@ -16,6 +16,12 @@ type TaskLike = {
   due_date?: string | null
   assignee_id?: string | null
   head_id?: string | null
+  head_ids?: string[] | null
+  co_owner_ids?: string[] | null
+  supporter_ids?: string[] | null
+  approver_ids?: string[] | null
+  reviewer_ids?: string[] | null
+  watcher_ids?: string[] | null
   department_id?: string | null
   priority?: string | null
   task_level?: string | null
@@ -109,17 +115,25 @@ export default function DeadlineBlock({
 
   useEffect(() => { void loadLog() }, [loadLog])
 
-  const isOwner = currentUser.id === task.assignee_id
+  const headIds = [...(task.head_ids || []), task.head_id].filter(Boolean) as string[]
+  const coOwnerIds = task.co_owner_ids || []
+  const taskApproverIds = [...(task.approver_ids || []), ...(task.reviewer_ids || []), task.deadline_approver_id].filter(Boolean) as string[]
+  const isAssigneeSide = currentUser.id === task.assignee_id || coOwnerIds.includes(currentUser.id)
+  const isOwner = isAssigneeSide
   const isRequested = deadlineStatus === 'extension_requested'
   const changeCount = task.deadline_change_count || 0
 
   // Người duyệt mặc định: người giao việc (head) → trưởng phòng của task.
   function resolveApprover(): string | null {
-    if (task.head_id && task.head_id !== task.assignee_id) return task.head_id
+    const blocked = new Set([task.assignee_id, ...coOwnerIds].filter(Boolean) as string[])
+    const explicitApprover = taskApproverIds.find((id) => !blocked.has(id))
+    if (explicitApprover) return explicitApprover
+    const headId = headIds.find((id) => !blocked.has(id))
+    if (headId) return headId
     const deptHead = employees.find(
       (e) => (e.role || '').toLowerCase() === 'department_head' && e.department_id && e.department_id === task.department_id,
     )
-    if (deptHead && deptHead.id !== task.assignee_id) return deptHead.id
+    if (deptHead && !blocked.has(deptHead.id)) return deptHead.id
     // fallback: COO/CEO/admin bất kỳ
     const mgr = employees.find((e) => ['coo', 'ceo', 'admin'].includes((e.role || '').toLowerCase()))
     return mgr?.id ?? null
@@ -176,7 +190,8 @@ export default function DeadlineBlock({
       }).eq('id', task.id)
       const latest = log.find((r) => r.decision === 'requested')
       if (latest) await supabase.from('task_deadline_extensions').update({ decision: 'approved', decided_by: currentUser.id, decided_at: new Date().toISOString() }).eq('id', latest.id)
-      await notify(task.deadline_submitter_id ?? task.assignee_id ?? null, 'Gia hạn được duyệt', `Deadline mới: ${newDl}`)
+      const recipients = Array.from(new Set([task.deadline_submitter_id, task.assignee_id, ...coOwnerIds].filter(Boolean) as string[]))
+      await Promise.all(recipients.map((recipientId) => notify(recipientId, 'Gia hạn được duyệt', `Deadline mới: ${newDl}`)))
     } catch (e) { console.error('approve', e) }
     setBusy(false); await loadLog(); onChanged?.()
   }
@@ -194,7 +209,8 @@ export default function DeadlineBlock({
       }).eq('id', task.id)
       const latest = log.find((r) => r.decision === 'requested')
       if (latest) await supabase.from('task_deadline_extensions').update({ decision: 'rejected', decided_by: currentUser.id, decided_at: new Date().toISOString() }).eq('id', latest.id)
-      await notify(task.deadline_submitter_id ?? task.assignee_id ?? null, 'Gia hạn bị từ chối', `Lý do: ${rejectNote.trim()}. Deadline giữ nguyên ${task.due_date ?? ''}`)
+      const recipients = Array.from(new Set([task.deadline_submitter_id, task.assignee_id, ...coOwnerIds].filter(Boolean) as string[]))
+      await Promise.all(recipients.map((recipientId) => notify(recipientId, 'Gia hạn bị từ chối', `Lý do: ${rejectNote.trim()}. Deadline giữ nguyên ${task.due_date ?? ''}`)))
     } catch (e) { console.error('reject', e) }
     setRejectNote(''); setBusy(false); await loadLog(); onChanged?.()
   }
@@ -219,11 +235,14 @@ export default function DeadlineBlock({
         reason: 'Cấp trên sửa deadline trực tiếp', decision: 'approved',
         decided_by: currentUser.id, decided_at: new Date().toISOString(),
       })
-      await notify(task.assignee_id ?? null, 'Deadline được cập nhật', `Deadline mới: ${editDate}`)
+      const recipients = Array.from(new Set([task.assignee_id, ...coOwnerIds].filter(Boolean) as string[]))
+      await Promise.all(recipients.map((recipientId) => notify(recipientId, 'Deadline được cập nhật', `Deadline mới: ${editDate}`)))
     } catch (e) { console.error('saveEdit', e) }
     setBusy(false); setShowEdit(false); onChanged?.()
   }
 
+  const canReview = (canManage || taskApproverIds.includes(currentUser.id) || headIds.includes(currentUser.id)) && (soloMode || !isAssigneeSide)
+  const canRequestExtension = isOwner && (!canManage || soloMode)
   const tone = TONE[deadlineStatus] || TONE.committed
   const inputCls = 'vyvy-input h-9 w-full px-3 text-xs outline-none'
   const taCls = 'vyvy-input w-full px-3 py-2 text-xs outline-none'
@@ -275,7 +294,7 @@ export default function DeadlineBlock({
       )}
 
       {/* ── OWNER: xin gia hạn ── */}
-      {isOwner && (!canManage || soloMode) && !isRequested && (
+      {canRequestExtension && !isRequested && (
         showForm ? (
           <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--bg-card)] p-3">
             <p className="vyvy-label">Extension request</p>
@@ -303,12 +322,12 @@ export default function DeadlineBlock({
         )
       )}
 
-      {isOwner && (!canManage || soloMode) && isRequested && !soloMode && (
+      {canRequestExtension && isRequested && !soloMode && (
         <p className="text-[11px] italic text-[var(--text-muted)]">Đã gửi yêu cầu gia hạn, đang chờ duyệt.</p>
       )}
 
       {/* ── MANAGER: duyệt / từ chối / sửa ── */}
-      {canManage && (
+      {canReview && (
         <div className="flex flex-col gap-2">
           {isRequested && (
             <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--warning)]/25 bg-[var(--warning-soft)] p-3">

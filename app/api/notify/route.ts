@@ -12,6 +12,15 @@ export type NotifyRow = {
 }
 
 export async function POST(req: NextRequest) {
+  // Chỉ cho phép call từ app client (gửi anon key làm gate)
+  const expectedToken = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (expectedToken) {
+    const authHeader = req.headers.get('x-vyvy-token')
+    if (authHeader !== expectedToken) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!serviceKey) return NextResponse.json({ error: 'Server error' }, { status: 500 })
 
