@@ -10319,6 +10319,9 @@ function RecurringView(props: {
                   ? task.department_ids
                   : task.department_id ? [task.department_id] : []
                 const deptNames = deptIds.map((id) => props.departmentMap.get(id)?.name).filter(Boolean) as string[]
+                const participantNames = (task.participant_ids || []).map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean) as string[]
+                const observerNames = (task.observer_ids || []).map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean) as string[]
+                const recipientNames = (task.recipient_ids || []).map((id) => props.employeeMap.get(id)?.full_name).filter(Boolean) as string[]
                 const alertTone =
                   alert.tone === 'red' ? 'text-[var(--danger)]' :
                   alert.tone === 'amber' ? 'text-[var(--warning)]' : ''
@@ -10351,12 +10354,24 @@ function RecurringView(props: {
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-1">
                       <span className="text-[var(--text-muted)]">Chủ trì: <b className={host ? 'text-[var(--text-secondary)]' : 'text-[var(--text-muted)] font-normal italic'}>{host ? host.full_name : 'Chưa có chủ trì'}</b></span>
                       <span className="text-[var(--text-muted)]">Phòng ban: {deptNames.length === 0
                         ? <b className="font-normal italic">Chưa có phòng ban</b>
                         : <b className="text-[var(--text-secondary)]">{deptNames.slice(0,2).join(', ')}{deptNames.length > 2 ? ` +${deptNames.length - 2}` : ''}</b>
                       }</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-2">
+                      <span className="text-[var(--text-muted)]">Tham gia: {participantNames.length === 0
+                        ? <b className="font-normal italic">Chưa có người tham gia</b>
+                        : <b className="text-[var(--text-secondary)]">{participantNames.slice(0,3).join(', ')}{participantNames.length > 3 ? ` +${participantNames.length - 3}` : ''}</b>
+                      }</span>
+                      {observerNames.length > 0 && (
+                        <span className="text-[var(--text-muted)]">Theo dõi: <b className="text-[var(--text-secondary)]">{observerNames.slice(0,2).join(', ')}{observerNames.length > 2 ? ` +${observerNames.length - 2}` : ''}</b></span>
+                      )}
+                      {recipientNames.length > 0 && (
+                        <span className="text-[var(--text-muted)]">Nhắc nhở: <b className="text-[var(--text-secondary)]">{recipientNames.slice(0,3).join(', ')}{recipientNames.length > 3 ? ` +${recipientNames.length - 3}` : ''}</b></span>
+                      )}
                     </div>
 
                     {/* ── Dòng 3: mục tiêu ── */}
