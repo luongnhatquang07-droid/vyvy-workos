@@ -5414,11 +5414,6 @@ function CooBoard(props: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.workstreams])
 
-  // Scroll về đầu CHỈ khi selectedProjectId thay đổi (không trigger khi data refresh)
-  useEffect(() => {
-    if (!props.selectedProjectId || props.selectedProjectId === 'all') return
-    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
-  }, [props.selectedProjectId])
 
   // Deep-link: expand dúng workstream + scroll + highlight item
   useEffect(() => {
