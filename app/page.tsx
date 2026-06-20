@@ -9935,22 +9935,57 @@ function RescheduleMeetingModal(p: {
   onSessionSaved: () => Promise<void>
   close: () => void
 }) {
-  const occ = nextOccurrence(p.task, p.now)
-  const occStr = occ.toISOString().slice(0, 10)
+  // Tạo danh sách buổi để chọn: 1 kỳ trước + 4 kỳ tới
+  const occurrenceOptions: Array<{str: string; label: string}> = []
+  {
+    let cur = new Date(p.now)
+    if (p.task.frequency === 'weekly') cur.setDate(cur.getDate() - 7)
+    else if (p.task.frequency === 'monthly') cur.setMonth(cur.getMonth() - 1)
+    else cur.setDate(cur.getDate() - 1)
+    cur.setHours(0, 0, 0, 0)
+    const seen = new Set<string>()
+    for (let i = 0; i < 6; i++) {
+      const d = nextOccurrence(p.task, cur)
+      const s = d.toISOString().slice(0, 10)
+      if (seen.has(s)) break
+      seen.add(s)
+      const [oy, om, od] = s.split('-')
+      const wday = d.toLocaleDateString('vi-VN', { weekday: 'short' })
+      const timeStr = p.task.time_of_day?.slice(0, 5) || '09:00'
+      occurrenceOptions.push({ str: s, label: `${wday} ${od}/${om}/${oy} · ${timeStr}` })
+      cur = new Date(d)
+      cur.setHours(23, 59, 0, 0)
+    }
+  }
 
-  // Existing rescheduled session for this occurrence (if any)
+  // Default: ưu tiên buổi hôm nay nếu hôm nay là ngày họp định kỳ, ngược lại lấy buổi tiếp theo
+  const todayDateStr = p.now.toISOString().slice(0, 10)
+  const defaultNextStr = nextOccurrence(p.task, p.now).toISOString().slice(0, 10)
+  const defaultOccStr = occurrenceOptions.find(o => o.str === todayDateStr)?.str || defaultNextStr
+
+  const [selectedOccStr, setSelectedOccStr] = useState(defaultOccStr)
+
+  // existingSession tính lại mỗi khi selectedOccStr đổi
   const existingSession = p.meetingSessions.find(
-    (s) => s.original_occurred_at === occStr && s.occurred_at !== occStr
+    (s) => s.original_occurred_at === selectedOccStr && s.occurred_at !== selectedOccStr
   ) || null
 
   const [scope, setScope] = useState<'single' | 'recurring'>('single')
-  const [newDate, setNewDate] = useState(existingSession?.occurred_at ?? occStr)
+  const [newDate, setNewDate] = useState(existingSession?.occurred_at ?? selectedOccStr)
   const [newTime, setNewTime] = useState(
     existingSession?.start_time?.slice(0, 5) ?? p.task.time_of_day?.slice(0, 5) ?? ''
   )
   const [reason, setReason] = useState(existingSession?.reschedule_reason ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function handleOccChange(str: string) {
+    setSelectedOccStr(str)
+    const ex = p.meetingSessions.find(s => s.original_occurred_at === str && s.occurred_at !== str) || null
+    setNewDate(ex?.occurred_at ?? str)
+    setNewTime(ex?.start_time?.slice(0, 5) ?? p.task.time_of_day?.slice(0, 5) ?? '')
+    setReason(ex?.reschedule_reason ?? '')
+  }
 
   // Compute recipient list — use all available person fields
   const notifRecipients: string[] = []
@@ -9963,12 +9998,12 @@ function RescheduleMeetingModal(p: {
   ;(p.task.observer_ids || []).forEach(id => addRecip(id))
   const hasNoRecipients = notifRecipients.filter(id => id !== p.currentEmployeeId).length === 0
 
-  const [y, m, d] = occStr.split('-')
-  const occLabel = `${d}/${m}/${y}`
+  const [sy, sm, sd] = selectedOccStr.split('-')
+  const occLabel = `${sd}/${sm}/${sy}`
 
   async function handleSave() {
     if (!newDate) { setError('Vui lòng chọn ngày mới.'); return }
-    if (newDate === occStr && newTime === (p.task.time_of_day?.slice(0, 5) ?? '') && scope === 'single') {
+    if (newDate === selectedOccStr && newTime === (p.task.time_of_day?.slice(0, 5) ?? '') && scope === 'single') {
       setError('Ngày/giờ mới phải khác ngày gốc.'); return
     }
     setSaving(true); setError(null)
@@ -9979,7 +10014,7 @@ function RescheduleMeetingModal(p: {
           schedule_id: p.task.id,
           occurred_at: newDate,
           start_time: newTime || null,
-          original_occurred_at: occStr,
+          original_occurred_at: selectedOccStr,
           original_start_time: p.task.time_of_day || null,
           reschedule_reason: reason || null,
           rescheduled_by: p.currentEmployeeId || null,
@@ -10049,11 +10084,26 @@ function RescheduleMeetingModal(p: {
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Current info */}
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs space-y-1">
-            <p className="font-bold text-amber-800">Lịch gốc buổi sắp tới</p>
-            <p className="text-amber-700">Ngày: <b>{occLabel}</b></p>
-            {p.task.time_of_day && <p className="text-amber-700">Giờ: <b>{p.task.time_of_day.slice(0, 5)}</b></p>}
+          {/* Chọn buổi cần dời */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-[var(--text-secondary)] block">Buổi cần dời *</label>
+            <select
+              className="h-10 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm font-bold text-amber-800 outline-none"
+              value={selectedOccStr}
+              onChange={(e) => handleOccChange(e.target.value)}
+            >
+              {occurrenceOptions.map(o => (
+                <option key={o.str} value={o.str}>{o.label}</option>
+              ))}
+              {!occurrenceOptions.find(o => o.str === selectedOccStr) && (
+                <option value={selectedOccStr}>{occLabel}</option>
+              )}
+            </select>
+            {existingSession && (
+              <p className="text-[10px] text-amber-700">
+                ⚠️ Buổi này đã được dời sang {(() => { const [ey, em, ed] = (existingSession.occurred_at || '').split('-'); return `${ed}/${em}/${ey}` })()} — đang chỉnh sửa lại.
+              </p>
+            )}
           </div>
 
           {/* Scope selector */}
@@ -10306,10 +10356,13 @@ function RecurringView(props: {
                 const taskSessions = props.meetingSessions
                   .filter((s) => s.schedule_id === task.id)
                   .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
-                const lastSession = taskSessions[0] || null
+                const cardTodayStr = props.now.toISOString().slice(0, 10)
+                // "Lần họp trước" chỉ lấy session đã qua hoặc completed — không lấy planned/tương lai
+                const lastSession = taskSessions.find(s => s.occurred_at < cardTodayStr || s.status === 'completed') || null
                 const occStr = occ.toISOString().slice(0, 10)
+                // Detect rescheduled: tìm session có ngày mới >= hôm nay (chưa xảy ra) và khác ngày gốc
                 const rescheduledSession = taskSessions.find(
-                  (s) => s.original_occurred_at === occStr && s.occurred_at !== occStr
+                  (s) => s.original_occurred_at && s.occurred_at !== s.original_occurred_at && s.occurred_at >= cardTodayStr
                 ) || null
                 const displayOcc = rescheduledSession
                   ? new Date(rescheduledSession.occurred_at + 'T' + (rescheduledSession.start_time || task.time_of_day || '00:00'))
@@ -10350,8 +10403,12 @@ function RecurringView(props: {
                       <span className={`font-bold ${alertTone || 'text-[var(--text-muted)]'}`}>Còn {formatTimeLeft(displayOcc, props.now)}</span>
                       {rescheduledSession && (
                         <span className="text-amber-600 font-bold">
-                          Dời từ: {(() => { const [y,m,d] = occ.toISOString().slice(0,10).split('-'); return `${d}/${m}/${y}` })()}
+                          Dời từ: {(() => { const [ry,rm,rd] = (rescheduledSession.original_occurred_at || '').split('-'); return rd ? `${rd}/${rm}/${ry} · ${task.time_of_day?.slice(0,5) || ''}` : '?' })()}
+                          {' → '}{(() => { const [ny,nm,nd] = rescheduledSession.occurred_at.split('-'); return `${nd}/${nm}/${ny}` })()}
                         </span>
+                      )}
+                      {rescheduledSession && (
+                        <span className="text-[var(--text-muted)]">Lịch gốc: <b className="text-[var(--text-secondary)]">{recurringFrequencyLabel(task)} · {task.time_of_day?.slice(0,5)}</b></span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] mb-1">
