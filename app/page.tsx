@@ -10360,10 +10360,10 @@ function RecurringView(props: {
                 // "Lần họp trước" chỉ lấy session đã qua hoặc completed — không lấy planned/tương lai
                 const lastSession = taskSessions.find(s => s.occurred_at < cardTodayStr || s.status === 'completed') || null
                 const occStr = occ.toISOString().slice(0, 10)
-                // Detect rescheduled: tìm session có ngày mới >= hôm nay (chưa xảy ra) và khác ngày gốc
-                const rescheduledSession = taskSessions.find(
-                  (s) => s.original_occurred_at && s.occurred_at !== s.original_occurred_at && s.occurred_at >= cardTodayStr
-                ) || null
+                // Detect rescheduled: lấy session upcoming gần nhất (occurred_at nhỏ nhất >= hôm nay, khác ngày gốc)
+                const rescheduledSession = [...taskSessions]
+                  .filter(s => s.original_occurred_at && s.occurred_at !== s.original_occurred_at && s.occurred_at >= cardTodayStr)
+                  .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))[0] || null
                 const displayOcc = rescheduledSession
                   ? new Date(rescheduledSession.occurred_at + 'T' + (rescheduledSession.start_time || task.time_of_day || '00:00'))
                   : occ
