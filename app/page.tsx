@@ -5394,6 +5394,7 @@ function CooBoard(props: {
 }) {
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const [boardSearch, setBoardSearch] = useState('')
   const [boardDeptFilter, setBoardDeptFilter] = useState('')
   const [boardStatusFilter, setBoardStatusFilter] = useState('')
@@ -5460,6 +5461,15 @@ function CooBoard(props: {
 
   function toggleSubtask(id: string) {
     setExpandedSubtasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleStep(id: string) {
+    setExpandedSteps((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -5788,6 +5798,8 @@ function CooBoard(props: {
                                   createSupporter={props.createSupporter}
                                   getStatusLabel={props.getStatusLabel}
                                   updateTaskSequential={props.updateTaskSequential}
+                                  expandedSteps={expandedSteps}
+                                  toggleStep={toggleStep}
                                 />
                               </div>
                             )}
@@ -6479,6 +6491,8 @@ function SubtaskCard(props: {
   createSupporter: (taskId: string) => void
   getStatusLabel: (status: string) => string
   updateTaskSequential: (taskId: string, sequential: boolean) => void
+  expandedSteps: Set<string>
+  toggleStep: (id: string) => void
 }) {
   const head = props.employeeMap.get(props.task.head_id || props.task.assignee_id || '')
   const department = props.departmentMap.get(head?.department_id || props.task.department_id || '')
@@ -6688,6 +6702,8 @@ function SubtaskCard(props: {
                   uploadStepFile={props.uploadStepFile}
                   deleteStep={props.deleteStep}
                   clearStepFile={props.clearStepFile}
+                  expanded={props.expandedSteps.has(step.id)}
+                  onToggle={() => props.toggleStep(step.id)}
                 />
               )
             })
@@ -6873,6 +6889,8 @@ function StepWorkflowCard(props: {
   uploadStepFile: (step: TaskStep, file?: File) => void
   deleteStep: (step: TaskStep) => void
   clearStepFile: (step: TaskStep) => void
+  expanded?: boolean
+  onToggle?: () => void
 }) {
   // Local draft states — prevents root-level re-render on every keystroke (BUG-01)
   const [localRevisionDraft, setLocalRevisionDraft] = useState('')
@@ -6917,14 +6935,14 @@ function StepWorkflowCard(props: {
     setLocalCommentDraft('')
   }
 
-  // Mặc định mở nếu cần hành động
-  const [expanded, setExpanded] = useState(false)
+  // expanded state được quản lý từ CooBoard (qua props) để tránh reset khi data refresh
+  const expanded = props.expanded ?? false
   const [noteDraft, setNoteDraft] = useState(props.step.note || '')
 
   return (
     <div className={`rounded-2xl border bg-[var(--bg-card)] ${props.locked ? 'opacity-60' : ''} ${status === 'revision' ? 'border-[var(--danger)]/40' : status === 'approved' ? 'border-[var(--success)]/30' : 'border-[var(--border)]'}`}>
       {/* ── Header (luôn hiện) ── */}
-      <button type="button" onClick={() => setExpanded(!expanded)}
+      <button type="button" onClick={() => props.onToggle?.()}
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[var(--bg-surface)] rounded-2xl transition-colors"
       >
         <span className="shrink-0 text-xs font-extrabold text-[var(--text-muted)] w-5">{props.step.step_order}.</span>
