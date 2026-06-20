@@ -1933,6 +1933,11 @@ export default function Home() {
     }
 
     toast(recurringForm.id ? 'Đã cập nhật việc định kỳ.' : 'Đã tạo việc định kỳ.')
+    // Optimistic update: cập nhật local state ngay lập tức, không đợi fetchRecurring()
+    if (recurringForm.id && !isDefaultTask) {
+      const optimistic = recurringTaskFromForm(recurringForm.id)
+      setRecurringTasks((prev) => prev.map((t) => t.id === recurringForm.id ? optimistic : t))
+    }
     resetRecurringForm()
     setRecurringPanelOpen(false)
     await fetchRecurring()
