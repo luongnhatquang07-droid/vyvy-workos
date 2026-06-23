@@ -6137,7 +6137,7 @@ function CooBoard(props: {
         {workspaceTab === 'workstreams' && (
           <div className="space-y-3">
             {filterBar}
-            <WorkstreamList project={project} workstreams={filteredWorkstreams}/>
+            {WorkstreamList({ project, workstreams: filteredWorkstreams })}
           </div>
         )}
 
@@ -6610,7 +6610,7 @@ function InlineSubtaskForm(props: {
           ))}
         </Select>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-bold text-[var(--text-secondary)]">Lead / ngu?i giao vi?c</label>
+          <label className="text-xs font-bold text-[var(--text-secondary)]">Lead / người giao việc</label>
           <HeadPicker
             headIds={form.headIds || []}
             employees={props.employees}
@@ -6621,7 +6621,7 @@ function InlineSubtaskForm(props: {
           value={form.assigneeId}
           onChange={(value) => setForm({ ...form, assigneeId: value })}
         >
-          <option value="">Ch?n ngu?i ch?u trách nhi?m chính</option>
+          <option value="">Chọn người chịu trách nhiệm chính</option>
           {props.employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.full_name}
@@ -6783,15 +6783,15 @@ function SubtaskCard(props: {
               onSave={(ids) => props.updateTaskHead(props.task.id, ids)}
             />
             <span>· Phòng ban: {headHasNoDept
-              ? <b className="text-[var(--warning)]">? Head chua du?c g?n phòng ban</b>
+              ? <b className="text-[var(--warning)]">⚠ Head chưa được gán phòng ban</b>
               : <b>{department?.name || 'Chưa gắn'}</b>
             } · Deadline: <b>{props.task.due_date || 'Chua có'}</b></span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
             <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {peopleLabel(props.task.assignee_id ? [props.task.assignee_id] : [], props.employeeMap)}</span>
             {taskCoOwners.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(taskCoOwners, props.employeeMap)}</span>}
-            {taskSupporters.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">H? TR?</span> {peopleLabel(taskSupporters, props.employeeMap)}</span>}
-            {taskApprovers.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUY?T</span> {peopleLabel(taskApprovers, props.employeeMap)}</span>}
+            {taskSupporters.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(taskSupporters, props.employeeMap)}</span>}
+            {taskApprovers.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(taskApprovers, props.employeeMap)}</span>}
           </div>
         </div>
 
@@ -7009,7 +7009,7 @@ function InlineStepForm(props: {
           value={form.ownerId}
           onChange={(value) => setForm({ ...form, ownerId: value })}
         >
-          <option value="">Ch?n ngu?i th?c hi?n chính</option>
+          <option value="">Chọn người thực hiện chính</option>
           {props.employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.full_name}
@@ -13674,7 +13674,7 @@ function buildPeopleReport(peopleReports: PeopleReport[]) {
 ${peopleReports
   .map((person, index) => {
     return `${index + 1}. ${person.employee.full_name}
-- T?ng vi?c: ${person.total}
+- Tổng việc: ${person.total}
 - Chính: ${person.main}
  - Đồng phụ trách: ${person.coOwned}
  - Hỗ trợ: ${person.supported}
@@ -15357,8 +15357,8 @@ function CalendarView(props: {
             ))}
           </div>
           <div className="grid grid-cols-7 gap-1">
-            {monthDays.map((day, i) => (
-              <DayCell key={i} day={day} inMonth={day.getMonth() === cursor.getMonth()} />
+            {monthDays.map((day) => (
+              <DayCell key={fmtKey(day)} day={day} inMonth={day.getMonth() === cursor.getMonth()} />
             ))}
           </div>
         </div>
@@ -15369,7 +15369,7 @@ function CalendarView(props: {
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
           <div className="grid grid-cols-7 gap-1">
             {weekDays.map((day, i) => (
-              <div key={i}>
+              <div key={fmtKey(day)}>
                 <div className={`text-center text-[11px] font-bold py-2 rounded-lg mb-1 ${isSameDay(day, today) ? 'bg-[var(--olive)] text-[var(--ivory)]' : 'text-[var(--text-muted)]'}`}>
                   {DOW_LABELS[i]}<br/><span className="text-xs">{day.getDate()}/{day.getMonth()+1}</span>
                 </div>
