@@ -1,26 +1,26 @@
 -- ============================================================
--- 014_repair_encoding.sql
--- Sửa dữ liệu test bị lỗi encoding (? thay cho ký tự tiếng Việt).
--- Nguyên nhân: các task [TEST] được INSERT qua SQL Editor với
--- client encoding sai → PostgreSQL thay ký tự không đại diện
--- được bằng dấu ? (không phải lỗi font hay source code).
+-- 014_repair_encoding.sql  (v2 — có transaction + backup + rollback)
+-- Sửa task titles bị lỗi encoding (dấu ? thay cho ký tự tiếng Việt).
 --
--- An toàn: chỉ UPDATE/DELETE record lỗi, không DROP/TRUNCATE.
--- Idempotent: chạy nhiều lần không sao.
---
--- HƯỚNG DẪN CHẠY AN TOÀN:
--- Bước 1: Chạy phần "PREVIEW" bên dưới để xem record sẽ bị đổi.
--- Bước 2: Chạy phần "BACKUP" để tạo snapshot.
--- Bước 3: Xem snapshot xác nhận đúng.
--- Bước 4: Chạy phần "REPAIR" để sửa.
--- Bước 5: Chạy phần "VERIFY" để so sánh trước/sau.
--- Rollback: Chạy phần "ROLLBACK" nếu cần hoàn tác.
+-- HƯỚNG DẪN CHẠY AN TOÀN — ĐỌC TRƯỚC KHI CHẠY BẤT KỲ LỆNH NÀO:
+--   Bước A: Chạy PREVIEW → xem số record và ID.
+--   Bước B: Báo kết quả preview cho người phụ trách xác nhận.
+--   Bước C: Sau khi được xác nhận, chạy BACKUP để tạo snapshot.
+--   Bước D: Trong cùng session, chạy REPAIR (trong transaction).
+--   Bước E: Chạy VERIFY để so sánh.
+--   Bước F: Nếu VERIFY đúng → COMMIT. Nếu sai → ROLLBACK.
+--   Rollback bất kỳ lúc nào: xem phần ROLLBACK cuối file.
 -- ============================================================
 
--- ── BƯỚC 1: PREVIEW — chỉ SELECT, không sửa gì ──────────────
--- Chạy phần này trước. Kết quả là danh sách record sẽ bị sửa.
+-- ── BƯỚC A: PREVIEW ──────────────────────────────────────────
+-- Chạy phần này TRƯỚC. Không thay đổi gì cả.
+-- Kết quả mong muốn: danh sách các task bị lỗi encoding.
+-- Nếu trả 0 dòng → không có gì cần sửa, dừng tại đây.
 /*
-SELECT id, title, created_at
+SELECT
+  id,
+  title AS title_hien_tai,
+  created_at
 FROM public.tasks
 WHERE title IN (
   '[TEST] Task tr? deadline',
@@ -31,12 +31,17 @@ WHERE title IN (
 ORDER BY created_at;
 */
 
--- ── BƯỚC 2: BACKUP — tạo snapshot trước khi sửa ─────────────
--- Chạy phần này sau khi xem preview thấy đúng record.
--- Bảng _backup_014_tasks tồn tại mãi cho đến khi bạn DROP thủ công.
+-- ── BƯỚC B: BACKUP ───────────────────────────────────────────
+-- Chỉ chạy sau khi preview xác nhận đúng record.
+-- Bảng backup dùng old_title để rollback an toàn.
+-- backup_at dùng now() trong CTAS — hợp lệ (không phải trong workflow script).
 /*
 CREATE TABLE IF NOT EXISTS public._backup_014_tasks AS
-SELECT id, title, created_at
+SELECT
+  id,
+  title     AS old_title,
+  created_at,
+  now()     AS backup_at
 FROM public.tasks
 WHERE title IN (
   '[TEST] Task tr? deadline',
@@ -45,21 +50,26 @@ WHERE title IN (
   '[TEST] Task thi?u file báo cáo'
 );
 
-SELECT * FROM public._backup_014_tasks;
+-- Bảo vệ bảng backup: không để anon hoặc authenticated thường xem
+ALTER TABLE public._backup_014_tasks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public._backup_014_tasks FROM anon;
+REVOKE ALL ON public._backup_014_tasks FROM authenticated;
+-- Chỉ service role (Dashboard/API) mới xem được backup
+
+-- Xác nhận backup tạo thành công
+SELECT id, old_title, created_at, backup_at
+FROM public._backup_014_tasks
+ORDER BY created_at;
 */
 
--- ── BƯỚC 3: ROLLBACK (chỉ khi cần hoàn tác) ─────────────────
--- Không chạy cùng lúc với REPAIR. Chỉ dùng khi muốn hoàn tác.
+-- ── BƯỚC C: REPAIR (trong transaction) ───────────────────────
+-- Chỉ chạy sau khi backup xác nhận đúng.
+-- BEGIN/COMMIT/ROLLBACK phải chạy trong cùng một SQL Editor session.
+-- Supabase SQL Editor hỗ trợ transaction thủ công.
 /*
-UPDATE public.tasks
-SET title = b.title
-FROM public._backup_014_tasks b
-WHERE public.tasks.id = b.id;
-*/
+BEGIN;
 
--- ── BƯỚC 4: REPAIR ───────────────────────────────────────────
--- Sửa đúng những chuỗi xác định chắc chắn bị lỗi encoding.
--- KHÔNG dùng LIKE '?%' hay thay hàng loạt — chỉ sửa exact match.
+-- Sửa task titles — chỉ exact match, không dùng LIKE '%?%'
 UPDATE public.tasks
 SET title = CASE title
   WHEN '[TEST] Task tr? deadline'         THEN '[TEST] Task trễ deadline'
@@ -75,47 +85,79 @@ WHERE title IN (
   '[TEST] Task thi?u file báo cáo'
 );
 
--- Xoá task_alerts cũ bị lỗi (sẽ tự tạo lại khi scan)
+-- Xoá task_alerts liên quan (sẽ tự tạo lại khi scan — không xóa nhầm)
 DELETE FROM public.task_alerts
-WHERE title LIKE '%tr? deadline%'
-   OR title LIKE '%s?p t?i h?n%'
-   OR title LIKE '%thi?u deadline%'
-   OR body  LIKE '%tr? deadline%'
-   OR body  LIKE '%s?p t?i h?n%';
+WHERE title = ANY(ARRAY[
+  '[TEST] Task trễ deadline',
+  '[TEST] Task sắp tới hạn',
+  '[TEST] Task thiếu deadline',
+  '[TEST] Task thiếu file báo cáo',
+  '[TEST] Task tr? deadline',
+  '[TEST] Task s?p t?i h?n',
+  '[TEST] Task thi?u deadline'
+]);
 
--- Xoá notifications bị lỗi (cũng tự tạo lại sau scan)
+-- Xoá notifications liên quan (sẽ tự tạo lại)
 DELETE FROM public.notifications
+WHERE title = ANY(ARRAY[
+  '[TEST] Task trễ deadline',
+  '[TEST] Task sắp tới hạn',
+  '[TEST] Task thiếu deadline',
+  '[TEST] Task thiếu file báo cáo',
+  '[TEST] Task tr? deadline',
+  '[TEST] Task s?p t?i h?n',
+  '[TEST] Task thi?u deadline'
+]);
+
+-- ── BƯỚC D: VERIFY (trong cùng transaction) ──────────────────
+-- Kiểm tra kết quả TRƯỚC KHI COMMIT.
+-- Nếu bất kỳ kết quả nào không như mong đợi → ROLLBACK.
+
+-- 1. Danh sách record đã sửa: phải thấy title đúng dấu
+SELECT t.id, t.title AS title_moi, b.old_title
+FROM public.tasks t
+JOIN public._backup_014_tasks b ON t.id = b.id
+ORDER BY t.title;
+
+-- 2. Số record sửa phải khớp số record backup
+SELECT
+  (SELECT count(*) FROM public._backup_014_tasks)         AS backup_count,
+  (SELECT count(*) FROM public.tasks t
+   JOIN public._backup_014_tasks b ON t.id = b.id
+   WHERE t.title <> b.old_title)                          AS changed_count;
+-- backup_count phải bằng changed_count
+
+-- 3. Không còn record lỗi encoding trong tasks
+SELECT count(*) AS con_loi
+FROM public.tasks
 WHERE title LIKE '%tr? deadline%'
    OR title LIKE '%s?p t?i h?n%'
-   OR title LIKE '%thi?u deadline%'
-   OR body  LIKE '%tr? deadline%'
-   OR body  LIKE '%s?p t?i h?n%';
+   OR title LIKE '%thi?u deadline%';
+-- Phải trả về 0
 
--- ── BƯỚC 5: VERIFY — so sánh trước/sau ──────────────────────
--- Kết quả mong muốn: các task đã sửa đúng dấu
-SELECT id, title, created_at FROM public.tasks
-WHERE title LIKE '[TEST]%'
-ORDER BY created_at;
+-- ── NẾU VERIFY ĐÚNG: COMMIT ──────────────────────────────────
+-- Thay thế lệnh này bằng ROLLBACK nếu verify không đúng
+COMMIT;
+-- ROLLBACK;
+*/
 
--- So sánh snapshot backup vs hiện tại (nếu đã tạo backup)
--- SELECT b.title AS title_cu, t.title AS title_moi
--- FROM public._backup_014_tasks b
--- JOIN public.tasks t ON t.id = b.id;
+-- ── BƯỚC E: ROLLBACK (chạy riêng nếu cần hoàn tác) ──────────
+-- Dùng old_title từ bảng backup — không dùng title (đã bị đổi tên thành old_title).
+/*
+UPDATE public.tasks t
+SET title = b.old_title
+FROM public._backup_014_tasks b
+WHERE t.id = b.id;
 
--- Kiểm tra không còn notification lỗi
-SELECT count(*) AS notifications_with_question_marks
-FROM public.notifications
-WHERE title LIKE '%?%' AND title ~ '\?[a-z]';
+-- Xác nhận rollback
+SELECT t.id, t.title AS title_sau_rollback
+FROM public.tasks t
+JOIN public._backup_014_tasks b ON t.id = b.id;
+*/
 
--- ── LƯU Ý QUAN TRỌNG ─────────────────────────────────────────
--- Script này CHỈ sửa exact match các chuỗi đã biết chắc lỗi.
--- KHÔNG dùng LIKE '?%' hay regex thay hàng loạt vì dấu ? thật
--- (như câu hỏi) sẽ bị thay nhầm.
--- Nếu có task lỗi khác không nằm trong danh sách trên,
--- thêm vào WHERE IN và CASE WHEN sau khi xác minh cẩn thận.
---
+-- ── PHÒNG NGỪA TƯƠNG LAI ────────────────────────────────────
 -- Khi INSERT dữ liệu tiếng Việt qua SQL Editor:
 --   - Dùng Supabase Dashboard → Table Editor (luôn UTF-8)
---   - Nếu dùng SQL Editor: SET client_encoding = 'UTF8';
+--   - Nếu dùng SQL Editor: chạy SET client_encoding = 'UTF8'; trước
 --   - Không paste từ Windows Notepad (ANSI) vào SQL Editor
 --   - File .sql phải lưu UTF-8 (không phải ANSI/Windows-1252)
