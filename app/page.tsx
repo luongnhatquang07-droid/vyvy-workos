@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
@@ -5485,7 +5485,7 @@ function InlineFilePanel({ task, reports, uploadTaskFile, deleteTaskReport }: {
   )
 }
 
-function CooBoard(props: {
+type CooBoardProps = {
   projects: Project[]
   workstreams: Task[]
   selectedProjectId: string
@@ -5565,7 +5565,348 @@ function CooBoard(props: {
   onCooTargetHandled?: () => void
   cooAlerts?: TaskAlert[]
   onScanAlerts?: () => void
+}
+
+function WorkstreamList({
+  project,
+  workstreams,
+  board,
+  expandedWorkstreams,
+  expandedSubtasks,
+  expandedSteps,
+  toggleWorkstream,
+  toggleSubtask,
+  toggleStep,
+}: {
+  project: Project
+  workstreams: Task[]
+  board: CooBoardProps
+  expandedWorkstreams: Set<string>
+  expandedSubtasks: Set<string>
+  expandedSteps: Set<string>
+  toggleWorkstream: (id: string) => void
+  toggleSubtask: (id: string) => void
+  toggleStep: (id: string) => void
 }) {
+  const props = board
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
+      {workstreams.length === 0 ? (
+        <div className="flex items-center gap-3 px-8 py-6 text-sm text-[var(--text-secondary)]">
+          Chưa có đầu việc lớn.
+          {props.canCreateWorkstream && (
+            <button
+              type="button"
+              onClick={() => props.openWorkstreamForm(project.id)}
+              className="inline-flex items-center gap-1 rounded-lg border border-[var(--olive)] px-3 py-1 text-xs font-semibold text-[var(--olive)] hover:bg-[var(--olive)] hover:text-[var(--ivory)]"
+            >
+              <Ico d={IC.plus} size={12}/> Thêm đầu việc lớn
+            </button>
+          )}
+        </div>
+      ) : (
+        workstreams.map((ws) => {
+          const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
+          const wsHead = props.employeeMap.get(ws.head_id || '')
+          const wsHeadNames = (ws.head_ids && ws.head_ids.length > 0
+            ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
+            : wsHead ? [wsHead.full_name] : [])
+          const wsAssignee = props.employeeMap.get(ws.assignee_id || '')
+          const wsCoOwnerIds = taskCoOwnerIds(ws)
+          const wsSupporterIds = taskSupporterIds(ws, props.supportersByTask.get(ws.id) || [])
+          const wsApproverIds = taskApproverIds(ws)
+          const wsHeadNoDept = !!wsHead && !wsHead.department_id
+          const wsAssigneeNoDept = !!wsAssignee && !wsAssignee.department_id
+          const subtasks = props.tasksByParent.get(ws.id) || []
+          const isWsExpanded = expandedWorkstreams.has(ws.id)
+
+          return (
+            <div key={ws.id} data-coo-id={ws.id} className="border-b border-[var(--border)] last:border-b-0 data-[coo-highlight]:ring-2 data-[coo-highlight]:ring-[var(--accent)] data-[coo-highlight]:bg-[var(--accent)]/8 transition-all">
+              <div className="flex items-center gap-2 pl-5 pr-3 py-3 hover:bg-[var(--bg-surface)] transition-colors">
+                <button
+                  type="button"
+                  onClick={() => toggleWorkstream(ws.id)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
+                    {isWsExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-bold text-[var(--text-primary)]">{ws.title}</span>
+                      <IssueBadge issueStatus={ws.issue_status} />
+                      <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
+                        {subtasks.length} việc con
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+                      <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}{wsHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                      <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}{wsAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                      {wsCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(wsCoOwnerIds, props.employeeMap)}</span>}
+                      {wsSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(wsSupporterIds, props.employeeMap)}</span>}
+                      {wsApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(wsApproverIds, props.employeeMap)}</span>}
+                      {ws.due_date && <span>· {ws.due_date}</span>}
+                      <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
+                    </div>
+                    {ws.description && (
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
+                        <span className="font-spec text-[9px]">MÔ TẢ</span> {ws.description}
+                      </p>
+                    )}
+                  </div>
+                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
+                    <HeadPicker
+                      headIds={ws.head_ids?.length ? ws.head_ids : (ws.head_id ? [ws.head_id] : [])}
+                      employees={props.employees}
+                      onSave={(ids) => props.updateTaskHead(ws.id, ids)}
+                      placeholder="Chưa chọn"
+                    />
+                  </div>
+                  <div className="flex flex-col items-start gap-0.5">
+                    <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
+                    <PersonPicker
+                      value={ws.assignee_id}
+                      employees={props.employees}
+                      onSave={(id) => props.updateTaskAssignee(ws.id, id)}
+                    />
+                  </div>
+                  <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
+                    <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
+                    <HeadPicker
+                      headIds={wsCoOwnerIds}
+                      employees={props.employees}
+                      onSave={(ids) => props.updateTaskRoleIds(ws.id, 'co_owner_ids', ids, 'đồng phụ trách')}
+                      placeholder="Chưa chọn"
+                    />
+                  </div>
+                  {props.canCreateSubtask(ws) && (
+                    <button type="button"
+                      onClick={() => props.subtaskOpenFor === ws.id ? props.setSubtaskOpenFor('') : props.openSubtaskForm(ws)}
+                      className={`rounded-[var(--radius-sm)] border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                        props.subtaskOpenFor === ws.id
+                          ? 'border-[var(--olive)] bg-[var(--olive)] text-[var(--ivory)]'
+                          : 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--olive)] hover:border-[var(--olive)]'
+                      }`}
+                    >
+                      {props.subtaskOpenFor === ws.id ? '× Đóng' : '+ Việc con'}
+                    </button>
+                  )}
+                  <button type="button"
+                    onClick={() => props.setSelectedTask(ws)}
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
+                  >
+                    Chi tiết
+                  </button>
+                  {props.canDeleteTask && (
+                    <button type="button"
+                      onClick={() => props.deleteTask(ws)}
+                      className="rounded-lg bg-[var(--danger-soft)] px-2.5 py-1 text-xs font-bold text-[var(--danger)]"
+                    >
+                      Xóa
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {props.subtaskOpenFor === ws.id && (
+                <div className="pl-10 pr-4 pb-3">
+                  <InlineSubtaskForm
+                    parent={ws}
+                    initialForm={props.subtaskForm}
+                    departments={props.departments}
+                    employees={props.employees}
+                    createSubtask={props.createSubtask}
+                    cancel={() => props.setSubtaskOpenFor('')}
+                  />
+                </div>
+              )}
+
+              {isWsExpanded && (
+                <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]">
+                  <div className="pl-8">
+                    <InlineFilePanel
+                      task={ws}
+                      reports={props.reportsByTask.get(ws.id) || []}
+                      uploadTaskFile={props.uploadTaskFile}
+                      deleteTaskReport={props.deleteTaskReport}
+                    />
+                  </div>
+                  {subtasks.length === 0 ? (
+                    <div className="py-3 pl-11 text-xs text-[var(--text-secondary)]">Chưa có đầu việc con.</div>
+                  ) : (
+                    subtasks.map((subtask) => {
+                      const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
+                      const subtaskProgress = calculateTaskProgress(subtask, stepsForSubtask)
+                      const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
+                      const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
+                      const subtaskHeadIds = subtask.head_ids && subtask.head_ids.length > 0 ? subtask.head_ids : (subtask.head_id ? [subtask.head_id] : [])
+                      const subtaskHeadNames = subtaskHeadIds.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
+                      const subtaskHead = props.employeeMap.get(subtask.head_id || '')
+                      const subtaskCoOwnerIds = taskCoOwnerIds(subtask)
+                      const subtaskSupporterIds = taskSupporterIds(subtask, props.supportersByTask.get(subtask.id) || [])
+                      const subtaskApproverIds = taskApproverIds(subtask)
+                      const subtaskHeadNoDept = !!subtaskHead && !subtaskHead.department_id
+                      const subtaskAssigneeNoDept = !!subtaskAssignee && !subtaskAssignee.department_id
+
+                      return (
+                        <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
+                          <div className="flex items-center gap-2 pl-11 pr-3 py-2.5 hover:bg-[var(--bg-base)] transition-colors">
+                            <button
+                              type="button"
+                              onClick={() => toggleSubtask(subtask.id)}
+                              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            >
+                              <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
+                                {isSubtaskExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="truncate text-sm font-bold text-[var(--text-primary)]">{subtask.title}</span>
+                                  <IssueBadge issueStatus={subtask.issue_status} />
+                                  <span className="rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
+                                    {stepsForSubtask.length} bước
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}{subtaskHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                                  <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}{subtaskAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
+                                  {subtaskCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(subtaskCoOwnerIds, props.employeeMap)}</span>}
+                                  {subtaskSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(subtaskSupporterIds, props.employeeMap)}</span>}
+                                  {subtaskApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(subtaskApproverIds, props.employeeMap)}</span>}
+                                  {subtask.due_date && <span>· {subtask.due_date}</span>}
+                                  <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
+                                </div>
+                                {subtask.description && (
+                                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
+                                    <span className="font-spec text-[9px]">MÔ TẢ</span> {subtask.description}
+                                  </p>
+                                )}
+                              </div>
+                            </button>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
+                                <HeadPicker
+                                  headIds={subtaskHeadIds}
+                                  employees={props.employees}
+                                  onSave={(ids) => props.updateTaskHead(subtask.id, ids)}
+                                  placeholder="Chưa chọn"
+                                />
+                              </div>
+                              <div className="flex flex-col items-start gap-0.5">
+                                <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
+                                <PersonPicker
+                                  value={subtask.assignee_id}
+                                  employees={props.employees}
+                                  onSave={(id) => props.updateTaskAssignee(subtask.id, id)}
+                                />
+                              </div>
+                              <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
+                                <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
+                                <HeadPicker
+                                  headIds={subtaskCoOwnerIds}
+                                  employees={props.employees}
+                                  onSave={(ids) => props.updateTaskRoleIds(subtask.id, 'co_owner_ids', ids, 'đồng phụ trách')}
+                                  placeholder="Chưa chọn"
+                                />
+                              </div>
+                              <button type="button"
+                                onClick={() => props.setSelectedTask(subtask)}
+                                className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
+                              >
+                                Chi tiết
+                              </button>
+                              {props.canDeleteTask && (
+                                <button type="button"
+                                  onClick={() => props.deleteTask(subtask)}
+                                  className="rounded-lg bg-[var(--danger-soft)] px-2.5 py-1 text-xs font-bold text-[var(--danger)]"
+                                >
+                                  Xóa
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {isSubtaskExpanded && (
+                            <div className="pb-4 pl-11 pr-4 pt-1">
+                              <div className="-mx-4 mb-3">
+                                <InlineFilePanel
+                                  task={subtask}
+                                  reports={props.reportsByTask.get(subtask.id) || []}
+                                  uploadTaskFile={props.uploadTaskFile}
+                                  deleteTaskReport={props.deleteTaskReport}
+                                />
+                              </div>
+                              <SubtaskCard
+                                task={subtask}
+                                steps={stepsForSubtask}
+                                commentsByStep={props.commentsByStep}
+                                supporters={props.supportersByTask.get(subtask.id) || []}
+                                reports={props.reportsByTask.get(subtask.id) || []}
+                                employees={props.employees}
+                                employeeMap={props.employeeMap}
+                                departmentMap={props.departmentMap}
+                                canApproveStep={props.canApproveStep}
+                                setSelectedTask={props.setSelectedTask}
+                                openStepForm={props.openStepForm}
+                                stepOpenFor={props.stepOpenFor}
+                                setStepOpenFor={props.setStepOpenFor}
+                                stepForm={props.stepForm}
+                                createStep={props.createStep}
+                                updateTaskStatus={props.updateTaskStatus}
+                                updateIssueStatus={props.updateIssueStatus}
+                                updateTaskHead={props.updateTaskHead}
+                                updateTaskAssignee={props.updateTaskAssignee}
+                                updateTaskRoleIds={props.updateTaskRoleIds}
+                                updateTaskDescription={props.updateTaskDescription}
+                                updateStep={props.updateStep}
+                                submitStep={props.submitStep}
+                                approveStep={props.approveStep}
+                                requestRevision={props.requestRevision}
+                                revisionDrafts={props.revisionDrafts}
+                                setRevisionDrafts={props.setRevisionDrafts}
+                                linkDrafts={props.linkDrafts}
+                                setLinkDrafts={props.setLinkDrafts}
+                                saveStepLink={props.saveStepLink}
+                                supportDrafts={props.supportDrafts}
+                                setSupportDrafts={props.setSupportDrafts}
+                                saveSupportRequest={props.saveSupportRequest}
+                                commentDrafts={props.commentDrafts}
+                                setCommentDrafts={props.setCommentDrafts}
+                                addComment={props.addComment}
+                                uploadStepFile={props.uploadStepFile}
+                                deleteTask={props.deleteTask}
+                                deleteStep={props.deleteStep}
+                                deleteSupporter={props.deleteSupporter}
+                                clearStepFile={props.clearStepFile}
+                                supporterDrafts={props.supporterDrafts}
+                                setSupporterDrafts={props.setSupporterDrafts}
+                                createSupporter={props.createSupporter}
+                                getStatusLabel={props.getStatusLabel}
+                                updateTaskSequential={props.updateTaskSequential}
+                                expandedSteps={expandedSteps}
+                                toggleStep={toggleStep}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+function CooBoard(props: CooBoardProps) {
   const [expandedWorkstreams, setExpandedWorkstreams] = useState<Set<string>>(new Set())
   const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set())
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
@@ -5670,324 +6011,8 @@ function CooBoard(props: {
 
   const allSteps = Array.from(props.stepsByTask.values()).flat()
 
-  // -- Workstream accordion (shared between grid project rows and workspace tab) --
-  function WorkstreamList({ project, workstreams }: { project: Project; workstreams: Task[] }) {
-    return (
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
-        {workstreams.length === 0 ? (
-          <div className="flex items-center gap-3 px-8 py-6 text-sm text-[var(--text-secondary)]">
-            Chưa có đầu việc lớn.
-            {props.canCreateWorkstream && (
-              <button
-                type="button"
-                onClick={() => props.openWorkstreamForm(project.id)}
-                className="inline-flex items-center gap-1 rounded-lg border border-[var(--olive)] px-3 py-1 text-xs font-semibold text-[var(--olive)] hover:bg-[var(--olive)] hover:text-[var(--ivory)]"
-              >
-                <Ico d={IC.plus} size={12}/> Thêm đầu việc lớn
-              </button>
-            )}
-          </div>
-        ) : (
-          workstreams.map((ws) => {
-            const wsProgress = calculateWorkstreamProgress(ws, props.tasksByParent, props.stepsByTask)
-            const wsHead = props.employeeMap.get(ws.head_id || '')
-            const wsHeadNames = (ws.head_ids && ws.head_ids.length > 0
-              ? ws.head_ids.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
-              : wsHead ? [wsHead.full_name] : [])
-            const wsAssignee = props.employeeMap.get(ws.assignee_id || '')
-            const wsCoOwnerIds = taskCoOwnerIds(ws)
-            const wsSupporterIds = taskSupporterIds(ws, props.supportersByTask.get(ws.id) || [])
-            const wsApproverIds = taskApproverIds(ws)
-            const wsHeadNoDept = !!wsHead && !wsHead.department_id
-            const wsAssigneeNoDept = !!wsAssignee && !wsAssignee.department_id
-            const subtasks = props.tasksByParent.get(ws.id) || []
-            const isWsExpanded = expandedWorkstreams.has(ws.id)
+  // -- Workstream accordion moved to module scope as WorkstreamList --
 
-            return (
-              <div key={ws.id} data-coo-id={ws.id} className="border-b border-[var(--border)] last:border-b-0 data-[coo-highlight]:ring-2 data-[coo-highlight]:ring-[var(--accent)] data-[coo-highlight]:bg-[var(--accent)]/8 transition-all">
-                <div className="flex items-center gap-2 pl-5 pr-3 py-3 hover:bg-[var(--bg-surface)] transition-colors">
-                  <button
-                    type="button"
-                    onClick={() => toggleWorkstream(ws.id)}
-                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                  >
-                    <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
-                      {isWsExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-bold text-[var(--text-primary)]">{ws.title}</span>
-                        <IssueBadge issueStatus={ws.issue_status} />
-                        <span className="rounded-full bg-[var(--bg-base)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
-                          {subtasks.length} việc con
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {wsHeadNames.length ? wsHeadNames.join(', ') : 'Chưa gán'}{wsHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
-                        <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {wsAssignee ? wsAssignee.full_name : 'Chưa gán'}{wsAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
-                        {wsCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(wsCoOwnerIds, props.employeeMap)}</span>}
-                        {wsSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(wsSupporterIds, props.employeeMap)}</span>}
-                        {wsApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(wsApproverIds, props.employeeMap)}</span>}
-                        {ws.due_date && <span>· {ws.due_date}</span>}
-                        <span className="font-bold text-[var(--text-primary)]">{wsProgress}%</span>
-                      </div>
-                      {ws.description && (
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
-                          <span className="font-spec text-[9px]">MÔ TẢ</span> {ws.description}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <div className="flex flex-col items-start gap-0.5">
-                      <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
-                      <HeadPicker
-                        headIds={ws.head_ids?.length ? ws.head_ids : (ws.head_id ? [ws.head_id] : [])}
-                        employees={props.employees}
-                        onSave={(ids) => props.updateTaskHead(ws.id, ids)}
-                        placeholder="Chưa chọn"
-                      />
-                    </div>
-                    <div className="flex flex-col items-start gap-0.5">
-                      <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
-                      <PersonPicker
-                        value={ws.assignee_id}
-                        employees={props.employees}
-                        onSave={(id) => props.updateTaskAssignee(ws.id, id)}
-                      />
-                    </div>
-                    <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
-                      <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
-                      <HeadPicker
-                        headIds={wsCoOwnerIds}
-                        employees={props.employees}
-                        onSave={(ids) => props.updateTaskRoleIds(ws.id, 'co_owner_ids', ids, 'đồng phụ trách')}
-                        placeholder="Chưa chọn"
-                      />
-                    </div>
-                    {props.canCreateSubtask(ws) && (
-                      <button type="button"
-                        onClick={() => props.subtaskOpenFor === ws.id ? props.setSubtaskOpenFor('') : props.openSubtaskForm(ws)}
-                        className={`rounded-[var(--radius-sm)] border px-2.5 py-1 text-xs font-semibold transition-colors ${
-                          props.subtaskOpenFor === ws.id
-                            ? 'border-[var(--olive)] bg-[var(--olive)] text-[var(--ivory)]'
-                            : 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--olive)] hover:border-[var(--olive)]'
-                        }`}
-                      >
-                        {props.subtaskOpenFor === ws.id ? '× Đóng' : '+ Việc con'}
-                      </button>
-                    )}
-                    <button type="button"
-                      onClick={() => props.setSelectedTask(ws)}
-                      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
-                    >
-                      Chi tiết
-                    </button>
-                    {props.canDeleteTask && (
-                      <button type="button"
-                        onClick={() => props.deleteTask(ws)}
-                        className="rounded-lg bg-[var(--danger-soft)] px-2.5 py-1 text-xs font-bold text-[var(--danger)]"
-                      >
-                        Xóa
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {props.subtaskOpenFor === ws.id && (
-                  <div className="pl-10 pr-4 pb-3">
-                    <InlineSubtaskForm
-                      parent={ws}
-                      initialForm={props.subtaskForm}
-                      departments={props.departments}
-                      employees={props.employees}
-                      createSubtask={props.createSubtask}
-                      cancel={() => props.setSubtaskOpenFor('')}
-                    />
-                  </div>
-                )}
-
-                {isWsExpanded && (
-                  <div className="border-t border-[var(--border)] bg-[var(--bg-surface)]">
-                    <div className="pl-8">
-                      <InlineFilePanel
-                        task={ws}
-                        reports={props.reportsByTask.get(ws.id) || []}
-                        uploadTaskFile={props.uploadTaskFile}
-                        deleteTaskReport={props.deleteTaskReport}
-                      />
-                    </div>
-                    {subtasks.length === 0 ? (
-                      <div className="py-3 pl-11 text-xs text-[var(--text-secondary)]">Chưa có đầu việc con.</div>
-                    ) : (
-                      subtasks.map((subtask) => {
-                        const stepsForSubtask = props.stepsByTask.get(subtask.id) || []
-                        const subtaskProgress = calculateTaskProgress(subtask, stepsForSubtask)
-                        const isSubtaskExpanded = expandedSubtasks.has(subtask.id)
-                        const subtaskAssignee = props.employeeMap.get(subtask.assignee_id || '')
-                        const subtaskHeadIds = subtask.head_ids && subtask.head_ids.length > 0 ? subtask.head_ids : (subtask.head_id ? [subtask.head_id] : [])
-                        const subtaskHeadNames = subtaskHeadIds.map((id) => props.employeeMap.get(id)?.full_name).filter((x): x is string => Boolean(x))
-                        const subtaskHead = props.employeeMap.get(subtask.head_id || '')
-                        const subtaskCoOwnerIds = taskCoOwnerIds(subtask)
-                        const subtaskSupporterIds = taskSupporterIds(subtask, props.supportersByTask.get(subtask.id) || [])
-                        const subtaskApproverIds = taskApproverIds(subtask)
-                        const subtaskHeadNoDept = !!subtaskHead && !subtaskHead.department_id
-                        const subtaskAssigneeNoDept = !!subtaskAssignee && !subtaskAssignee.department_id
-
-                        return (
-                          <div key={subtask.id} className="border-b border-[var(--border)] last:border-b-0">
-                            <div className="flex items-center gap-2 pl-11 pr-3 py-2.5 hover:bg-[var(--bg-base)] transition-colors">
-                              <button
-                                type="button"
-                                onClick={() => toggleSubtask(subtask.id)}
-                                className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                              >
-                                <span className="w-3 shrink-0 text-xs font-bold text-[var(--text-secondary)]">
-                                  {isSubtaskExpanded ? <Ico d={IC.chevronDown} size={14}/> : <Ico d={IC.chevronRight} size={14}/>}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="truncate text-sm font-bold text-[var(--text-primary)]">{subtask.title}</span>
-                                    <IssueBadge issueStatus={subtask.issue_status} />
-                                    <span className="rounded-full border border-[var(--border)] bg-[var(--bg-card)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
-                                      {stepsForSubtask.length} bước
-                                    </span>
-                                  </div>
-                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
-                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">LEAD</span> {subtaskHeadNames.length ? subtaskHeadNames.join(', ') : 'Chưa gán'}{subtaskHeadNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
-                                    <span><span className="font-spec text-[9px] text-[var(--text-muted)]">CHÍNH</span> {subtaskAssignee ? subtaskAssignee.full_name : 'Chưa gán'}{subtaskAssigneeNoDept && <span className="ml-1 text-[var(--warning)]">!</span>}</span>
-                                    {subtaskCoOwnerIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">ĐỒNG PT</span> {peopleLabel(subtaskCoOwnerIds, props.employeeMap)}</span>}
-                                    {subtaskSupporterIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">HỖ TRỢ</span> {peopleLabel(subtaskSupporterIds, props.employeeMap)}</span>}
-                                    {subtaskApproverIds.length > 0 && <span><span className="font-spec text-[9px] text-[var(--text-muted)]">DUYỆT</span> {peopleLabel(subtaskApproverIds, props.employeeMap)}</span>}
-                                    {subtask.due_date && <span>· {subtask.due_date}</span>}
-                                    <span className="font-bold text-[var(--text-primary)]">{subtaskProgress}%</span>
-                                  </div>
-                                  {subtask.description && (
-                                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--text-muted)]">
-                                      <span className="font-spec text-[9px]">MÔ TẢ</span> {subtask.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </button>
-                              <div className="flex shrink-0 items-center gap-1.5">
-                                <div className="flex flex-col items-start gap-0.5">
-                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">LEAD</span>
-                                  <HeadPicker
-                                    headIds={subtaskHeadIds}
-                                    employees={props.employees}
-                                    onSave={(ids) => props.updateTaskHead(subtask.id, ids)}
-                                    placeholder="Chưa chọn"
-                                  />
-                                </div>
-                                <div className="flex flex-col items-start gap-0.5">
-                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">CHÍNH</span>
-                                  <PersonPicker
-                                    value={subtask.assignee_id}
-                                    employees={props.employees}
-                                    onSave={(id) => props.updateTaskAssignee(subtask.id, id)}
-                                  />
-                                </div>
-                                <div className="hidden min-w-[150px] flex-col items-start gap-0.5 xl:flex">
-                                  <span className="font-spec text-[8px] text-[var(--text-muted)]">ĐỒNG PT</span>
-                                  <HeadPicker
-                                    headIds={subtaskCoOwnerIds}
-                                    employees={props.employees}
-                                    onSave={(ids) => props.updateTaskRoleIds(subtask.id, 'co_owner_ids', ids, 'đồng phụ trách')}
-                                    placeholder="Chưa chọn"
-                                  />
-                                </div>
-                                <button type="button"
-                                  onClick={() => props.setSelectedTask(subtask)}
-                                  className="rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-bold text-[var(--text-primary)]"
-                                >
-                                  Chi tiết
-                                </button>
-                                {props.canDeleteTask && (
-                                  <button type="button"
-                                    onClick={() => props.deleteTask(subtask)}
-                                    className="rounded-lg bg-[var(--danger-soft)] px-2.5 py-1 text-xs font-bold text-[var(--danger)]"
-                                  >
-                                    Xóa
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {isSubtaskExpanded && (
-                              <div className="pb-4 pl-11 pr-4 pt-1">
-                                <div className="-mx-4 mb-3">
-                                  <InlineFilePanel
-                                    task={subtask}
-                                    reports={props.reportsByTask.get(subtask.id) || []}
-                                    uploadTaskFile={props.uploadTaskFile}
-                                    deleteTaskReport={props.deleteTaskReport}
-                                  />
-                                </div>
-                                <SubtaskCard
-                                  task={subtask}
-                                  steps={stepsForSubtask}
-                                  commentsByStep={props.commentsByStep}
-                                  supporters={props.supportersByTask.get(subtask.id) || []}
-                                  reports={props.reportsByTask.get(subtask.id) || []}
-                                  employees={props.employees}
-                                  employeeMap={props.employeeMap}
-                                  departmentMap={props.departmentMap}
-                                  canApproveStep={props.canApproveStep}
-                                  setSelectedTask={props.setSelectedTask}
-                                  openStepForm={props.openStepForm}
-                                  stepOpenFor={props.stepOpenFor}
-                                  setStepOpenFor={props.setStepOpenFor}
-                                  stepForm={props.stepForm}
-                                  createStep={props.createStep}
-                                  updateTaskStatus={props.updateTaskStatus}
-                                  updateIssueStatus={props.updateIssueStatus}
-                                  updateTaskHead={props.updateTaskHead}
-                                  updateTaskAssignee={props.updateTaskAssignee}
-                                  updateTaskRoleIds={props.updateTaskRoleIds}
-                                  updateTaskDescription={props.updateTaskDescription}
-                                  updateStep={props.updateStep}
-                                  submitStep={props.submitStep}
-                                  approveStep={props.approveStep}
-                                  requestRevision={props.requestRevision}
-                                  revisionDrafts={props.revisionDrafts}
-                                  setRevisionDrafts={props.setRevisionDrafts}
-                                  linkDrafts={props.linkDrafts}
-                                  setLinkDrafts={props.setLinkDrafts}
-                                  saveStepLink={props.saveStepLink}
-                                  supportDrafts={props.supportDrafts}
-                                  setSupportDrafts={props.setSupportDrafts}
-                                  saveSupportRequest={props.saveSupportRequest}
-                                  commentDrafts={props.commentDrafts}
-                                  setCommentDrafts={props.setCommentDrafts}
-                                  addComment={props.addComment}
-                                  uploadStepFile={props.uploadStepFile}
-                                  deleteTask={props.deleteTask}
-                                  deleteStep={props.deleteStep}
-                                  deleteSupporter={props.deleteSupporter}
-                                  clearStepFile={props.clearStepFile}
-                                  supporterDrafts={props.supporterDrafts}
-                                  setSupporterDrafts={props.setSupporterDrafts}
-                                  createSupporter={props.createSupporter}
-                                  getStatusLabel={props.getStatusLabel}
-                                  updateTaskSequential={props.updateTaskSequential}
-                                  expandedSteps={expandedSteps}
-                                  toggleStep={toggleStep}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })
-        )}
-      </div>
-    )
-  }
 
   // -- Filter bar (shared) --
   const filterBar = (
@@ -6137,7 +6162,17 @@ function CooBoard(props: {
         {workspaceTab === 'workstreams' && (
           <div className="space-y-3">
             {filterBar}
-            {WorkstreamList({ project, workstreams: filteredWorkstreams })}
+            <WorkstreamList
+              project={project}
+              workstreams={filteredWorkstreams}
+              board={props}
+              expandedWorkstreams={expandedWorkstreams}
+              expandedSubtasks={expandedSubtasks}
+              expandedSteps={expandedSteps}
+              toggleWorkstream={toggleWorkstream}
+              toggleSubtask={toggleSubtask}
+              toggleStep={toggleStep}
+            />
           </div>
         )}
 
