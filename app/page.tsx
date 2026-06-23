@@ -5915,20 +5915,19 @@ function CooBoard(props: CooBoardProps) {
   const [boardStatusFilter, setBoardStatusFilter] = useState('')
   const [workspaceTab, setWorkspaceTab] = useState<'workstreams' | 'overview' | 'deadline' | 'files' | 'history' | 'alerts'>('workstreams')
 
-  // Auto-expand workstreams khi nhảy từ dashboard
+  // Reset accordion về đóng hết khi chuyển sang project khác.
+  // KHÔNG phụ thuộc props.workstreams — nếu không mỗi lần refetch data sẽ
+  // bung lại toàn bộ accordion, bỏ qua trạng thái đóng/mở do người dùng chọn.
+  const initializedProjectRef = useRef<string | null>(null)
   useEffect(() => {
     const id = props.selectedProjectId
     if (!id || id === 'all') return
-    const wsList = props.workstreams.filter((ws) => ws.project_id === id)
-    if (wsList.length > 0) {
-      setExpandedWorkstreams((prev) => {
-        const s = new Set(prev)
-        wsList.forEach((ws) => s.add(ws.id))
-        return s
-      })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.workstreams])
+    if (initializedProjectRef.current === id) return  // cùng project → giữ nguyên state
+    initializedProjectRef.current = id
+    setExpandedWorkstreams(new Set())  // project mới → đóng hết, user tự mở
+    setExpandedSubtasks(new Set())
+    setExpandedSteps(new Set())
+  }, [props.selectedProjectId])
 
 
   // Deep-link: expand dúng workstream + scroll + highlight item
