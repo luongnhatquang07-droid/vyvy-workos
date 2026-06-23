@@ -66,6 +66,15 @@ async function sendPush(employeeIds: string[], title: string, body: string, url 
   }
 }
 
+// ─── Phát hiện dữ liệu bị hỏng encoding (? thay ký tự tiếng Việt) ──────────
+function hasEncodingCorruption(text: string): boolean {
+  // Mojibake: Ã Â áº á» → lỗi UTF-8 double-decoded
+  if (/(?:Ã|Â|áº|á»|â€)/.test(text)) return true
+  // ? kẹp giữa ký tự Latin thường → dấu hiệu ký tự Unicode bị thay bằng ?
+  if (/[a-z]\?[a-z]/i.test(text)) return true
+  return false
+}
+
 // ─── Gửi thông báo trong app (bảng notifications) ───────────────────────────
 async function pushNotify(rows: Array<{
   recipient_id: string
@@ -1606,6 +1615,10 @@ export default function Home() {
     for (const task of tasks) {
       if (task.status === 'completed') continue
       if (!task.project_id) continue
+      if (hasEncodingCorruption(task.title ?? '')) {
+        console.warn('[COO Scan] task title bị lỗi encoding, bỏ qua alert:', task.id, task.title)
+        continue
+      }
 
       if (task.due_date && task.due_date < todayStr) {
         detected.push({ key: `overdue:task:${task.id}`, alert_type: 'overdue', entity_type: 'task', entity_id: task.id, severity: 'critical', title: `Trễ deadline: ${task.title}`, body: `Hạn: ${task.due_date}`, task_id: task.id })

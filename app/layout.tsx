@@ -16,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="vi" className="h-full antialiased">
       <head>
+        <meta charSet="utf-8" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#2D331A" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
