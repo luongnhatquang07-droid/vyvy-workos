@@ -40,6 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
+# npm cache (local only)
+.npm-cache/
 
-.next-dev.*.log
+# claude agent worktrees
+.claude/worktrees/
