@@ -9,7 +9,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidth?: boolean
 }
 
-const variantStyles: Record<ButtonVariant, React.CSSProperties & Record<string, unknown>> = {
+const baseVariant: Record<ButtonVariant, React.CSSProperties> = {
   primary: {
     background: 'var(--color-lime)',
     color: 'var(--color-charcoal)',
@@ -28,14 +28,21 @@ const variantStyles: Record<ButtonVariant, React.CSSProperties & Record<string, 
   danger: {
     background: 'transparent',
     color: 'var(--color-danger)',
-    border: `1.5px solid var(--color-danger)`,
+    border: '1.5px solid var(--color-danger)',
   },
 }
 
+const hoverVariant: Record<ButtonVariant, React.CSSProperties> = {
+  primary:   { filter: 'brightness(0.91)' },
+  secondary: { background: 'var(--color-surface-2)', borderColor: 'var(--color-charcoal)' },
+  ghost:     { background: 'var(--color-surface-2)' },
+  danger:    { background: 'rgba(184,64,64,0.07)' },
+}
+
 const sizeStyles: Record<ButtonSize, React.CSSProperties> = {
-  sm: { padding: '5px 12px', fontSize: 'var(--text-sm)', borderRadius: 'var(--radius-sm)' },
-  md: { padding: '8px 18px', fontSize: 'var(--text-sm)', borderRadius: 'var(--radius-md)' },
-  lg: { padding: '11px 24px', fontSize: 'var(--text-base)', borderRadius: 'var(--radius-md)' },
+  sm: { padding: '0 12px', height: 30, fontSize: 'var(--text-sm)', borderRadius: 'var(--radius-sm)' },
+  md: { padding: '0 18px', height: 36, fontSize: 'var(--text-sm)', borderRadius: 'var(--radius-md)' },
+  lg: { padding: '0 24px', height: 42, fontSize: 'var(--text-base)', borderRadius: 'var(--radius-md)' },
 }
 
 export function Button({
@@ -51,16 +58,9 @@ export function Button({
   ...props
 }: ButtonProps) {
   const [hovered, setHovered] = React.useState(false)
-
   const isDisabled = disabled || loading
 
-  const hoverStyle: React.CSSProperties = hovered && !isDisabled
-    ? variant === 'primary'
-      ? { filter: 'brightness(0.92)' }
-      : variant === 'ghost'
-      ? { background: 'var(--color-surface-2)' }
-      : { background: 'var(--color-surface-2)' }
-    : {}
+  const appliedHover = hovered && !isDisabled ? hoverVariant[variant] : {}
 
   return (
     <button
@@ -73,20 +73,22 @@ export function Button({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 'var(--space-2)',
-        fontWeight: 'var(--weight-medium)' as unknown as number,
+        fontWeight: 550,
         cursor: isDisabled ? 'not-allowed' : 'pointer',
-        opacity: isDisabled ? 0.5 : 1,
+        /* Loading: dimmer but still recognizable. Disabled: clearly inactive */
+        opacity: loading ? 0.65 : (disabled ? 0.38 : 1),
         transition: `all var(--motion-fast) var(--ease-out)`,
         width: fullWidth ? '100%' : undefined,
         whiteSpace: 'nowrap',
         userSelect: 'none',
-        ...variantStyles[variant],
+        letterSpacing: '0.01em',
+        ...baseVariant[variant],
         ...sizeStyles[size],
-        ...hoverStyle,
+        ...appliedHover,
         ...style,
       }}
     >
-      {loading && <Spinner size={14} />}
+      {loading && <Spinner size={13} />}
       {children}
     </button>
   )
@@ -96,12 +98,12 @@ function Spinner({ size }: { size: number }) {
   return (
     <span style={{
       display: 'inline-block',
-      width: size,
-      height: size,
-      border: '2px solid currentColor',
+      width: size, height: size,
+      border: '1.75px solid currentColor',
       borderTopColor: 'transparent',
       borderRadius: '50%',
-      animation: 'spin 0.7s linear infinite',
+      animation: 'spin 0.65s linear infinite',
+      flexShrink: 0,
     }} />
   )
 }

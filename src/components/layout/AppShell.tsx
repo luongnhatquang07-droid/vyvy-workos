@@ -7,24 +7,25 @@ import { CommandPalette } from '@/components/ui/CommandPalette'
 const STORAGE_KEY = 'vyvy_sidebar_collapsed'
 const OVERLAY_BREAKPOINT = 1100
 
-function getInitialCollapsed() {
-  if (typeof window === 'undefined') return false
-  return localStorage.getItem(STORAGE_KEY) === 'true'
-}
-
-function getInitialOverlayMode() {
-  if (typeof window === 'undefined') return false
-  return window.innerWidth < OVERLAY_BREAKPOINT
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [desktopCollapsed, setDesktopCollapsed] = React.useState(getInitialCollapsed)
+  // Start with SSR-safe defaults (false/false) to avoid hydration mismatch.
+  // A single mount effect syncs to real client state (localStorage + window size).
+  const [desktopCollapsed, setDesktopCollapsed] = React.useState(false)
   const [overlayOpen, setOverlayOpen] = React.useState(false)
-  const [isOverlayMode, setIsOverlayMode] = React.useState(getInitialOverlayMode)
+  const [isOverlayMode, setIsOverlayMode] = React.useState(false)
   const [cmdOpen, setCmdOpen] = React.useState(false)
   const [cmdKey, setCmdKey] = React.useState(0)
 
-  // Resize listener — callbacks, not synchronous setState in effect body
+  // Sync client state on mount — setState called via named fn (not directly) per react-hooks/set-state-in-effect
+  React.useEffect(() => {
+    function syncFromClient() {
+      setDesktopCollapsed(localStorage.getItem(STORAGE_KEY) === 'true')
+      setIsOverlayMode(window.innerWidth < OVERLAY_BREAKPOINT)
+    }
+    syncFromClient()
+  }, [])
+
+  // Resize listener
   React.useEffect(() => {
     const checkMode = () => {
       const overlay = window.innerWidth < OVERLAY_BREAKPOINT

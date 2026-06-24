@@ -20,27 +20,32 @@ export function PageShell({ title, description, icon, actions, children }: PageS
           {icon && (
             <span style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 44, height: 44, borderRadius: 'var(--radius-md)',
+              width: 40, height: 40,
+              borderRadius: 'var(--radius-lg)',
               background: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
-              fontSize: 20,
+              boxShadow: 'var(--shadow-sm)',
+              fontSize: 18,
               flexShrink: 0,
             }}>{icon}</span>
           )}
           <div>
             <h1 style={{
               fontFamily: 'var(--font-serif)',
-              fontSize: 'var(--text-2xl)',
+              fontSize: 'var(--text-xl)',
               fontWeight: 700,
               color: 'var(--color-text)',
               margin: 0,
+              letterSpacing: '-0.01em',
+              lineHeight: 'var(--leading-tight)',
             }}>{title}</h1>
             {description && (
               <p style={{
                 fontSize: 'var(--text-sm)',
                 color: 'var(--color-text-muted)',
-                marginTop: 'var(--space-1)',
+                marginTop: 3,
                 lineHeight: 'var(--leading-normal)',
+                fontWeight: 400,
               }}>{description}</p>
             )}
           </div>
@@ -60,15 +65,58 @@ function PlaceholderContent() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: 320,
-      border: '1.5px dashed var(--color-border-strong)',
+      minHeight: 340,
       borderRadius: 'var(--radius-xl)',
       background: 'var(--color-surface)',
+      border: '1px solid var(--color-border)',
+      boxShadow: 'var(--shadow-sm)',
     }}>
-      <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
-        <div style={{ fontSize: 'var(--text-3xl)', opacity: 0.15, marginBottom: 'var(--space-4)' }}>◌</div>
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-          Chức năng sẽ được triển khai ở giai đoạn sau.
+      <div style={{ textAlign: 'center', padding: 'var(--space-10)', maxWidth: 360 }}>
+        {/* Icon */}
+        <div style={{
+          width: 48, height: 48,
+          borderRadius: 'var(--radius-lg)',
+          background: 'var(--color-surface-2)',
+          border: '1px solid var(--color-border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto var(--space-5)',
+        }}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" strokeOpacity="0.4"/>
+            <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" strokeOpacity="0.4"/>
+            <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" strokeOpacity="0.4"/>
+            <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" strokeOpacity="0.4"/>
+          </svg>
+        </div>
+
+        {/* Title */}
+        <p style={{
+          fontSize: 'var(--text-base)',
+          fontWeight: 600,
+          color: 'var(--color-text)',
+          margin: '0 0 var(--space-2)',
+          fontFamily: 'var(--font-serif)',
+        }}>Đang chuẩn bị triển khai</p>
+
+        {/* Description */}
+        <p style={{
+          fontSize: 'var(--text-sm)',
+          color: 'var(--color-text-muted)',
+          margin: 0,
+          lineHeight: 'var(--leading-normal)',
+        }}>
+          Module này sẽ được tích hợp đầy đủ trong giai đoạn tiếp theo.
+        </p>
+
+        {/* Hint */}
+        <p style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-text-muted)',
+          margin: 'var(--space-4) 0 0',
+          opacity: 0.65,
+          fontStyle: 'italic',
+        }}>
+          Shell và design system đã sẵn sàng.
         </p>
       </div>
     </div>

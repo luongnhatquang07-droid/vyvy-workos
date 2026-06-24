@@ -78,9 +78,9 @@
   --shadow-xl:  0 16px 40px rgba(25,25,25,0.18);
 
   /* --- Layout --- */
-  --sidebar-width:          220px;
-  --sidebar-collapsed-width: 56px;
-  --topbar-height:          52px;
+  --sidebar-width:          224px;
+  --sidebar-collapsed-width: 76px;
+  --topbar-height:          56px;
 
   /* --- Motion --- */
   --motion-fast:  140ms;
