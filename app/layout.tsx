@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
-import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VyVy WorkOS",
-  description: "COO Operating System for VyVyHaircare",
-  manifest: "/manifest.json",
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "VyVy WorkOS" },
+  title: "VyVy WorkOS V2",
+  description: "Nền tảng điều hành dự án mới đang được xây dựng.",
 };
 
 export default function RootLayout({
@@ -14,14 +11,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="h-full antialiased">
-      <head>
-        <meta charSet="utf-8" />
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#2D331A" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-      </head>
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+    <html lang="vi">
+      <body style={{ margin: 0, padding: 0 }}>{children}</body>
     </html>
   );
 }
