@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
-import { PageShell } from '@/components/layout/PageShell'
+import { CommandCenterView } from '@/features/command-center/CommandCenterView'
 
-export const metadata: Metadata = { title: 'Trung tâm điều hành' }
+export const metadata: Metadata = { title: 'Trung tâm điều hành — VyVy WorkOS' }
 
 export default function CommandCenterPage() {
-  return <PageShell title="Trung tâm điều hành" icon="⌂" description="Tổng quan hoạt động toàn bộ tổ chức." />
+  return <CommandCenterView />
 }
