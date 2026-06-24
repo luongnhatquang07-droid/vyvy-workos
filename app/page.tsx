@@ -1444,8 +1444,7 @@ export default function Home() {
   const fetchDepartments = useCallback(async () => {
     const { data, error } = await supabase.from('departments').select('id, code, name').order('name')
     if (error) {
-      console.error(error)
-      setDepartments([])
+      console.error('[fetchDepartments]', error.message || error.code || error)
       return
     }
 
@@ -1461,8 +1460,7 @@ export default function Home() {
   const fetchEmployees = useCallback(async () => {
     const { data, error } = await supabase.from('employees').select('id, full_name, email, position, department_id, role').order('full_name')
     if (error) {
-      console.error(error)
-      setEmployees([])
+      console.error('[fetchEmployees]', error.message || error.code || error)
       return
     }
 
@@ -1477,8 +1475,7 @@ export default function Home() {
   const fetchProjects = useCallback(async () => {
     const { data, error } = await supabase.from('projects').select('*').order('name')
     if (error) {
-      console.error(error)
-      setProjects([])
+      console.error('[fetchProjects]', error.message || error.code || error)
       return
     }
 
@@ -1493,8 +1490,7 @@ export default function Home() {
   const fetchTasks = useCallback(async () => {
     const { data, error } = await supabase.from('tasks').select('*').order('created_at', { ascending: false })
     if (error) {
-      console.error(error)
-      setTasks([])
+      console.error('[fetchTasks]', error.message || error.code || error)
       return
     }
 
@@ -1504,8 +1500,7 @@ export default function Home() {
   const fetchSteps = useCallback(async () => {
     const { data, error } = await supabase.from('task_steps').select('*').order('step_order')
     if (error) {
-      console.error(error)
-      setSteps([])
+      console.error('[fetchSteps]', error.message || error.code || error)
       return
     }
 
@@ -1515,8 +1510,7 @@ export default function Home() {
   const fetchSupporters = useCallback(async () => {
     const { data, error } = await supabase.from('task_supporters').select('*, employees(id, full_name)')
     if (error) {
-      console.error(error)
-      setSupporters([])
+      console.error('[fetchSupporters]', error.message || error.code || error)
       return
     }
 
@@ -1526,8 +1520,7 @@ export default function Home() {
   const fetchReports = useCallback(async () => {
     const { data, error } = await supabase.from('task_reports').select('*').order('created_at', { ascending: false })
     if (error) {
-      console.error(error)
-      setReports([])
+      console.error('[fetchReports]', error.message || error.code || error)
       return
     }
 
@@ -1537,8 +1530,7 @@ export default function Home() {
   const fetchComments = useCallback(async () => {
     const { data, error } = await supabase.from('task_step_comments').select('*, employees(full_name)').order('created_at')
     if (error) {
-      console.error(error)
-      setComments([])
+      console.error('[fetchComments]', error.message || error.code || error)
       return
     }
 
