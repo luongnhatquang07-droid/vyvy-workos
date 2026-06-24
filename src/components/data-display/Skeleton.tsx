@@ -1,4 +1,21 @@
+'use client'
 import React from 'react'
+
+function getReducedMotion() {
+  if (typeof window === 'undefined') return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function useReducedMotion() {
+  const [reduced, setReduced] = React.useState(getReducedMotion)
+  React.useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const handler = (e: MediaQueryListEvent) => setReduced(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return reduced
+}
 
 interface SkeletonProps {
   width?: number | string
@@ -8,15 +25,15 @@ interface SkeletonProps {
 }
 
 export function Skeleton({ width = '100%', height = 16, borderRadius = 'var(--radius-sm)', style }: SkeletonProps) {
+  const reduced = useReducedMotion()
   return (
     <span style={{
-      display: 'block',
-      width,
-      height,
-      borderRadius,
-      background: 'linear-gradient(90deg, var(--color-border) 25%, var(--color-surface-2) 50%, var(--color-border) 75%)',
+      display: 'block', width, height, borderRadius,
+      background: reduced
+        ? 'var(--color-border)'
+        : 'linear-gradient(90deg, var(--color-border) 25%, var(--color-surface-2) 50%, var(--color-border) 75%)',
       backgroundSize: '400px 100%',
-      animation: 'shimmer 1.4s ease-in-out infinite',
+      animation: reduced ? 'none' : 'shimmer 1.4s ease-in-out infinite',
       ...style,
     }} />
   )

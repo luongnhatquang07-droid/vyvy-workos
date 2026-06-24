@@ -1,6 +1,7 @@
 'use client'
 import React from 'react'
 import { Button } from '@/components/ui/Button'
+import { useFocusTrap } from '@/lib/focusTrap'
 
 interface ModalProps {
   open: boolean
@@ -12,6 +13,9 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children, width = 520, footer }: ModalProps) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  useFocusTrap(open, containerRef)
+
   React.useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -23,6 +27,9 @@ export function Modal({ open, onClose, title, children, width = 520, footer }: M
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title ?? 'Modal'}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
       style={{
         position: 'fixed', inset: 0,
@@ -33,47 +40,45 @@ export function Modal({ open, onClose, title, children, width = 520, footer }: M
         backdropFilter: 'blur(2px)',
       }}
     >
-      <div style={{
-        background: 'var(--color-surface)',
-        borderRadius: 'var(--radius-xl)',
-        width: '100%',
-        maxWidth: width,
-        boxShadow: 'var(--shadow-xl)',
-        animation: `modal-in var(--motion-base) var(--ease-out)`,
-        display: 'flex',
-        flexDirection: 'column',
-        maxHeight: 'calc(100vh - 80px)',
-      }}>
-        {/* Header */}
+      <div
+        ref={containerRef}
+        style={{
+          background: 'var(--color-surface)',
+          borderRadius: 'var(--radius-xl)',
+          width: '100%', maxWidth: width,
+          boxShadow: 'var(--shadow-xl)',
+          animation: 'modal-in var(--motion-base) var(--ease-out)',
+          display: 'flex', flexDirection: 'column',
+          maxHeight: 'calc(100vh - 80px)',
+        }}
+      >
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: 'var(--space-5) var(--space-6)',
-          borderBottom: '1px solid var(--color-border)',
-          flexShrink: 0,
+          borderBottom: '1px solid var(--color-border)', flexShrink: 0,
         }}>
-          {title && <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)', fontWeight: 700 }}>{title}</h2>}
-          <button onClick={onClose} style={{
-            marginLeft: 'auto',
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: 4,
-            borderRadius: 'var(--radius-sm)',
-            transition: `color var(--motion-fast) var(--ease-out)`,
-          }}
+          {title && <h2 style={{ fontSize: 'var(--text-lg)', fontFamily: 'var(--font-serif)', fontWeight: 700, margin: 0 }}>{title}</h2>}
+          <button
+            onClick={onClose}
+            aria-label="Đóng"
+            style={{
+              marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--color-text-muted)', fontSize: 18, lineHeight: 1, padding: 4,
+              borderRadius: 'var(--radius-sm)',
+              transition: 'color var(--motion-fast) var(--ease-out)',
+            }}
             onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text)'}
             onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--color-text-muted)'}
           >✕</button>
         </div>
-        {/* Body */}
         <div style={{ padding: 'var(--space-6)', overflowY: 'auto', flex: 1 }}>
           {children}
         </div>
-        {/* Footer */}
         {footer && (
           <div style={{
             padding: 'var(--space-4) var(--space-6)',
             borderTop: '1px solid var(--color-border)',
-            display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)',
-            flexShrink: 0,
+            display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', flexShrink: 0,
           }}>
             {footer}
           </div>

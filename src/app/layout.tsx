@@ -15,11 +15,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ToastProvider>
           <AppShell>{children}</AppShell>
         </ToastProvider>
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
       </body>
     </html>
   )
