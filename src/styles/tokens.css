@@ -30,9 +30,9 @@
   --color-sidebar-hover:  rgba(255,255,255,0.06);
 
   /* --- Typography --- */
-  --font-serif:   Georgia, 'Times New Roman', serif;
-  --font-sans:    system-ui, Arial, sans-serif;
-  --font-mono:    ui-monospace, Consolas, monospace;
+  --font-serif:   'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-sans:    'Inter', system-ui, Arial, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, Consolas, monospace;
 
   --text-xs:   0.6875rem; /* 11px */
   --text-sm:   0.8125rem; /* 13px */
@@ -96,6 +96,22 @@
   --z-modal:    300;
   --z-toast:    400;
   --z-tooltip:  500;
+}
+
+  /* Ivory additions */
+  --color-surface-3:   #E8E3D6;
+  --color-lime-d:      #7E8312;
+  --color-lime-ink:    #191919;
+
+  /* Status pastel backgrounds */
+  --color-success-bg:  #E0EDE3;
+  --color-warning-bg:  #F6E8D4;
+  --color-danger-bg:   #F4DEDE;
+  --color-waiting-bg:  #E6ECEF;
+
+  /* Border variants */
+  --color-border-weak:   rgba(25,25,25,0.08);
+  --color-border-strong: rgba(25,25,25,0.26);
 }
 
 @media (prefers-reduced-motion: reduce) {
