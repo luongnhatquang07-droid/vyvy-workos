@@ -169,7 +169,6 @@ function resolveContent(
             ['Người tham dự', attendees || '—'],
             project ? ['Dự án', project.name] : null,
             item.taskDraftCount > 0 ? ['Draft đầu việc', `${item.taskDraftCount} mục chờ import`] : null,
-            item.minutesUrl ? ['Biên bản', item.minutesUrl] : null,
           ]} futureRoute={item.futureRoute} />
         ),
       }
@@ -236,9 +235,7 @@ function resolveContent(
             project ? ['Dự án', project.name] : null,
             ['Hạn', formatRelativeDate(item.dueDate)],
             ['Trạng thái', item.status],
-            ['Mức ưu tiên', item.priority],
             item.waitingFor ? ['Đang chờ', item.waitingFor] : null,
-            item.pendingApproval ? ['Phê duyệt', 'Đang chờ phê duyệt'] : null,
           ]} futureRoute={item.futureRoute} />
         ),
       }

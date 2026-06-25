@@ -4,21 +4,20 @@ import type { PriorityItem, DrawerState } from '../types'
 import { useToast } from '@/components/feedback/Toast'
 import { formatRelativeDate } from '../utils'
 
-const TYPE_LABEL: Record<string, string> = {
-  task_overdue:       'Quá hạn',
-  task_due_today:     'Hôm nay',
-  meeting_no_tasks:   'Họp',
-  deliverable_missing:'File thiếu',
-  approval_urgent:    'Duyệt',
-  ceo_escalation:     'CEO',
-  reminder_pending:   'Chờ phản hồi',
+const KIND_LABEL: Record<string, string> = {
+  MEETING:        'Họp',
+  IMPORT:         'Nhập việc',
+  APPROVE:        'Duyệt',
+  REMIND:         'Nhắc',
+  COLLECT_FILE:   'Thu file',
+  COLLECT_REPORT: 'Thu BC',
 }
 
-const PRIORITY_LABEL: Record<string, string> = {
-  critical: 'Khẩn cấp',
-  high:     'Cao',
-  medium:   'Trung bình',
-  low:      'Thấp',
+const URGENCY_LABEL: Record<string, string> = {
+  CRITICAL: 'Khẩn cấp',
+  HIGH:     'Cao',
+  MEDIUM:   'Trung bình',
+  LOW:      'Thấp',
 }
 
 interface PriorityListProps {
@@ -54,12 +53,10 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
     )
   }
 
-  const moduleTypeForDrawer = (item: PriorityItem): DrawerState['type'] => {
-    if (item.type === 'reminder_pending') return 'reminder'
-    if (item.type === 'meeting_no_tasks') return 'meeting'
-    if (item.type === 'approval_urgent') return 'approval'
-    if (item.type === 'ceo_escalation') return 'ceo'
-    if (item.type === 'deliverable_missing') return 'deliverable'
+  const drawerTypeForItem = (item: PriorityItem): DrawerState['type'] => {
+    if (item.kind === 'APPROVE') return 'approval'
+    if (item.kind === 'IMPORT' || item.kind === 'MEETING') return 'meeting'
+    if (item.kind === 'COLLECT_FILE' || item.kind === 'COLLECT_REPORT') return 'deliverable'
     return 'task'
   }
 
@@ -78,6 +75,12 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 19, height: 19, borderRadius: 6,
+              background: 'var(--color-surface-2)', color: 'var(--color-text-muted)',
+              fontSize: 11, fontWeight: 700, marginRight: 4,
+            }}>1</span>
             <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-base)', fontWeight: 700, margin: 0 }}>
               Việc ưu tiên hôm nay
             </h2>
@@ -99,7 +102,7 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
               key={item.id}
               item={item}
               isLast={idx === visible.length - 1}
-              onOpenDrawer={() => onOpenDrawer({ open: true, type: moduleTypeForDrawer(item), id: item.sourceId })}
+              onOpenDrawer={() => onOpenDrawer({ open: true, type: drawerTypeForItem(item), id: item.sourceId })}
               onDismiss={() => {
                 setDismissed(prev => new Set([...prev, item.id]))
                 toast('Đã đánh dấu đã xem.', 'success')
@@ -126,11 +129,14 @@ function PriorityRow({ item, isLast, onOpenDrawer, onDismiss, onRemind }: RowPro
 
   const statusColor = item.statusVariant === 'danger' ? 'var(--color-danger)'
     : item.statusVariant === 'warning' ? 'var(--color-warning)'
+    : item.statusVariant === 'waiting' ? 'var(--color-waiting)'
     : 'var(--color-text-muted)'
 
-  const priorityDot = item.priority === 'critical' ? '#B84040'
-    : item.priority === 'high' ? '#C47B2B'
+  const urgencyDot = item.urgency === 'CRITICAL' ? '#B84040'
+    : item.urgency === 'HIGH' ? '#C47B2B'
     : '#8C8278'
+
+  const isCollect = item.kind === 'COLLECT_FILE' || item.kind === 'COLLECT_REPORT' || item.kind === 'REMIND'
 
   return (
     <div
@@ -146,35 +152,45 @@ function PriorityRow({ item, isLast, onOpenDrawer, onDismiss, onRemind }: RowPro
       onMouseLeave={() => setHovered(false)}
       onClick={onOpenDrawer}
     >
-      {/* Priority dot */}
+      {/* Urgency dot */}
       <span
-        title={PRIORITY_LABEL[item.priority]}
+        title={URGENCY_LABEL[item.urgency]}
         style={{
           width: 8, height: 8, borderRadius: '50%',
-          background: priorityDot, flexShrink: 0,
+          background: urgencyDot, flexShrink: 0,
         }}
       />
 
-      {/* Type chip */}
+      {/* Status chip */}
       <span style={{
         fontSize: 11, fontWeight: 600, color: statusColor,
         background: item.statusVariant === 'danger' ? 'rgba(184,64,64,0.10)'
           : item.statusVariant === 'warning' ? 'rgba(196,123,43,0.10)'
+          : item.statusVariant === 'waiting' ? 'rgba(107,138,153,0.10)'
           : 'var(--color-surface-2)',
         border: `1px solid ${statusColor}`,
         borderRadius: 'var(--radius-sm)',
         padding: '1px 7px',
-        whiteSpace: 'nowrap', flexShrink: 0,
-        minWidth: 72, textAlign: 'center',
+        whiteSpace: 'nowrap' as const, flexShrink: 0,
+        minWidth: 72, textAlign: 'center' as const,
       }}>
-        {TYPE_LABEL[item.type] ?? item.type}
+        {item.statusLabel}
+      </span>
+
+      {/* Kind chip */}
+      <span style={{
+        fontSize: 10, color: 'var(--color-text-muted)', background: 'var(--color-surface-2)',
+        border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+        padding: '1px 6px', whiteSpace: 'nowrap' as const, flexShrink: 0,
+      }}>
+        {KIND_LABEL[item.kind] ?? item.kind}
       </span>
 
       {/* Title + subtitle */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
           fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--color-text)',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
           {item.title}
         </div>
@@ -186,20 +202,20 @@ function PriorityRow({ item, isLast, onOpenDrawer, onDismiss, onRemind }: RowPro
       </div>
 
       {/* Deadline */}
-      {item.dueDate && (
+      {item.deadline && (
         <span style={{
           fontSize: 'var(--text-xs)', color: statusColor,
           fontWeight: item.statusVariant === 'danger' ? 600 : 400,
-          whiteSpace: 'nowrap', flexShrink: 0,
+          whiteSpace: 'nowrap' as const, flexShrink: 0,
         }}>
-          {formatRelativeDate(item.dueDate)}
+          {formatRelativeDate(item.deadline)}
         </span>
       )}
 
       {/* Next action */}
       <span style={{
         fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)',
-        whiteSpace: 'nowrap', flexShrink: 0,
+        whiteSpace: 'nowrap' as const, flexShrink: 0,
         display: hovered ? 'none' : 'block',
       }}>
         → {item.nextAction}
@@ -213,7 +229,7 @@ function PriorityRow({ item, isLast, onOpenDrawer, onDismiss, onRemind }: RowPro
         >
           <QuickBtn label="Xem" onClick={onOpenDrawer} />
           <QuickBtn label="Đã xem" onClick={onDismiss} muted />
-          {(item.type === 'reminder_pending' || item.type === 'deliverable_missing') && (
+          {isCollect && (
             <QuickBtn label="Nhắc" onClick={onRemind} accent />
           )}
         </div>
@@ -234,7 +250,7 @@ function QuickBtn({ label, onClick, muted, accent }: {
         border: '1px solid var(--color-border)',
         background: accent ? 'var(--color-lime)' : 'var(--color-surface)',
         color: muted ? 'var(--color-text-muted)' : accent ? 'var(--color-charcoal)' : 'var(--color-text)',
-        cursor: 'pointer', whiteSpace: 'nowrap',
+        cursor: 'pointer', whiteSpace: 'nowrap' as const,
         transition: 'filter var(--motion-fast) var(--ease-out)',
       }}
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.filter = 'brightness(0.93)'}

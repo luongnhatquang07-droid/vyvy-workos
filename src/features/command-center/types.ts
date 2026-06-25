@@ -1,13 +1,19 @@
 // ============================================================
-// VYVY WORKOS V2 — COMMAND CENTER TYPES
+// VYVY WORKOS V2 — COMMAND CENTER TYPES (Ivory v2.0)
+// DEMO DATA — PHASE 2 ONLY
 // ============================================================
 
-export type Priority = 'critical' | 'high' | 'medium' | 'low'
-export type TaskStatus = 'overdue' | 'due_today' | 'due_soon' | 'in_progress' | 'waiting' | 'done'
-export type MeetingStatus = 'no_minutes' | 'minutes_no_tasks' | 'draft_pending' | 'follow_up_needed' | 'done'
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'overdue'
-export type ReminderResponse = 'no_response' | 'acknowledged' | 'in_progress' | 'done'
-export type CEOSeverity = 'info' | 'warning' | 'critical'
+// ---- Enums ----
+export type TaskStatus = 'NOT_STARTED'|'IN_PROGRESS'|'WAITING'|'BLOCKED'|'PENDING_APPROVAL'|'REVISION_REQUIRED'|'COMPLETED'|'CANCELLED'
+export type DeliverableStatus = 'REQUIRED'|'NOT_SUBMITTED'|'SUBMITTED'|'MISSING_INFORMATION'|'REVISION_REQUIRED'|'APPROVED'
+export type ProjectHealth = 'NO_DATA'|'ON_TRACK'|'WARNING'|'AT_RISK'|'CRITICAL'
+export type ReminderResponse = 'NOT_REMINDED'|'SENT'|'SEEN'|'WAITING_RESPONSE'|'PROMISED'|'EXTENSION_REQUESTED'|'FILE_SUBMITTED'|'NO_RESPONSE'|'ESCALATED'|'CLOSED'
+export type EscalationStep = 'REMIND_1'|'REMIND_2'|'CALL'|'MANAGER'|'CEO'
+export type ActionKind = 'MEETING'|'IMPORT'|'APPROVE'|'REMIND'|'COLLECT_FILE'|'COLLECT_REPORT'
+export type Urgency = 'CRITICAL'|'HIGH'|'MEDIUM'|'LOW'
+export type CEOSeverity = 'critical'|'warning'|'info'
+export type MeetingStatus = 'no_minutes'|'minutes_no_tasks'|'draft_pending'|'follow_up_needed'|'done'
+export type ApprovalStatus = 'pending'|'approved'|'rejected'|'overdue'
 
 // ---- Core entities ----
 
@@ -23,33 +29,20 @@ export interface Project {
   id: string
   name: string
   code: string
-  status: 'active' | 'at_risk' | 'delayed' | 'completed'
+  health: ProjectHealth
 }
 
 export interface Meeting {
   id: string
   title: string
-  date: string        // ISO date YYYY-MM-DD
+  date: string        // YYYY-MM-DD
   time: string        // HH:MM
   status: MeetingStatus
   attendees: string[] // person ids
   taskDraftCount: number
-  followUpOwner?: string // person id
-  minutesUrl?: string
+  decisionCount: number
+  importedTaskCount: number
   projectId?: string
-  /** future route: /meetings/:id */
-  futureRoute: string
-}
-
-export interface MeetingTaskDraft {
-  id: string
-  meetingId: string
-  title: string
-  assigneeId?: string
-  projectId?: string
-  suggestedDeadline?: string
-  imported: boolean
-  /** future route: /task-inbox/:id */
   futureRoute: string
 }
 
@@ -58,13 +51,12 @@ export interface Task {
   title: string
   ownerId: string
   projectId?: string
-  dueDate: string     // ISO date
+  dueDate: string
   status: TaskStatus
-  priority: Priority
+  urgency: Urgency
   deliverableId?: string
-  pendingApproval?: boolean
   waitingFor?: string
-  /** future route: /follow-ups/:id */
+  kind: ActionKind
   futureRoute: string
 }
 
@@ -75,10 +67,17 @@ export interface Deliverable {
   ownerId: string
   projectId?: string
   dueDate: string
-  status: 'missing' | 'draft' | 'submitted' | 'accepted'
-  type: 'report' | 'file' | 'presentation' | 'contract' | 'data'
-  /** future route: /deliverables/:id */
+  status: DeliverableStatus
+  type: 'report'|'file'|'presentation'|'contract'|'data'
   futureRoute: string
+}
+
+export interface DeliverableCheck {
+  taskId: string
+  taskTitle: string
+  ownerName: string
+  items: { label: string; present: boolean; required: boolean }[]
+  gateOpen: boolean
 }
 
 export interface Reminder {
@@ -92,8 +91,27 @@ export interface Reminder {
   lastReminderDate: string
   response: ReminderResponse
   responseNote?: string
-  /** future route: /follow-ups/:id */
   futureRoute: string
+}
+
+export interface ChaseItem {
+  personId: string
+  owedItem: string
+  deliverableType?: string
+  deadline?: string
+  remindCount: number
+  response: ReminderResponse
+  escalationStep: EscalationStep
+  suggestEscalate: boolean
+}
+
+export interface Commitment {
+  personId: string
+  promisedWhat: string
+  promisedDate: string
+  delivered: boolean
+  sourceMeetingId?: string
+  sourceMeetingTitle?: string
 }
 
 export interface Approval {
@@ -107,7 +125,6 @@ export interface Approval {
   deadline: string
   status: ApprovalStatus
   daysWaiting: number
-  /** future route: /approvals/:id */
   futureRoute: string
 }
 
@@ -121,49 +138,48 @@ export interface CEODecisionRequest {
   consequence: string
   proposedAction: string
   createdDate: string
-  escalatedBy: string // person id
-  /** future route: /ceo-reports */
+  escalatedBy: string
   futureRoute: string
 }
 
-// ---- Derived/view types ----
+export interface ActivityLogEntry {
+  id: string
+  time: string          // e.g. "08:40" or "Hôm qua 17:00"
+  text: string          // HTML-like rich text as plain text with bold markers
+  personName?: string
+  dotColor: 'green'|'blue'|'violet'|'amber'|'gray'|'red'
+}
 
-export type PriorityItemType =
-  | 'task_overdue'
-  | 'task_due_today'
-  | 'meeting_no_tasks'
-  | 'reminder_pending'
-  | 'approval_urgent'
-  | 'ceo_escalation'
-  | 'deliverable_missing'
+// ---- Priority list ----
 
 export interface PriorityItem {
   id: string
-  type: PriorityItemType
   title: string
-  subtitle: string
+  kind: ActionKind
   projectName?: string
   personName?: string
-  dueDate?: string
-  priority: Priority
-  status: string
-  statusVariant: 'danger' | 'warning' | 'waiting' | 'default'
+  deadline?: string
+  urgency: Urgency
+  status: TaskStatus
+  statusLabel: string
+  statusVariant: 'danger'|'warning'|'waiting'|'default'
   nextAction: string
-  sourceModule: string
   sourceId: string
   futureRoute: string
 }
 
-export type FilterView = 'all' | 'today' | 'next_24h' | 'overdue' | 'waiting' | 'pending_approval' | 'ceo_report'
+// ---- KPI ----
 
 export interface KPIData {
   meetingsToday: number
   unimportedDrafts: number
-  pendingDeliverable: number   // unique people owing
+  pendingDeliverable: number
   overdueItems: number
   pendingApprovals: number
   ceoItems: number
 }
+
+// ---- COO Summary ----
 
 export interface COOSummary {
   urgentItems: string[]
@@ -172,25 +188,42 @@ export interface COOSummary {
   proposedActions: string[]
 }
 
+// ---- Summary Banner (Zone B) ----
+
+export interface SummaryBannerData {
+  paragraph: string
+  chips: { label: string; colorClass: 'default'|'danger'|'warning'|'waiting'|'lime' }[]
+}
+
+// ---- Filter ----
+
+export type FilterView = 'all'|'today'|'next_24h'|'overdue'|'waiting'|'pending_approval'|'ceo_report'
+
+// ---- Full data ----
+
 export interface CommandCenterData {
   people: Person[]
   projects: Project[]
   meetings: Meeting[]
-  taskDrafts: MeetingTaskDraft[]
   tasks: Task[]
   deliverables: Deliverable[]
+  deliverableChecks: DeliverableCheck[]
   reminders: Reminder[]
+  chaseItems: ChaseItem[]
+  commitments: Commitment[]
   approvals: Approval[]
   ceoRequests: CEODecisionRequest[]
+  activityLog: ActivityLogEntry[]
   // computed
   kpi: KPIData
   priorityItems: PriorityItem[]
   cooSummary: COOSummary
+  summaryBanner: SummaryBannerData
 }
 
-// ---- Drawer types ----
+// ---- Drawer ----
 
-export type DrawerItemType = 'reminder' | 'meeting' | 'approval' | 'ceo' | 'task' | 'deliverable'
+export type DrawerItemType = 'reminder'|'meeting'|'approval'|'ceo'|'task'|'deliverable'
 
 export interface DrawerState {
   open: boolean

@@ -22,7 +22,7 @@ export function FollowUpPanel({ reminders, people, onOpenDrawer }: FollowUpPanel
   const byPerson = Object.fromEntries(people.map(p => [p.id, p]))
 
   // Show only active reminders
-  const active = reminders.filter(r => r.response !== 'done')
+  const active = reminders.filter(r => r.response !== 'CLOSED' && r.response !== 'FILE_SUBMITTED')
 
   return (
     <PanelShell

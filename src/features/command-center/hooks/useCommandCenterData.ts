@@ -2,12 +2,12 @@
 import React from 'react'
 import type { CommandCenterData, FilterView } from '../types'
 import {
-  PEOPLE, PROJECTS, MEETINGS, TASK_DRAFTS, TASKS,
-  DELIVERABLES, REMINDERS, APPROVALS, CEO_REQUESTS,
+  PEOPLE, PROJECTS, MEETINGS, TASKS, DELIVERABLES, DELIVERABLE_CHECKS,
+  REMINDERS, CHASE_ITEMS, COMMITMENTS, APPROVALS, CEO_REQUESTS, ACTIVITY_LOG,
 } from '../data/mock-data'
-import { computeKPI, buildPriorityList, buildCOOSummary, filterPriorityItems } from '../utils'
+import { computeKPI, buildPriorityList, buildCOOSummary, buildSummaryBanner, filterPriorityItems } from '../utils'
 
-type LoadState = 'loading' | 'success' | 'error'
+type LoadState = 'loading'|'success'|'error'
 
 interface UseCommandCenterResult {
   data: CommandCenterData | null
@@ -18,40 +18,25 @@ interface UseCommandCenterResult {
   filteredPriorityItems: CommandCenterData['priorityItems']
 }
 
-let _forceError = false
-let _forceLoading = false
-
-// Debug toggles — not exposed in UI
-export function _debugForceError(v: boolean) { _forceError = v }
-export function _debugForceLoading(v: boolean) { _forceLoading = v }
-
 function loadMockData(): Promise<CommandCenterData> {
   return new Promise((resolve, reject) => {
-    const delay = _forceLoading ? 99999 : 900
     setTimeout(() => {
-      if (_forceError) { reject(new Error('Simulated load error')); return }
-
-      const priorityItems = buildPriorityList(
-        TASKS, MEETINGS, DELIVERABLES, REMINDERS, APPROVALS, CEO_REQUESTS, PEOPLE, PROJECTS,
-      )
-      const kpi = computeKPI(MEETINGS, TASK_DRAFTS, TASKS, DELIVERABLES, REMINDERS, APPROVALS, CEO_REQUESTS)
-      const cooSummary = buildCOOSummary(TASKS, CEO_REQUESTS, APPROVALS, REMINDERS, MEETINGS)
-
-      resolve({
-        people: PEOPLE,
-        projects: PROJECTS,
-        meetings: MEETINGS,
-        taskDrafts: TASK_DRAFTS,
-        tasks: TASKS,
-        deliverables: DELIVERABLES,
-        reminders: REMINDERS,
-        approvals: APPROVALS,
-        ceoRequests: CEO_REQUESTS,
-        kpi,
-        priorityItems,
-        cooSummary,
-      })
-    }, delay)
+      try {
+        const kpi = computeKPI(MEETINGS, TASKS, APPROVALS, CEO_REQUESTS, REMINDERS)
+        const priorityItems = buildPriorityList(TASKS, MEETINGS, APPROVALS, CEO_REQUESTS, PEOPLE, PROJECTS)
+        const cooSummary = buildCOOSummary(TASKS, CEO_REQUESTS, APPROVALS, REMINDERS, MEETINGS)
+        const summaryBanner = buildSummaryBanner(kpi, CHASE_ITEMS, CEO_REQUESTS)
+        resolve({
+          people: PEOPLE, projects: PROJECTS, meetings: MEETINGS, tasks: TASKS,
+          deliverables: DELIVERABLES, deliverableChecks: DELIVERABLE_CHECKS,
+          reminders: REMINDERS, chaseItems: CHASE_ITEMS, commitments: COMMITMENTS,
+          approvals: APPROVALS, ceoRequests: CEO_REQUESTS, activityLog: ACTIVITY_LOG,
+          kpi, priorityItems, cooSummary, summaryBanner,
+        })
+      } catch (e) {
+        reject(e)
+      }
+    }, 800)
   })
 }
 

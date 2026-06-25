@@ -5,11 +5,14 @@ import { useCommandCenterData } from './hooks/useCommandCenterData'
 import { CommandCenterSkeleton } from './components/CommandCenterSkeleton'
 import { FilterChips } from './components/FilterChips'
 import { KPICards } from './components/KPICards'
+import { SummaryBanner } from './components/SummaryBanner'
 import { PriorityList } from './components/PriorityList'
-import { FollowUpPanel } from './components/FollowUpPanel'
-import { MeetingsPanel } from './components/MeetingsPanel'
-import { ApprovalsPanel } from './components/ApprovalsPanel'
+import { ChasePanel } from './components/ChasePanel'
+import { CommitmentsPanel } from './components/CommitmentsPanel'
+import { DeliverableGate } from './components/DeliverableGate'
+import { EscalationLadder } from './components/EscalationLadder'
 import { CEOPanel } from './components/CEOPanel'
+import { ActivityLog } from './components/ActivityLog'
 import { COOSummary } from './components/COOSummary'
 import { CommandCenterDrawer } from './components/CommandCenterDrawer'
 
@@ -21,122 +24,83 @@ export function CommandCenterView() {
     setDrawer({ open: false, type: null, id: null })
   }
 
-  // ---- Loading ----
   if (loadState === 'loading') {
     return (
       <div style={{ padding: 'var(--space-6)' }}>
-        <CommandCenterHeader />
-        <div style={{ marginTop: 'var(--space-6)' }}>
-          <CommandCenterSkeleton />
-        </div>
+        <CCHeader loading />
+        <div style={{ marginTop: 'var(--space-6)' }}><CommandCenterSkeleton /></div>
       </div>
     )
   }
 
-  // ---- Error ----
   if (loadState === 'error' || !data) {
     return (
       <div style={{ padding: 'var(--space-6)' }}>
-        <CommandCenterHeader />
+        <CCHeader />
         <div style={{
-          marginTop: 'var(--space-6)',
-          background: 'var(--color-surface)', borderRadius: 'var(--radius-xl)',
-          border: '1px solid var(--color-border)', padding: 'var(--space-10)',
-          textAlign: 'center',
+          marginTop: 'var(--space-6)', background: 'var(--color-surface)',
+          borderRadius: 'var(--radius-xl)', border: '1px solid var(--color-border)',
+          padding: 'var(--space-10)', textAlign: 'center',
         }}>
-          <div style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: 'var(--color-text)', marginBottom: 'var(--space-2)' }}>
-            Không tải được dữ liệu
-          </div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-5)' }}>
-            Đã xảy ra lỗi khi tải Command Center. Vui lòng thử lại.
-          </div>
-          <button
-            onClick={retry}
-            style={{
-              padding: 'var(--space-2) var(--space-5)',
-              background: 'var(--color-charcoal)', color: '#fff',
-              border: 'none', borderRadius: 'var(--radius-md)',
-              fontSize: 'var(--text-sm)', fontWeight: 600, cursor: 'pointer',
-            }}
-          >Thử lại</button>
+          <div style={{ fontSize: 'var(--text-base)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Không tải được dữ liệu</div>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-5)' }}>Đã xảy ra lỗi. Vui lòng thử lại.</div>
+          <button onClick={retry} style={{ padding: 'var(--space-2) var(--space-5)', background: 'var(--color-charcoal)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-sm)', fontWeight: 600, cursor: 'pointer' }}>Thử lại</button>
         </div>
       </div>
     )
   }
 
-  // ---- Success ----
   return (
     <>
-      <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-        {/* Zone A — Header */}
-        <CommandCenterHeader />
+      <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+        {/* Zone A */}
+        <CCHeader totalItems={data.priorityItems.length} />
 
-        {/* Zone B — KPI Cards */}
-        <section aria-label="KPI tổng quan">
-          <KPICards kpi={data.kpi} onFilter={setFilter} />
-        </section>
+        {/* Zone C — KPI */}
+        <KPICards kpi={data.kpi} onFilter={setFilter} />
 
-        {/* Filter chips */}
+        {/* Zone B — Summary Banner */}
+        <SummaryBanner summary={data.summaryBanner} />
+
+        {/* Filter */}
         <FilterChips value={filter} onChange={setFilter} />
 
-        {/* Zone C — Priority list */}
-        <PriorityList items={filteredPriorityItems} onOpenDrawer={setDrawer} />
-
-        {/* Zone D — 4 panels */}
-        <section aria-label="Các khu theo dõi chuyên biệt">
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-            gap: 'var(--space-4)',
-          }}>
-            <FollowUpPanel
-              reminders={data.reminders}
-              people={data.people}
-              onOpenDrawer={setDrawer}
-            />
-            <MeetingsPanel
-              meetings={data.meetings}
-              people={data.people}
-              onOpenDrawer={setDrawer}
-            />
-            <ApprovalsPanel
-              approvals={data.approvals}
-              people={data.people}
-              onOpenDrawer={setDrawer}
-            />
-            <CEOPanel
-              requests={data.ceoRequests}
-              projects={data.projects}
-              onOpenDrawer={setDrawer}
-            />
+        {/* Zone D — 2 cols */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 'var(--space-4)' }}>
+          {/* Left: ①③④ */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <PriorityList items={filteredPriorityItems} onOpenDrawer={setDrawer} />
+            <CommitmentsPanel meetings={data.meetings} />
+            <DeliverableGate checks={data.deliverableChecks} />
           </div>
-        </section>
+
+          {/* Right: ②⑤⑥ */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <ChasePanel items={data.chaseItems} people={data.people} />
+            <EscalationLadder items={data.chaseItems} people={data.people} />
+            <CEOPanel requests={data.ceoRequests} projects={data.projects} onOpenDrawer={setDrawer} />
+          </div>
+        </div>
+
+        {/* Zone D ⑦ — full width */}
+        <ActivityLog entries={data.activityLog} />
 
         {/* Zone E — COO Summary */}
         <COOSummary summary={data.cooSummary} />
 
-        {/* Demo watermark */}
-        <div style={{
-          textAlign: 'center',
-          fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic',
-          opacity: 0.6, paddingBottom: 'var(--space-4)',
-        }}>
+        {/* Watermark */}
+        <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--color-text-muted)', fontStyle: 'italic', opacity: 0.6, paddingBottom: 'var(--space-4)' }}>
           DEMO DATA — PHASE 2 ONLY · Dữ liệu mẫu, không kết nối Supabase
         </div>
       </div>
 
-      {/* Drawer */}
       <CommandCenterDrawer
         state={drawer}
         data={{
-          reminders: data.reminders,
-          meetings: data.meetings,
-          approvals: data.approvals,
-          ceoRequests: data.ceoRequests,
-          tasks: data.tasks,
-          deliverables: data.deliverables,
-          people: data.people,
-          projects: data.projects,
+          reminders: data.reminders, meetings: data.meetings,
+          approvals: data.approvals, ceoRequests: data.ceoRequests,
+          tasks: data.tasks, deliverables: data.deliverables,
+          people: data.people, projects: data.projects,
         }}
         onClose={closeDrawer}
       />
@@ -144,34 +108,24 @@ export function CommandCenterView() {
   )
 }
 
-function CommandCenterHeader() {
-  const now = new Date()
-  const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-
+function CCHeader({ loading, totalItems }: { loading?: boolean; totalItems?: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)' }}>
       <div>
-        <h1 style={{
-          fontFamily: 'var(--font-serif)', fontSize: 'var(--text-xl)',
-          fontWeight: 700, margin: 0, lineHeight: 1.2,
-          color: 'var(--color-text)',
-        }}>
-          Trung tâm điều hành
+        <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: 26, fontWeight: 500, margin: 0, lineHeight: 1.2, color: 'var(--color-text)', letterSpacing: '-0.01em' }}>
+          Chào buổi sáng, Quang 👋
         </h1>
-        <div style={{ marginTop: 'var(--space-1)', fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-          Tổng quan toàn bộ hoạt động vận hành · {dateStr}
+        <div style={{ marginTop: 4, fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+          Thứ Năm, 25 tháng 6, 2026
+          {!loading && typeof totalItems === 'number' && ` · ${totalItems} việc cần bạn xử lý hôm nay`}
         </div>
       </div>
-      <div style={{
-        background: 'rgba(218,223,33,0.12)',
-        border: '1px solid rgba(218,223,33,0.35)',
-        borderRadius: 'var(--radius-md)',
-        padding: '4px 10px',
-        fontSize: 10, fontWeight: 700, color: '#8B8E0A',
-        whiteSpace: 'nowrap', flexShrink: 0, marginTop: 4,
-      }}>
-        DEMO DATA — PHASE 2
-      </div>
+      <span style={{
+        fontSize: 10, fontWeight: 600, letterSpacing: '0.05em',
+        color: 'var(--color-warning)', background: 'var(--color-warning-bg)',
+        border: '1px solid rgba(196,123,43,0.25)', padding: '3px 9px',
+        borderRadius: 'var(--radius-full)', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 4,
+      }}>● DEMO DATA</span>
     </div>
   )
 }
