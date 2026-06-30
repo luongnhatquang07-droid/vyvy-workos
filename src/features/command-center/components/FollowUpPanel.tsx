@@ -1,8 +1,8 @@
 'use client'
 import React from 'react'
+import { useRouter } from 'next/navigation'
 import type { Reminder, Person, DrawerState } from '../types'
 import { formatRelativeDate } from '../utils'
-import { useToast } from '@/components/feedback/Toast'
 
 const RESPONSE_LABEL: Record<string, { label: string; color: string }> = {
   no_response:  { label: 'Chưa phản hồi', color: 'var(--color-danger)' },
@@ -18,7 +18,7 @@ interface FollowUpPanelProps {
 }
 
 export function FollowUpPanel({ reminders, people, onOpenDrawer }: FollowUpPanelProps) {
-  const { toast } = useToast()
+  const router = useRouter()
   const byPerson = Object.fromEntries(people.map(p => [p.id, p]))
 
   // Show only active reminders
@@ -47,6 +47,8 @@ export function FollowUpPanel({ reminders, people, onOpenDrawer }: FollowUpPanel
                 borderBottom: i < active.length - 1 ? '1px solid var(--color-border)' : 'none',
                 cursor: 'pointer',
               }}
+              data-vyvy-row="true"
+              data-vyvy-alert={r.response === 'NO_RESPONSE' ? 'true' : undefined}
               onClick={() => onOpenDrawer({ open: true, type: 'reminder', id: r.id })}
             >
               <div>
@@ -80,7 +82,8 @@ export function FollowUpPanel({ reminders, people, onOpenDrawer }: FollowUpPanel
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', justifyContent: 'center' }}>
                 <button
-                  onClick={e => { e.stopPropagation(); toast('Đã ghi nhận — gửi nhắc sẽ khả dụng ở giai đoạn sau.', 'info') }}
+                  onClick={e => { e.stopPropagation(); router.push('/follow-ups') }}
+                  data-vyvy-radar="true"
                   style={{
                     fontSize: 11, padding: '4px 10px', cursor: 'pointer',
                     borderRadius: 'var(--radius-sm)',
@@ -105,13 +108,16 @@ export function PanelShell({ title, count, accentColor, children }: {
 }) {
   return (
     <div style={{
+      position: 'relative',
       background: 'var(--color-surface)',
       borderRadius: 'var(--radius-xl)',
       border: '1px solid var(--color-border)',
-      boxShadow: 'var(--shadow-sm)',
+      boxShadow: '0 10px 28px rgba(0,0,0,0.16)',
       overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
-    }}>
+    }}
+    data-vyvy-card="true"
+    >
       <div style={{
         padding: 'var(--space-3) var(--space-4)',
         borderBottom: '1px solid var(--color-border)',

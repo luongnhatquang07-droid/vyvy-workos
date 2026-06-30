@@ -6,6 +6,8 @@ import type {
   Person, Project,
 } from '../types'
 import { formatRelativeDate } from '../utils'
+import { FileUpload } from '@/components/ui/FileUpload'
+import { FileList } from '@/components/ui/FileList'
 
 interface DrawerData {
   reminders: Reminder[]
@@ -21,10 +23,11 @@ interface DrawerData {
 interface CommandCenterDrawerProps {
   state: DrawerState
   data: DrawerData
+  workspaceId?: string
   onClose: () => void
 }
 
-export function CommandCenterDrawer({ state, data, onClose }: CommandCenterDrawerProps) {
+export function CommandCenterDrawer({ state, data, workspaceId, onClose }: CommandCenterDrawerProps) {
   const byPerson = Object.fromEntries(data.people.map(p => [p.id, p]))
   const byProject = Object.fromEntries(data.projects.map(p => [p.id, p]))
 
@@ -39,7 +42,7 @@ export function CommandCenterDrawer({ state, data, onClose }: CommandCenterDrawe
 
   if (!state.open || !state.type || !state.id) return null
 
-  const content = resolveContent(state.type, state.id, data, byPerson, byProject)
+  const content = resolveContent(state.type, state.id, data, byPerson, byProject, workspaceId)
 
   return (
     <>
@@ -115,7 +118,7 @@ export function CommandCenterDrawer({ state, data, onClose }: CommandCenterDrawe
           borderTop: '1px solid var(--color-border)',
           fontSize: 11, color: 'var(--color-text-muted)', fontStyle: 'italic',
         }}>
-          DEMO DATA — PHASE 2 ONLY · Link đầy đủ sẽ khả dụng trong Phase 3
+          Dữ liệu được đọc theo workspace hiện tại. Nếu liên kết chi tiết chưa mở được, kiểm tra route tương ứng hoặc quyền truy cập.
         </div>
       </div>
     </>
@@ -134,6 +137,7 @@ function resolveContent(
   data: DrawerData,
   byPerson: Record<string, Person>,
   byProject: Record<string, Project>,
+  workspaceId?: string,
 ): ResolvedContent | null {
   switch (type) {
     case 'reminder': {
@@ -230,13 +234,19 @@ function resolveContent(
         title: item.title,
         badge: <TypeBadge label="Đầu việc" color="var(--color-text-muted)" />,
         body: (
-          <DrawerBody rows={[
-            ['Owner', owner ? `${owner.name} · ${owner.role}` : '—'],
-            project ? ['Dự án', project.name] : null,
-            ['Hạn', formatRelativeDate(item.dueDate)],
-            ['Trạng thái', item.status],
-            item.waitingFor ? ['Đang chờ', item.waitingFor] : null,
-          ]} futureRoute={item.futureRoute} />
+          <TaskBody
+            rows={[
+              ['Owner', owner ? `${owner.name} · ${owner.role}` : '—'],
+              project ? ['Dự án', project.name] : null,
+              ['Hạn', formatRelativeDate(item.dueDate)],
+              ['Trạng thái', item.status],
+              item.waitingFor ? ['Đang chờ', item.waitingFor] : null,
+            ]}
+            futureRoute={item.futureRoute}
+            projectId={item.projectId}
+            taskId={item.id}
+            workspaceId={workspaceId}
+          />
         ),
       }
     }
@@ -249,13 +259,20 @@ function resolveContent(
         title: item.title,
         badge: <TypeBadge label="File/Deliverable" color="var(--color-text-muted)" />,
         body: (
-          <DrawerBody rows={[
-            ['Owner', owner ? `${owner.name} · ${owner.role}` : '—'],
-            project ? ['Dự án', project.name] : null,
-            ['Hạn nộp', formatRelativeDate(item.dueDate)],
-            ['Loại', item.type],
-            ['Trạng thái', item.status],
-          ]} futureRoute={item.futureRoute} />
+          <TaskBody
+            rows={[
+              ['Owner', owner ? `${owner.name} · ${owner.role}` : '—'],
+              project ? ['Dự án', project.name] : null,
+              ['Hạn nộp', formatRelativeDate(item.dueDate)],
+              ['Loại', item.type],
+              ['Trạng thái', item.status],
+            ]}
+            futureRoute={item.futureRoute}
+            projectId={item.projectId}
+            taskId={item.taskId}
+            deliverableId={item.id}
+            workspaceId={workspaceId}
+          />
         ),
       }
     }
@@ -278,6 +295,57 @@ function TypeBadge({ label, color }: { label: string; color: string }) {
       background: color + '14',
       flexShrink: 0,
     }}>{label}</span>
+  )
+}
+
+interface TaskBodyProps {
+  rows: DrawerRow[]
+  futureRoute?: string
+  workspaceId?: string
+  projectId?: string
+  taskId?: string
+  deliverableId?: string
+}
+
+function TaskBody({ rows, futureRoute, workspaceId, projectId, taskId, deliverableId }: TaskBodyProps) {
+  const [refreshKey, setRefreshKey] = React.useState(0)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <DrawerBody rows={rows} futureRoute={futureRoute} />
+
+      {/* File section */}
+      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--space-4)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 'var(--space-3)' }}>
+          Tệp đính kèm
+        </div>
+        {workspaceId ? (
+          <>
+            <FileList
+              workspaceId={workspaceId}
+              projectId={projectId}
+              taskId={taskId}
+              refreshKey={refreshKey}
+            />
+            <div style={{ marginTop: 'var(--space-3)' }}>
+              <FileUpload
+                workspaceId={workspaceId}
+                projectId={projectId}
+                taskId={taskId}
+                deliverableId={deliverableId}
+                compact
+                label="Tải file lên đầu việc này"
+                onUploaded={() => setRefreshKey(k => k + 1)}
+              />
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+            Chưa xác định được workspace nên chưa thể tải hoặc xem file. Hãy đăng nhập lại hoặc kiểm tra quyền workspace.
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

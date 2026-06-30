@@ -44,7 +44,9 @@ export function EscalationLadder({ items, people }: EscalationLadderProps) {
                     background: isNow ? 'var(--color-waiting-bg)' : 'var(--color-surface-2)',
                     color: isDone ? 'var(--color-success)' : isNow ? 'var(--color-waiting)' : 'var(--color-text-muted)',
                     whiteSpace: 'nowrap' as const,
-                  }}>{STEP_LABEL[step]}</span>
+                  }}
+                  data-vyvy-step-now={isNow ? 'true' : undefined}
+                  >{STEP_LABEL[step]}</span>
                   {i < STEPS.length - 1 && (
                     <span style={{
                       width: 12, height: 2, flexShrink: 0,

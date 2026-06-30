@@ -1,6 +1,5 @@
 // ============================================================
 // VYVY WORKOS V2 — COMMAND CENTER TYPES (Ivory v2.0)
-// DEMO DATA — PHASE 2 ONLY
 // ============================================================
 
 // ---- Enums ----
@@ -192,7 +191,7 @@ export interface COOSummary {
 
 export interface SummaryBannerData {
   paragraph: string
-  chips: { label: string; colorClass: 'default'|'danger'|'warning'|'waiting'|'lime' }[]
+  chips: { label: string; colorClass: 'default'|'danger'|'warning'|'waiting'|'lime'; route: string }[]
 }
 
 // ---- Filter ----

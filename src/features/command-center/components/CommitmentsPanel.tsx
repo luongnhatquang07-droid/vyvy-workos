@@ -1,5 +1,6 @@
 'use client'
 import React from 'react'
+import { useRouter } from 'next/navigation'
 import type { Meeting } from '../types'
 
 interface CommitmentsPanelProps {
@@ -17,13 +18,17 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 const TODAY = '2026-06-25'
 
 export function CommitmentsPanel({ meetings }: CommitmentsPanelProps) {
+  const router = useRouter()
   const relevant = meetings.filter(m => m.status !== 'done')
 
   return (
     <div style={{
+      position: 'relative',
       background: 'var(--color-surface)', borderRadius: 'var(--radius-xl)',
       border: '1px solid var(--color-border)', overflow: 'hidden',
-    }}>
+    }}
+    data-vyvy-card="true"
+    >
       <div style={{
         padding: 'var(--space-3) var(--space-4)',
         borderBottom: '1px solid var(--color-border)',
@@ -61,7 +66,15 @@ export function CommitmentsPanel({ meetings }: CommitmentsPanelProps) {
               const meta = STATUS_META[m.status] ?? STATUS_META.follow_up_needed
               const isToday = m.date === TODAY
               return (
-                <tr key={m.id} style={{ borderBottom: i < relevant.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                <tr
+                  key={m.id}
+                  onClick={() => router.push('/meetings')}
+                  style={{ borderBottom: i < relevant.length - 1 ? '1px solid var(--color-border)' : 'none', cursor: 'pointer' }}
+                  data-vyvy-row="true"
+                  data-vyvy-alert={m.status === 'no_minutes' || m.status === 'minutes_no_tasks' ? 'true' : undefined}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-surface-2)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                >
                   <td style={{ padding: '10px 12px' }}>
                     <div style={{ fontSize: 'var(--text-xs)', fontWeight: 500, color: 'var(--color-text)' }}>{m.title}</div>
                     <div style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: 1 }}>{isToday ? 'Hôm nay' : m.date.slice(5).replace('-', '/')}</div>

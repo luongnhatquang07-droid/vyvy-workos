@@ -1,8 +1,8 @@
 'use client'
 import React from 'react'
+import { useRouter } from 'next/navigation'
 import type { ChaseItem, Person } from '../types'
 import { PanelShell, EmptyRow } from './FollowUpPanel'
-import { useToast } from '@/components/feedback/Toast'
 
 interface ChasePanelProps {
   items: ChaseItem[]
@@ -18,7 +18,7 @@ const RESPONSE_LABEL: Record<string, { label: string; color: string; bg: string 
 }
 
 export function ChasePanel({ items, people }: ChasePanelProps) {
-  const { toast } = useToast()
+  const router = useRouter()
   const byPerson = Object.fromEntries(people.map(p => [p.id, p]))
 
   return (
@@ -37,8 +37,12 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
                   display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
                   padding: '8px 9px', borderRadius: 'var(--radius-md)',
                   cursor: 'pointer',
-                }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-surface-2)'}
-                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                }}
+                data-vyvy-row="true"
+                data-vyvy-alert={item.remindCount >= 2 ? 'true' : undefined}
+                onClick={() => router.push('/follow-ups')}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--color-surface-2)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
                   {/* Avatar */}
                   <div style={{
                     width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
@@ -82,7 +86,8 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
           </div>
           <div style={{ padding: '6px 12px 12px' }}>
             <button
-              onClick={() => toast('Soạn nhắc hàng loạt sẽ khả dụng ở module Messenger.', 'info')}
+              onClick={() => router.push('/follow-ups')}
+              data-vyvy-radar="true"
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: 6, padding: '8px 14px', borderRadius: 'var(--radius-md)',
