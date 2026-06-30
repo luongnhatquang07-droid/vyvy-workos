@@ -21,7 +21,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     activityRes,
   ] = await Promise.all([
     sb.from('people')
-      .select('id,full_name,job_title,department_id,profile_id,status,deleted_at,department:departments!people_department_id_fkey(name)')
+      .select('id,full_name,job_title,email,messenger_url,department_id,profile_id,status,deleted_at,department:departments!people_department_id_fkey(name)')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null),
 
@@ -56,7 +56,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .eq('workspace_id', workspaceId),
 
     sb.from('deliverables')
-      .select('id,name,task_id,project_id,step_id,submitter_id,due_date,status,type,is_required')
+      .select('id,name,description,task_id,project_id,step_id,required_format,submitter_id,reviewer_id,due_date,status,type,is_required,approved_version_id,created_at,updated_at')
       .eq('workspace_id', workspaceId),
 
     sb.from('approvals')

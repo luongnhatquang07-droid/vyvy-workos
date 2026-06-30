@@ -810,7 +810,7 @@ function ProjectsPageContent() {
                         onUploaded={(file) => {
                           updateSubtaskField('attachments', [
                             {
-                              id: file.attachmentId,
+                              id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
                               name: file.fileName,
                               url: file.url,
                             },

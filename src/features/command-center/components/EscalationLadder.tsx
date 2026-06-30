@@ -73,8 +73,8 @@ export function EscalationLadder({ items, people }: EscalationLadderProps) {
           {/* Other people summary */}
           {items.length > 1 && (
             <div style={{ marginTop: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border)' }}>
-              {items.filter(i => i.personId !== topItem.personId).map(item => (
-                <div key={item.personId} style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 2 }}>
+              {items.filter(i => i.personId !== topItem.personId).map((item, i) => (
+                <div key={`${item.personId}-${item.owedItem}-${item.deadline ?? 'no-deadline'}-${i}`} style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 2 }}>
                   {byPerson[item.personId]?.name} — Nhắc {item.remindCount} lần · {STEP_LABEL[item.escalationStep]}
                 </div>
               ))}

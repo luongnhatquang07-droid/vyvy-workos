@@ -271,6 +271,7 @@ alter table tasks add constraint fk_task_decision foreign key (source_decision_i
 create table attachments (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references workspaces(id) on delete cascade,
+  storage_mode text default 'supabase',
   storage_path text not null, file_name text, mime_type text, size_bytes bigint, checksum text,
   uploaded_by uuid references people(id) on delete set null, uploaded_at timestamptz default now(), deleted_at timestamptz
 );
@@ -293,6 +294,7 @@ create table deliverables (
 create table deliverable_versions (
   id uuid primary key default gen_random_uuid(),
   deliverable_id uuid not null references deliverables(id) on delete cascade,
+  storage_mode text default 'supabase',
   version_number int not null, attachment_id uuid references attachments(id) on delete set null,
   external_url text, submitted_by uuid references people(id) on delete set null,
   submitted_at timestamptz default now(), change_note text,
@@ -480,19 +482,43 @@ create table saved_views (
 -- 15. COMPLETION GATE (khóa hoàn thành ở DB, trả lý do cụ thể)
 -- =====================================================================
 create or replace function check_completion_gate() returns trigger language plpgsql as $$
+declare
+  missing_deliverable text;
+  revision_deliverable text;
+  pending_approval text;
 begin
   if new.status = 'COMPLETED' and (old.status is distinct from 'COMPLETED') then
     if coalesce(new.expected_result,'') = '' then raise exception 'GATE: thiếu kết quả đầu việc'; end if;
     if new.blocked_reason is not null then raise exception 'GATE: task đang BLOCKED'; end if;
-    if exists (select 1 from deliverables d where d.task_id = new.id and d.is_required
-               and d.status in ('REQUIRED','NOT_SUBMITTED','MISSING_INFORMATION','REVISION_REQUIRED'))
-      then raise exception 'GATE: deliverable bắt buộc chưa đạt'; end if;
+    select d.name into missing_deliverable
+    from deliverables d
+    where d.task_id = new.id and d.is_required and d.status in ('REQUIRED','NOT_SUBMITTED')
+    order by d.due_date nulls last, d.created_at
+    limit 1;
+    if missing_deliverable is not null then
+      raise exception 'GATE: Chưa thể hoàn thành vì còn thiếu file: %.', missing_deliverable;
+    end if;
+    select d.name into revision_deliverable
+    from deliverables d
+    where d.task_id = new.id and d.is_required and d.status in ('MISSING_INFORMATION','REVISION_REQUIRED')
+    order by d.updated_at desc
+    limit 1;
+    if revision_deliverable is not null then
+      raise exception 'GATE: Chưa thể hoàn thành vì file đã nộp đang bị yêu cầu sửa hoặc thiếu thông tin: %.', revision_deliverable;
+    end if;
     if exists (select 1 from task_steps s where s.task_id = new.id and s.is_required and s.status <> 'COMPLETED')
       then raise exception 'GATE: còn step bắt buộc chưa xong'; end if;
     if exists (select 1 from task_checklist_items c where c.task_id = new.id and c.is_required and not c.is_completed)
       then raise exception 'GATE: checklist bắt buộc chưa xong'; end if;
-    if exists (select 1 from approvals a where a.task_id = new.id and a.is_required and a.status <> 'APPROVED')
-      then raise exception 'GATE: phê duyệt bắt buộc chưa duyệt'; end if;
+    select coalesce(d.name, 'phê duyệt bắt buộc') into pending_approval
+    from approvals a
+    left join deliverables d on d.id = a.deliverable_id
+    where a.task_id = new.id and a.is_required and a.status <> 'APPROVED'
+    order by a.due_at nulls last, a.requested_at
+    limit 1;
+    if pending_approval is not null then
+      raise exception 'GATE: Chưa thể hoàn thành vì phê duyệt bắt buộc đang chờ: %.', pending_approval;
+    end if;
   end if;
   new.updated_at = now();
   return new;

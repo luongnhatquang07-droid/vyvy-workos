@@ -3,7 +3,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
-const BLOCKED_EXTENSIONS = new Set(['bat', 'cmd', 'com', 'exe', 'js', 'msi', 'ps1', 'scr', 'sh', 'vbs'])
+const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'])
 
 type UploadContext =
   | { ok: true; workspaceId: string; uploaderId: string | null }
@@ -26,11 +27,26 @@ function validateFile(file: File) {
   if (file.size > MAX_FILE_SIZE) return 'File vượt quá giới hạn 25MB.'
 
   const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (BLOCKED_EXTENSIONS.has(extension)) {
+  if (!ALLOWED_EXTENSIONS.has(extension)) {
     return 'Loại file này không được phép tải lên vì có rủi ro bảo mật.'
   }
 
   return ''
+}
+
+async function ensureStorageBucket() {
+  const client = createServiceClient()
+  const { data: buckets, error: listError } = await client.storage.listBuckets()
+  if (listError) throw new Error(`Không kiểm tra được Supabase Storage: ${listError.message}`)
+  if (buckets?.some((bucket) => bucket.name === STORAGE_BUCKET)) return
+
+  const { error } = await client.storage.createBucket(STORAGE_BUCKET, {
+    public: false,
+    fileSizeLimit: MAX_FILE_SIZE,
+  })
+  if (error && !/already exists/i.test(error.message)) {
+    throw new Error(`Chưa thể tạo bucket ${STORAGE_BUCKET}: ${error.message}`)
+  }
 }
 
 async function getUploadContext(workspaceId: string): Promise<UploadContext> {
@@ -137,6 +153,7 @@ export async function POST(req: NextRequest) {
     const projectId = cleanId(form.get('projectId'))
     const taskId = cleanId(form.get('taskId'))
     const deliverableId = cleanId(form.get('deliverableId'))
+    const changeNote = typeof form.get('changeNote') === 'string' ? String(form.get('changeNote')).trim() : ''
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'Thiếu file hoặc workspaceId.' }, { status: 400 })
@@ -158,12 +175,13 @@ export async function POST(req: NextRequest) {
     }
 
     const client = createServiceClient()
+    await ensureStorageBucket()
     const folder = [workspaceId, projectId, taskId].filter(Boolean).join('/')
     const storagePath = `${folder}/${Date.now()}_${crypto.randomUUID()}_${sanitizeFileName(file.name)}`
 
     const bytes = await file.arrayBuffer()
     const { error: uploadError } = await client.storage
-      .from('project-files')
+      .from(STORAGE_BUCKET)
       .upload(storagePath, bytes, { contentType: file.type || 'application/octet-stream', upsert: false })
 
     if (uploadError) {
@@ -187,29 +205,49 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'File đã lên storage nhưng ghi attachment thất bại.' }, { status: 500 })
     }
 
+    let versionId: string | null = null
+    let versionNumber: number | null = null
+
     if (deliverableId) {
       const { count } = await client
         .from('deliverable_versions')
         .select('*', { count: 'exact', head: true })
         .eq('deliverable_id', deliverableId)
 
-      await client.from('deliverable_versions').insert({
+      versionNumber = (count ?? 0) + 1
+      const versionRes = await client.from('deliverable_versions').insert({
         deliverable_id: deliverableId,
-        version_number: (count ?? 0) + 1,
+        version_number: versionNumber,
         attachment_id: attachment.id,
         submitted_by: context.uploaderId,
+        change_note: changeNote || null,
         review_status: 'PENDING',
-      })
+      }).select('id,version_number').single()
+
+      if (versionRes.error || !versionRes.data) {
+        return NextResponse.json({ error: versionRes.error?.message ?? 'File đã lưu nhưng chưa tạo được version.' }, { status: 500 })
+      }
+      versionId = versionRes.data.id
 
       await client
         .from('deliverables')
-        .update({ status: 'SUBMITTED' })
+        .update({ status: 'SUBMITTED', updated_at: new Date().toISOString(), updated_by: context.uploaderId })
         .eq('id', deliverableId)
         .eq('workspace_id', workspaceId)
+
+      await client
+        .from('reminders')
+        .update({
+          response_status: 'FILE_SUBMITTED',
+          status: 'closed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('workspace_id', workspaceId)
+        .eq('deliverable_id', deliverableId)
     }
 
     const { data: signedUrl } = await client.storage
-      .from('project-files')
+      .from(STORAGE_BUCKET)
       .createSignedUrl(storagePath, 86400)
 
     return NextResponse.json({
@@ -220,6 +258,8 @@ export async function POST(req: NextRequest) {
       fileSize: file.size,
       mimeType: file.type || 'application/octet-stream',
       url: signedUrl?.signedUrl ?? null,
+      versionId,
+      versionNumber,
     })
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 500 })
@@ -250,14 +290,14 @@ export async function GET(req: NextRequest) {
   const folder = [workspaceId, projectId, taskId].filter(Boolean).join('/')
 
   const { data: files, error } = await client.storage
-    .from('project-files')
+    .from(STORAGE_BUCKET)
     .list(folder, { limit: 50, sortBy: { column: 'created_at', order: 'desc' } })
 
   if (error) return NextResponse.json({ error: error.message, files: [] }, { status: 500 })
 
   const withUrls = await Promise.all((files ?? []).map(async (file) => {
     const path = `${folder}/${file.name}`
-    const { data } = await client.storage.from('project-files').createSignedUrl(path, 3600)
+    const { data } = await client.storage.from(STORAGE_BUCKET).createSignedUrl(path, 3600)
     return { ...file, url: data?.signedUrl ?? null, storagePath: path }
   }))
 

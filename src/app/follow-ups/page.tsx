@@ -27,6 +27,15 @@ export default function FollowUpsPage() {
   const people = Object.fromEntries((data?.people ?? []).map((person) => [person.id, person]))
   const tasks = Object.fromEntries((data?.tasks ?? []).map((task) => [task.id, task]))
   const deliverables = Object.fromEntries((data?.deliverables ?? []).map((item) => [item.id, item]))
+  const today = new Date().toISOString().slice(0, 10)
+  const reminderDeliverableIds = new Set(reminders.map((reminder) => reminder.deliverable_id).filter(Boolean))
+  const missingDeliverables = (data?.deliverables ?? []).filter(
+    (item) =>
+      item.is_required &&
+      !['SUBMITTED', 'APPROVED'].includes(item.status) &&
+      !reminderDeliverableIds.has(item.id),
+  )
+  const overdueDeliverables = missingDeliverables.filter((item) => item.due_date && item.due_date < today)
 
   const lateEscalation = reminders.filter(
     (reminder) =>
@@ -157,6 +166,39 @@ export default function FollowUpsPage() {
                   )
                 })
               )}
+            </div>
+          </section>
+
+          <section style={panelStyle} data-vyvy-card="true">
+            <div style={asideHead}>
+              <div style={headLabel}>File cần dí</div>
+            </div>
+            <div style={stackStyle}>
+              {missingDeliverables.length === 0 ? (
+                <div style={emptySmall}>Không còn deliverable bắt buộc nào chưa nộp.</div>
+              ) : (
+                missingDeliverables.slice(0, 6).map((item) => {
+                  const person = item.submitter_id ? people[item.submitter_id] : null
+                  const task = item.task_id ? tasks[item.task_id] : null
+                  const overdue = Boolean(item.due_date && item.due_date < today)
+
+                  return (
+                    <div key={item.id} style={priorityItem}>
+                      <div style={priorityTitle}>{person?.full_name ?? 'Chưa gắn người nộp'}</div>
+                      <div style={priorityMeta}>{item.name}</div>
+                      <div style={priorityMeta}>{task?.title ?? 'Chưa gắn task'}</div>
+                      <div style={priorityFoot}>
+                        <span style={{ ...badgeBase, background: overdue ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)', color: overdue ? 'var(--color-danger)' : 'var(--color-warning)' }}>
+                          {overdue ? 'Quá hạn' : 'Chưa nộp'}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+              {overdueDeliverables.length > 0 ? (
+                <div style={emptySmall}>{overdueDeliverables.length} file đã quá hạn cần nhắc trước.</div>
+              ) : null}
             </div>
           </section>
 

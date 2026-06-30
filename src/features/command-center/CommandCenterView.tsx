@@ -114,7 +114,7 @@ function CCHeader({
   return (
     <div style={headerStyle}>
       <div>
-        <h1 style={headlineStyle} data-vyvy-type="true">Trung tâm điều hành</h1>
+        <h1 style={headlineStyle} data-vyvy-type="true" suppressHydrationWarning>Trung tâm điều hành</h1>
         <div style={subheadStyle}>
           {todayLabel}
           {!loading && typeof totalItems === 'number' ? ` · ${totalItems} việc cần bạn xử lý hôm nay` : ''}

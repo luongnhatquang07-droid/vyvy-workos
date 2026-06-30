@@ -169,6 +169,8 @@ export interface CommandCenterPersonRow {
   id: string
   full_name: string
   job_title: string | null
+  email: string | null
+  messenger_url: string | null
   department_id: string | null
   profile_id: string | null
   status: string
@@ -265,14 +267,35 @@ export interface CommandCenterMeetingTaskDraftRow {
 export interface CommandCenterDeliverableRow {
   id: string
   name: string
+  description: string | null
   task_id: string | null
   project_id: string | null
   step_id: string | null
+  required_format: string | null
   submitter_id: string | null
+  reviewer_id: string | null
   due_date: string | null
   status: 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'MISSING_INFORMATION' | 'REVISION_REQUIRED' | 'APPROVED'
   type: string | null
   is_required: boolean
+  approved_version_id: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface CommandCenterDeliverableVersionRow {
+  id: string
+  deliverable_id: string
+  version_number: number
+  attachment_id: string | null
+  external_url: string | null
+  submitted_by: string | null
+  submitted_at: string | null
+  change_note: string | null
+  review_status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  review_comment: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
 }
 
 export interface CommandCenterApprovalRow {

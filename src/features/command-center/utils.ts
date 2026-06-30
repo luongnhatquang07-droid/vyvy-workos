@@ -3,6 +3,7 @@ import type {
   CEODecisionRequest,
   ChaseItem,
   COOSummary,
+  Deliverable,
   KPIData,
   Meeting,
   Person,
@@ -45,12 +46,24 @@ export function computeKPI(
   approvals: Approval[],
   ceoRequests: CEODecisionRequest[],
   reminders: Reminder[],
+  deliverables: Deliverable[] = [],
 ): KPIData {
   const today = getVietnamDateKey()
+  const pendingPeople = new Set(
+    reminders
+      .filter((reminder) => reminder.response !== 'CLOSED' && reminder.response !== 'FILE_SUBMITTED')
+      .map((reminder) => reminder.personId)
+      .filter(Boolean),
+  )
+  deliverables
+    .filter((deliverable) => !['SUBMITTED', 'APPROVED'].includes(deliverable.status))
+    .forEach((deliverable) => {
+      if (deliverable.ownerId) pendingPeople.add(deliverable.ownerId)
+    })
   return {
     meetingsToday: meetings.filter((meeting) => meeting.date === today).length,
     unimportedDrafts: meetings.reduce((acc, meeting) => acc + Math.max(0, meeting.taskDraftCount - meeting.importedTaskCount), 0),
-    pendingDeliverable: new Set(reminders.filter((reminder) => reminder.response !== 'CLOSED' && reminder.response !== 'FILE_SUBMITTED').map((reminder) => reminder.personId)).size,
+    pendingDeliverable: pendingPeople.size,
     overdueItems: tasks.filter((task) => Boolean(task.dueDate) && task.dueDate < today && task.status !== 'COMPLETED' && task.status !== 'CANCELLED' && task.status !== 'WAITING').length,
     pendingApprovals: approvals.filter((approval) => approval.status === 'pending' || approval.status === 'overdue').length,
     ceoItems: ceoRequests.length,

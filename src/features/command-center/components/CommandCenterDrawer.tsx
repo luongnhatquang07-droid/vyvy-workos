@@ -325,6 +325,7 @@ function TaskBody({ rows, futureRoute, workspaceId, projectId, taskId, deliverab
               workspaceId={workspaceId}
               projectId={projectId}
               taskId={taskId}
+              deliverableId={deliverableId}
               refreshKey={refreshKey}
             />
             <div style={{ marginTop: 'var(--space-3)' }}>

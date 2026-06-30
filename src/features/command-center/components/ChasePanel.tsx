@@ -33,7 +33,7 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
               const rs = RESPONSE_LABEL[item.response] ?? RESPONSE_LABEL.NO_RESPONSE
               const avatarBg = AVATAR_COLORS[i % AVATAR_COLORS.length]
               return (
-                <div key={item.personId} style={{
+                <div key={`${item.personId}-${item.owedItem}-${item.deadline ?? 'no-deadline'}-${i}`} style={{
                   display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
                   padding: '8px 9px', borderRadius: 'var(--radius-md)',
                   cursor: 'pointer',

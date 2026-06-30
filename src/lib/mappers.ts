@@ -284,6 +284,21 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
     }
   })
 
+  const remindedDeliverables = new Set(raw.reminders.map((row) => row.deliverable_id).filter(Boolean))
+  raw.deliverables
+    .filter((row) => row.submitter_id && !remindedDeliverables.has(row.id) && !['SUBMITTED', 'APPROVED'].includes(row.status))
+    .forEach((row) => {
+      chaseItems.push({
+        personId: row.submitter_id ?? '',
+        owedItem: row.name,
+        deadline: row.due_date ?? undefined,
+        remindCount: 0,
+        response: 'NOT_REMINDED',
+        escalationStep: 'REMIND_1',
+        suggestEscalate: Boolean(row.due_date && row.due_date < today),
+      })
+    })
+
   const commitments: Commitment[] = raw.reminders
     .filter((row) => mapReminderResponse(row.response_status) === 'PROMISED')
     .map((row) => {
@@ -314,7 +329,7 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
       gateOpen: row.status === 'APPROVED',
     }))
 
-  const kpi = computeKPI(meetings, tasks, approvals, ceoRequests, reminders)
+  const kpi = computeKPI(meetings, tasks, approvals, ceoRequests, reminders, deliverables)
   const priorityItems = buildPriorityList(tasks, meetings, approvals, ceoRequests, people, projects)
   const cooSummary = buildCOOSummary(tasks, ceoRequests, approvals, reminders, meetings, projects)
   const summaryBanner = buildSummaryBanner(kpi, chaseItems, ceoRequests)

@@ -23,6 +23,7 @@ export function PageHead({ icon, title, desc, actions }: PageHeadProps) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <h1
           data-vyvy-type="true"
+          suppressHydrationWarning
           style={{
             fontFamily: 'var(--font-serif)',
             fontSize: 26, fontWeight: 500,
