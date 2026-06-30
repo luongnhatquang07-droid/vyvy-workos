@@ -9,14 +9,31 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
+  background: var(--color-bg);
 }
 
 body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
   color: var(--color-text);
-  background: var(--color-bg);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0) 18%),
+    linear-gradient(135deg, #f6f1e7 0%, #eee5d8 54%, #eee7db 100%);
   line-height: var(--leading-normal);
+  transition:
+    background-color var(--motion-slow) var(--ease-out),
+    color var(--motion-slow) var(--ease-out);
+}
+
+html[data-theme='dark'] body {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 18%),
+    linear-gradient(135deg, #090a0c 0%, #0f1115 48%, #12151a 100%);
+}
+
+html, body {
+  height: 100%;
 }
 
 a {
@@ -29,6 +46,8 @@ button {
   border: none;
   background: none;
   font: inherit;
+  position: relative;
+  overflow: hidden;
 }
 
 input, textarea, select {
@@ -37,9 +56,531 @@ input, textarea, select {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   color: var(--color-text);
+}
+
+main {
+  min-width: 0;
+}
+
+.vyvy-app-root {
+  background: var(--color-bg);
+  transition: background-color var(--motion-slow) var(--ease-out);
+  isolation: isolate;
+}
+
+.vyvy-app-root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 14%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 98px),
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.01) 0 1px, transparent 1px 98px);
+  opacity: 0.48;
+}
+
+html[data-theme='dark'] .vyvy-app-root::before {
+  background:
+    linear-gradient(120deg, rgba(218,223,33,0.06) 0%, rgba(218,223,33,0) 28%),
+    linear-gradient(150deg, rgba(74,140,92,0.06) 0%, rgba(74,140,92,0) 36%),
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0) 14%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.015) 0 1px, transparent 1px 104px),
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 104px);
+}
+
+.vyvy-main {
+  scroll-behavior: smooth;
+  position: relative;
+  z-index: 1;
+}
+
+.vyvy-main::before {
+  content: "";
+  position: fixed;
+  inset: var(--topbar-height) 0 0 var(--sidebar-width);
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 20%);
+  opacity: 0.46;
+}
+
+html[data-theme='dark'] .vyvy-main::before {
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.035), rgba(255,255,255,0) 18%),
+    linear-gradient(180deg, rgba(218,223,33,0.04), rgba(218,223,33,0) 22%);
+}
+
+.vyvy-route-view {
+  min-height: 100%;
+  animation: vyvy-page-in 260ms var(--ease-out) both;
+  position: relative;
+  z-index: 1;
+}
+
+.vyvy-nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: calc(var(--z-topbar) + 20);
+  height: 2px;
+  width: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--color-lime), var(--color-success), transparent);
+  transform-origin: left center;
+  animation: vyvy-progress 900ms var(--ease-out) both;
+}
+
+.vyvy-ripple {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  background: rgba(255,255,255,0.42);
+  transform: scale(0);
+  animation: vyvy-ripple 560ms var(--ease-out);
+  mix-blend-mode: overlay;
+}
+
+html[data-theme='dark'] .vyvy-ripple {
+  background: rgba(218,223,33,0.22);
+  mix-blend-mode: screen;
+}
+
+.vyvy-stagger-in {
+  animation: vyvy-row-in 460ms cubic-bezier(.22,1,.36,1) both;
+}
+
+main section,
+main article,
+main table,
+[data-vyvy-card],
+[data-vyvy-tilt] {
+  transition:
+    transform var(--motion-base) var(--ease-out),
+    box-shadow var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out),
+    background-color var(--motion-slow) var(--ease-out),
+    color var(--motion-slow) var(--ease-out);
+}
+
+main section,
+main article,
+[data-vyvy-card],
+[data-vyvy-tilt] {
+  position: relative;
+}
+
+/* Vầng sáng lime đi theo con trỏ — chữ ký hiệu ứng của bản mẫu.
+   --mx/--my được AppEffects cập nhật theo vị trí chuột trên từng thẻ. */
+[data-vyvy-card='true']::after,
+[data-vyvy-tilt='true']::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgba(218, 223, 33, 0.22), transparent 55%);
+}
+
+[data-vyvy-card='true']:hover::after,
+[data-vyvy-tilt='true']:hover::after {
+  opacity: 1;
+}
+
+[data-vyvy-tilt='true'] > * {
+  position: relative;
+  z-index: 1;
+}
+
+main section:hover,
+main article:hover,
+[data-vyvy-card]:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+main table tbody tr {
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+main table tbody tr:hover {
+  transform: translateX(3px);
+}
+
+[data-vyvy-nav-item] {
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+[data-vyvy-nav-item]:hover {
+  transform: translateX(4px);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+[data-vyvy-nav-item]:hover i {
+  animation: vyvy-icon-bounce 420ms var(--ease-out);
+}
+
+[data-vyvy-active-rail] {
+  transform-origin: center;
+  animation: vyvy-bar-grow 260ms var(--ease-out) both;
+}
+
+[data-vyvy-live-dot] {
+  animation: vyvy-live-pulse 1900ms ease-out infinite;
+}
+
+[data-vyvy-glowborder] {
+  border-color: transparent !important;
+  box-shadow: var(--shadow-premium);
+}
+
+/* Viền gradient xoay tròn (conic) — kỹ thuật mask giống bản mẫu. */
+[data-vyvy-glowborder]::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from 0deg, #DADF21, #4A8C5C, #6B8A99, #C47B2B, #DADF21);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: vyvy-spin 4s linear infinite;
+  z-index: 0;
+  pointer-events: none;
+}
+
+@keyframes vyvy-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes vyvy-num-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.vyvy-num-bump {
+  display: inline-block;
+  animation: vyvy-num-pop 0.42s ease;
+}
+
+@keyframes vyvy-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Lóe viền lime khi KPI vừa đếm xong / nhịp cập nhật trực tiếp.
+   Dùng outline để không bị box-shadow inline của card ghi đè. */
+@keyframes vyvy-flash {
+  0% { outline-color: rgba(218, 223, 33, 0); outline-width: 0; }
+  30% { outline-color: rgba(218, 223, 33, 0.6); outline-width: 3px; }
+  100% { outline-color: rgba(218, 223, 33, 0); outline-width: 0; }
+}
+
+.vyvy-flash {
+  outline-style: solid;
+  outline-offset: 1px;
+  animation: vyvy-flash 0.9s ease;
+}
+
+/* Thanh tiến độ mọc dần khi xuất hiện */
+@keyframes vyvy-bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+[data-vyvy-bar='true'] {
+  transform-origin: left center;
+  animation: vyvy-bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Phản hồi chạm: nhấn nút lún nhẹ (trừ nút có transform điều khiển bằng JS) */
+button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]) {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+
+button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]):active {
+  transform: scale(0.97);
+}
+
+.vyvy-type-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  background: var(--color-lime-d);
+  margin-left: 2px;
+  vertical-align: -2px;
+  animation: vyvy-caret 0.9s steps(1) infinite;
+}
+
+[data-vyvy-alert='true'] {
+  animation: vyvy-danger-glow 1800ms ease-in-out infinite;
+  box-shadow: 0 0 0 1px rgba(184,64,64,0.18);
+}
+
+[data-vyvy-step-now='true'] {
+  animation: vyvy-step-pulse 1600ms ease-in-out infinite;
+}
+
+[data-vyvy-row] {
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+[data-vyvy-row]:hover {
+  transform: translateX(7px);
+  box-shadow: -4px 0 0 0 var(--color-lime);
+  background: rgba(255,255,255,0.025);
+}
+
+[data-vyvy-magnetic] {
+  animation: vyvy-breathe 2600ms ease-in-out infinite;
+  will-change: transform;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.14);
+  backdrop-filter: blur(12px);
+}
+
+[data-vyvy-magnetic]::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 46%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  transform: translateX(-160%);
+}
+
+[data-vyvy-magnetic]:hover::after {
+  animation: vyvy-sheen 760ms var(--ease-out);
+}
+
+[data-vyvy-tilt] {
+  transform-style: preserve-3d;
+  will-change: transform;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.03),
+    0 10px 28px rgba(0,0,0,0.14);
+}
+
+[data-vyvy-tilt]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 62%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,0.2), transparent);
+  transform: translateX(-185%);
+  transition: transform 760ms cubic-bezier(.22,1,.36,1);
+}
+
+[data-vyvy-tilt]:hover::before {
+  transform: translateX(265%);
+}
+
+[data-vyvy-tilt='true']:hover {
+  border-color: var(--color-border-strong) !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.05),
+    0 18px 36px rgba(0,0,0,0.22);
+}
+
+[data-vyvy-card='true'] {
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+}
+
+[data-vyvy-card='true'] > * {
+  position: relative;
+  z-index: 1;
+}
+
+[data-vyvy-card='true']:not([data-vyvy-glowborder='true'])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0) 18%),
+    radial-gradient(320px circle at 20% 0%, rgba(255,255,255,0.04), transparent 55%);
+  opacity: 0.8;
+  z-index: 0;
+}
+
+[data-vyvy-card='true']:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.05),
+    0 18px 38px rgba(0,0,0,0.22);
+}
+
+.vyvy-radar {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(25,25,25,0.03) 35%, rgba(25,25,25,0.18));
+}
+
+.vyvy-radar-go {
+  display: flex;
+  animation: vyvy-radar-out 950ms ease forwards;
+}
+
+.vyvy-radar-line-h {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, rgba(218,223,33,0.55), transparent);
+  transform: scaleX(0);
+  animation: vyvy-draw-h 450ms ease forwards;
+}
+
+.vyvy-radar-line-v {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  background: linear-gradient(180deg, transparent, rgba(218,223,33,0.55), transparent);
+  transform: scaleY(0);
+  animation: vyvy-draw-v 450ms ease forwards;
+}
+
+.vyvy-radar-reticle {
+  position: relative;
+  width: min(42vmin, 520px);
+  height: min(42vmin, 520px);
+}
+
+.vyvy-radar-ring,
+.vyvy-radar-ring-2,
+.vyvy-radar-dot,
+.vyvy-radar-br,
+.vyvy-radar-label {
+  position: absolute;
+}
+
+.vyvy-radar-ring {
+  inset: 0;
+  border: 2px solid rgba(218,223,33,0.85);
+  border-radius: 50%;
+  transform: scale(1.55);
+  opacity: 0;
+  animation: vyvy-lock-in 550ms cubic-bezier(.2,1.35,.4,1) forwards;
+}
+
+.vyvy-radar-ring-2 {
+  inset: 0;
+  border: 1px dashed rgba(218,223,33,0.4);
+  border-radius: 50%;
+  animation: vyvy-ring-spin 3500ms linear infinite;
+}
+
+.vyvy-radar-dot {
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-lime);
+  box-shadow: 0 0 12px var(--color-lime);
+  transform: translate(-50%, -50%) scale(0);
+  animation: vyvy-dot-in 400ms 280ms cubic-bezier(.2,1.6,.4,1) forwards;
+}
+
+.vyvy-radar-br {
+  width: 44px;
+  height: 44px;
+  border: 2px solid rgba(218,223,33,0.85);
+}
+
+.vyvy-radar-tl {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+  animation: vyvy-br-in 400ms 80ms forwards;
+  --vyvy-br-x: -10px;
+  --vyvy-br-y: -10px;
+}
+
+.vyvy-radar-tr {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+  animation: vyvy-br-in 400ms 80ms forwards;
+  --vyvy-br-x: 10px;
+  --vyvy-br-y: -10px;
+}
+
+.vyvy-radar-bl {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+  animation: vyvy-br-in 400ms 80ms forwards;
+  --vyvy-br-x: -10px;
+  --vyvy-br-y: 10px;
+}
+
+.vyvy-radar-brr {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+  animation: vyvy-br-in 400ms 80ms forwards;
+  --vyvy-br-x: 10px;
+  --vyvy-br-y: 10px;
+}
+
+.vyvy-radar-label {
+  left: 50%;
+  top: calc(100% + 14px);
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--color-lime-d);
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  animation: vyvy-label-blink 900ms 400ms steps(1) 2;
+}
+
+.vyvy-confetti {
+  position: fixed;
+  border-radius: 2px;
+  z-index: 5000;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: vyvy-confetti-fall 980ms cubic-bezier(.22,1,.36,1) forwards;
 }
 
 /* Focus ring */
@@ -58,6 +599,115 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
   100% { background-position:  400px 0; }
+}
+
+@keyframes vyvy-page-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vyvy-row-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vyvy-progress {
+  0% { opacity: 1; transform: scaleX(0); }
+  58% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+
+@keyframes vyvy-ripple {
+  to { opacity: 0; transform: scale(2.4); }
+}
+
+@keyframes vyvy-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(218,223,33,0); }
+  50% { box-shadow: 0 0 22px 2px rgba(218,223,33,0.42); }
+}
+
+@keyframes vyvy-sheen {
+  to { transform: translateX(260%); }
+}
+
+@keyframes vyvy-live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(218,223,33,0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(218,223,33,0); }
+  100% { box-shadow: 0 0 0 0 rgba(218,223,33,0); }
+}
+
+@keyframes vyvy-icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+@keyframes vyvy-bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes vyvy-danger-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184,64,64,0); }
+  50% { box-shadow: 0 0 0 4px rgba(184,64,64,0.22); }
+}
+
+@keyframes vyvy-step-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(107,138,153,0); }
+  50% { box-shadow: 0 0 0 4px rgba(107,138,153,0.3); }
+}
+
+@keyframes vyvy-radar-out {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes vyvy-draw-h {
+  to { transform: scaleX(1); }
+}
+
+@keyframes vyvy-draw-v {
+  to { transform: scaleY(1); }
+}
+
+@keyframes vyvy-ring-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes vyvy-lock-in {
+  0% { transform: scale(1.6); opacity: 0; }
+  60% { opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes vyvy-dot-in {
+  to { transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes vyvy-br-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--vyvy-br-x), var(--vyvy-br-y));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes vyvy-label-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes vyvy-confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--vyvy-confetti-x), var(--vyvy-confetti-y), 0) rotate(var(--vyvy-confetti-r)) scale(0.84);
+  }
 }
 
 /* Toast slide */

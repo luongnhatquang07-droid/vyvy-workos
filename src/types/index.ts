@@ -1,8 +1,12 @@
+export type NavBadge = { count: number; variant: 'default' | 'hot' | 'lime' }
+
 export type NavItem = {
   key: string
   label: string
   href: string
-  icon: string
+  icon: string   // tabler icon class e.g. "ti-layout-dashboard"
+  group?: string // group label for sidebar section headers
+  badge?: NavBadge
 }
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error'

@@ -1,15 +1,18 @@
 'use client'
 import React from 'react'
+import { usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { AppEffects } from './AppEffects'
 import { CommandPalette } from '@/components/ui/CommandPalette'
+import { CommandDataProvider } from '@/hooks/useCommandData'
 
 const STORAGE_KEY = 'vyvy_sidebar_collapsed'
 const OVERLAY_BREAKPOINT = 1100
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  // Start with SSR-safe defaults (false/false) to avoid hydration mismatch.
-  // A single mount effect syncs to real client state (localStorage + window size).
+  const pathname = usePathname()
+
   const [desktopCollapsed, setDesktopCollapsed] = React.useState(false)
   const [overlayOpen, setOverlayOpen] = React.useState(false)
   const [isOverlayMode, setIsOverlayMode] = React.useState(false)
@@ -67,22 +70,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setCmdOpen(true)
   }
 
+  if (pathname === '/login') return <>{children}</>
+
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)', position: 'relative' }}>
-      <Sidebar
-        isOverlayMode={isOverlayMode}
-        overlayOpen={overlayOpen}
-        onOverlayClose={() => setOverlayOpen(false)}
-        desktopCollapsed={desktopCollapsed}
-        onDesktopCollapse={handleDesktopCollapse}
-      />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-        <Topbar onToggleSidebar={handleTopbarToggle} onOpenCommandPalette={openCmd} />
-        <main id="main-content" style={{ flex: 1, padding: 'var(--space-6)', overflowY: 'auto' }}>
-          {children}
-        </main>
+    <CommandDataProvider>
+      <div className="vyvy-app-root" style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)', position: 'relative' }}>
+        <AppEffects />
+        <div key={pathname} className="vyvy-nav-progress" />
+        <Sidebar
+          isOverlayMode={isOverlayMode}
+          overlayOpen={overlayOpen}
+          onOverlayClose={() => setOverlayOpen(false)}
+          desktopCollapsed={desktopCollapsed}
+          onDesktopCollapse={handleDesktopCollapse}
+        />
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
+          <Topbar onToggleSidebar={handleTopbarToggle} onOpenCommandPalette={openCmd} />
+          <main id="main-content" className="vyvy-main" style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
+            <div key={pathname} className="vyvy-route-view">
+              {children}
+            </div>
+          </main>
+        </div>
+        <CommandPalette key={cmdKey} open={cmdOpen} onClose={() => setCmdOpen(false)} />
       </div>
-      <CommandPalette key={cmdKey} open={cmdOpen} onClose={() => setCmdOpen(false)} />
-    </div>
+    </CommandDataProvider>
   )
 }
