@@ -1,0 +1,110 @@
+'use client'
+
+import React from 'react'
+import type { RawCommandCenterData } from '@/lib/database.types'
+
+export type CommandCenterApiData = RawCommandCenterData & {
+  workspaceId: string
+}
+
+interface UseCommandDataResult {
+  data: CommandCenterApiData | null
+  loading: boolean
+  error: string
+  refresh: () => Promise<void>
+}
+
+const CommandDataContext = React.createContext<UseCommandDataResult | null>(null)
+
+export function CommandDataProvider({ children }: { children: React.ReactNode }) {
+  const value = useCommandDataState()
+  return <CommandDataContext.Provider value={value}>{children}</CommandDataContext.Provider>
+}
+
+export function useCommandData(): UseCommandDataResult {
+  const context = React.useContext(CommandDataContext)
+  return (
+    context ?? {
+      data: commandDataCache.data,
+      loading: false,
+      error: commandDataCache.error,
+      refresh: async () => undefined,
+    }
+  )
+}
+
+function useCommandDataState(): UseCommandDataResult {
+  const [data, setData] = React.useState<CommandCenterApiData | null>(() => commandDataCache.data)
+  const [loading, setLoading] = React.useState(() => !commandDataCache.data)
+  const [error, setError] = React.useState(() => commandDataCache.error)
+
+  const load = React.useCallback(async (force = false) => {
+    if (commandDataCache.promise && !force) {
+      setLoading(true)
+      try {
+        const payload = await commandDataCache.promise
+        commandDataCache.data = payload
+        setData(payload)
+        setError('')
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    const promise = fetch('/api/command-center', { cache: 'no-store' }).then(async (response) => {
+      const payload = (await response.json()) as CommandCenterApiData | { error?: string }
+      if (!response.ok) {
+        throw new Error('error' in payload && payload.error ? payload.error : 'Không thể tải dữ liệu điều hành')
+      }
+      return payload as CommandCenterApiData
+    })
+
+    commandDataCache.promise = promise
+
+    try {
+      const payload = await promise
+      commandDataCache.data = payload
+      commandDataCache.error = ''
+      setData(payload)
+      setError('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Không thể tải dữ liệu'
+      commandDataCache.error = message
+      setError(message)
+    } finally {
+      commandDataCache.promise = null
+      setLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (commandDataCache.data) return
+    queueMicrotask(() => {
+      void load()
+    })
+  }, [load])
+
+  const refresh = React.useCallback(async () => {
+    commandDataCache.data = null
+    commandDataCache.error = ''
+    await load(true)
+  }, [load])
+
+  return { data, loading, error, refresh }
+}
+
+const commandDataCache: {
+  data: CommandCenterApiData | null
+  error: string
+  promise: Promise<CommandCenterApiData> | null
+} = {
+  data: null,
+  error: '',
+  promise: null,
+}

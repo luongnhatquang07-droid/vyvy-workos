@@ -1,0 +1,65 @@
+import { NextResponse } from 'next/server'
+import { getCommandCenterData } from '@/lib/db/commandCenter'
+import { createClient } from '@/lib/supabase/server'
+
+export async function GET() {
+  const sb = await createClient()
+  const {
+    data: { user },
+  } = await sb.auth.getUser()
+
+  if (!user) {
+    return NextResponse.json({ error: 'Bạn cần đăng nhập để xem dữ liệu điều hành.' }, { status: 401 })
+  }
+
+  const profileRes = await sb
+    .from('profiles')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .maybeSingle()
+
+  if (profileRes.error) {
+    return NextResponse.json(
+      { error: 'Không đọc được hồ sơ đăng nhập. Kiểm tra bảng profiles hoặc RLS.' },
+      { status: 500 },
+    )
+  }
+
+  if (!profileRes.data?.id) {
+    return NextResponse.json({ error: 'Tài khoản chưa có profile trong workspace.' }, { status: 403 })
+  }
+
+  const membershipRes = await sb
+    .from('workspace_memberships')
+    .select('workspace_id')
+    .eq('profile_id', profileRes.data.id)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle()
+
+  if (membershipRes.error) {
+    return NextResponse.json(
+      { error: 'Không đọc được quyền workspace. Kiểm tra RLS hoặc membership của tài khoản.' },
+      { status: 500 },
+    )
+  }
+
+  const workspaceId = membershipRes.data?.workspace_id
+  if (!workspaceId) {
+    return NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 })
+  }
+
+  try {
+    const data = await getCommandCenterData(workspaceId)
+    return NextResponse.json({ ...data, workspaceId })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error
+          ? error.message
+          : 'Không tải được dữ liệu điều hành.',
+      },
+      { status: 500 },
+    )
+  }
+}
