@@ -52,4 +52,6 @@ next-env.d.ts
 .claude/
 .claude/worktrees/
 artifacts/
+handover-ref/
 scripts/
+HANDOVER_FOR_CLAUDE_CODE.md
