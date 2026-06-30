@@ -1,10 +1,14 @@
 'use client'
 import React from 'react'
 import { useRouter } from 'next/navigation'
+import { formatCommandCenterDateTime, getCommandCenterGreeting } from '../greeting'
 import type { SummaryBannerData } from '../types'
 
 interface SummaryBannerProps {
   summary: SummaryBannerData
+  currentTime: Date | null
+  userName?: string
+  timezone?: string
 }
 
 function RichText({ text }: { text: string }) {
@@ -28,8 +32,11 @@ const CHIP_COLORS: Record<string, { color: string; border: string; bg: string }>
   lime:     { color: 'var(--color-lime-d)', border: 'rgba(218,223,33,0.4)', bg: 'rgba(218,223,33,0.08)' },
 }
 
-export function SummaryBanner({ summary }: SummaryBannerProps) {
+export function SummaryBanner({ summary, currentTime, userName = 'Quang', timezone }: SummaryBannerProps) {
   const router = useRouter()
+  const greeting = currentTime ? getCommandCenterGreeting(currentTime, timezone, userName) : null
+  const dateTimeLabel = currentTime ? formatCommandCenterDateTime(currentTime, timezone) : 'Đang đồng bộ thời gian'
+  const iconClass = greeting?.iconClass ?? 'ti-clock'
 
   return (
     <div style={{
@@ -44,25 +51,30 @@ export function SummaryBanner({ summary }: SummaryBannerProps) {
     data-vyvy-card="true"
     data-vyvy-glowborder="true"
     >
-      {/* Lime icon */}
       <div style={{
         width: 36, height: 36, borderRadius: 'var(--radius-md)',
         background: 'var(--color-lime)', color: 'var(--color-charcoal)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 18, flexShrink: 0,
-      }}>✦</div>
+      }} aria-hidden="true">
+        <i className={`ti ${iconClass}`} />
+      </div>
 
       <div style={{ flex: 1 }}>
         {/* Title + label */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-          <b style={{ fontSize: 'var(--text-sm)' }}>Sáng nay của bạn</b>
+          <b style={{ fontSize: 'var(--text-sm)' }}>{greeting?.title ?? 'Đang đồng bộ Command Center'}</b>
           <span style={{
             fontSize: 10, color: 'var(--color-text-muted)',
             background: 'var(--color-surface-2)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-sm)', padding: '1px 7px',
-          }}>Tóm tắt theo quy tắc hệ thống · 07:00</span>
+          }}>Tóm tắt theo quy tắc hệ thống · {dateTimeLabel}</span>
         </div>
+
+        <p style={{ fontSize: 'var(--text-sm)', lineHeight: 1.6, color: 'var(--color-text-muted)', margin: '0 0 var(--space-2) 0' }}>
+          {greeting?.subtitle ?? 'Đang lấy giờ hiện tại của workspace.'}
+        </p>
 
         {/* Paragraph */}
         <p style={{ fontSize: 'var(--text-sm)', lineHeight: 1.75, color: 'var(--color-text-muted)', margin: '0 0 var(--space-3) 0' }}>

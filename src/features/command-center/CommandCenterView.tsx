@@ -14,6 +14,7 @@ import { FilterChips } from './components/FilterChips'
 import { KPICards } from './components/KPICards'
 import { PriorityList } from './components/PriorityList'
 import { SummaryBanner } from './components/SummaryBanner'
+import { DEFAULT_COMMAND_CENTER_TIMEZONE, formatCommandCenterDateTime } from './greeting'
 import type { CommandCenterData, DrawerState, FilterView } from './types'
 import { filterPriorityItems } from './utils'
 
@@ -22,16 +23,34 @@ interface CommandCenterViewProps {
   role?: string
   todayLabel?: string
   workspaceId?: string
+  userName?: string
+  timezone?: string
   dataIssue?: {
     title: string
     description: string
   }
 }
 
-export function CommandCenterView({ data, todayLabel, workspaceId, dataIssue }: CommandCenterViewProps) {
+export function CommandCenterView({
+  data,
+  todayLabel,
+  workspaceId,
+  userName = 'Quang',
+  timezone = DEFAULT_COMMAND_CENTER_TIMEZONE,
+  dataIssue,
+}: CommandCenterViewProps) {
   const [filter, setFilter] = React.useState<FilterView>('all')
   const [drawer, setDrawer] = React.useState<DrawerState>({ open: false, type: null, id: null })
+  const [currentTime, setCurrentTime] = React.useState<Date | null>(null)
   const commandData = data
+
+  React.useEffect(() => {
+    const syncTime = () => setCurrentTime(new Date())
+    syncTime()
+    const intervalId = window.setInterval(syncTime, 60000)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   const filteredPriorityItems = React.useMemo(
     () => filterPriorityItems(commandData.priorityItems, filter),
@@ -45,9 +64,20 @@ export function CommandCenterView({ data, todayLabel, workspaceId, dataIssue }: 
   return (
     <>
       <div style={pageStyle}>
-        <CCHeader totalItems={commandData.priorityItems.length} todayLabel={todayLabel} hasDataIssue={Boolean(dataIssue)} />
+        <CCHeader
+          totalItems={commandData.priorityItems.length}
+          todayLabel={todayLabel}
+          currentTime={currentTime}
+          timezone={timezone}
+          hasDataIssue={Boolean(dataIssue)}
+        />
         {dataIssue ? <DataIssueBanner title={dataIssue.title} description={dataIssue.description} /> : null}
-        <SummaryBanner summary={commandData.summaryBanner} />
+        <SummaryBanner
+          summary={commandData.summaryBanner}
+          currentTime={currentTime}
+          userName={userName}
+          timezone={timezone}
+        />
         <KPICards kpi={commandData.kpi} />
         <FilterChips value={filter} onChange={setFilter} />
 
@@ -104,19 +134,25 @@ function CCHeader({
   loading,
   totalItems,
   todayLabel,
+  currentTime,
+  timezone = DEFAULT_COMMAND_CENTER_TIMEZONE,
   hasDataIssue,
 }: {
   loading?: boolean
   totalItems?: number
   todayLabel?: string
+  currentTime?: Date | null
+  timezone?: string
   hasDataIssue?: boolean
 }) {
+  const displayDateTime = currentTime ? formatCommandCenterDateTime(currentTime, timezone) : todayLabel
+
   return (
     <div style={headerStyle}>
       <div>
         <h1 style={headlineStyle} data-vyvy-type="true" suppressHydrationWarning>Trung tâm điều hành</h1>
         <div style={subheadStyle}>
-          {todayLabel}
+          {displayDateTime}
           {!loading && typeof totalItems === 'number' ? ` · ${totalItems} việc cần bạn xử lý hôm nay` : ''}
         </div>
       </div>
