@@ -3,6 +3,7 @@
 import React from 'react'
 import { Drawer } from '@/components/feedback/Drawer'
 import { DataErrorState } from '@/components/ui/DataErrorState'
+import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
@@ -21,6 +22,7 @@ type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDI
 type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
 type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings'
 type StepTemplate = 'none' | 'basic' | 'approval'
+type DetailSection = 'report' | 'files' | 'workflow' | 'deadline'
 
 interface AttachmentItem {
   id: string
@@ -169,6 +171,8 @@ function ProjectsPageContent() {
   const [deadlineDraft, setDeadlineDraft] = React.useState<DragDraft | null>(null)
   const [deadlineReason, setDeadlineReason] = React.useState('')
   const [activeUploadStepId, setActiveUploadStepId] = React.useState<string | null>(null)
+  const [openDetailSections, setOpenDetailSections] = React.useState<DetailSection[]>([])
+  const [fileRefreshKey, setFileRefreshKey] = React.useState(0)
 
   React.useEffect(() => {
     if (loading) return
@@ -189,6 +193,13 @@ function ProjectsPageContent() {
       setReady(true)
     })
   }, [data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
+
+  React.useEffect(() => {
+    queueMicrotask(() => {
+      setOpenDetailSections([])
+      setActiveUploadStepId(null)
+    })
+  }, [selectedSubtaskId])
 
   const selectedProject = workspace.find((project) => project.id === selectedProjectId) ?? workspace[0] ?? null
   const selectedSubtask = selectedProject ? findSubtask(selectedProject, selectedSubtaskId) : null
@@ -243,6 +254,26 @@ function ProjectsPageContent() {
       await refresh()
       return null
     }
+  }
+
+  function toggleSubtaskSection(section: DetailSection) {
+    setOpenDetailSections((current) => {
+      if (current.includes(section)) return current.filter((item) => item !== section)
+      const next = [...current, section]
+      return next.length > 2 ? next.slice(next.length - 2) : next
+    })
+  }
+
+  function openSubtaskSection(section: DetailSection) {
+    setOpenDetailSections((current) => {
+      if (current.includes(section)) return current
+      const next = [...current, section]
+      return next.length > 2 ? next.slice(next.length - 2) : next
+    })
+  }
+
+  function openBlockedSection(subtask: SubtaskItem) {
+    openSubtaskSection(getBlockedSection(subtask))
   }
 
   function openComposer(mode: ComposerMode, parentId?: string) {
@@ -490,11 +521,13 @@ function ProjectsPageContent() {
       const blockers = getCompletionBlockers(selectedSubtask)
       if (blockers.length) {
         window.alert(`Chưa thể hoàn thành vì còn thiếu: ${blockers.join('; ')}.`)
+        openBlockedSection(selectedSubtask)
         return
       }
     }
     if (requiresEvidence(nextStatus) && !hasEvidence(selectedSubtask)) {
       setActiveTab('overview')
+      openSubtaskSection('files')
     }
     updateSubtaskField('status', nextStatus)
     void commitWorkspaceMutation('PATCH', {
@@ -762,96 +795,30 @@ function ProjectsPageContent() {
                     </div>
                   </div>
 
-                  {(selectedSubtask.needsFile || requiresEvidence(selectedSubtask.status)) && !hasEvidence(selectedSubtask) ? (
-                    <div style={warningBanner}>
-                      Đầu việc này đang thiếu file hoặc báo cáo. Hãy tải file lên hoặc nhập báo cáo trước khi chốt trạng thái.
-                    </div>
-                  ) : null}
-
-                  <div style={subtaskGrid}>
-                    <div style={subtaskColumn}>
-                      <div style={fieldLabel}>Tiến độ đầu việc con</div>
-                      <div style={progressBigRow}>
-                        <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(selectedSubtask)}%` }} /></div>
-                        <span style={progressBadgeStyle}>{getSubtaskProgress(selectedSubtask)}%</span>
-                      </div>
-                      <div style={mutedMetaStyle}>{getSubtaskProgressText(selectedSubtask)}</div>
-
-                      <div style={fieldLabel}>Báo cáo / cập nhật kết quả</div>
-                      <textarea
-                        value={selectedSubtask.reportText}
-                        onChange={(e) => updateSubtaskField('reportText', e.target.value)}
-                        placeholder="Nhập báo cáo, kết quả, khó khăn, phần cần hỗ trợ..."
-                        style={textareaStyle}
-                      />
-
-                      <StepWorkflowPanel
-                        key={selectedSubtask.id}
-                        subtask={selectedSubtask}
-                        people={people}
-                        onUpdateStep={(stepId, patch) => updateStep(selectedSubtask.id, stepId, patch)}
-                        onDeleteStep={(stepId) => deleteStep(selectedSubtask.id, stepId)}
-                        onAddStep={(draft) => addStep(selectedSubtask.id, draft)}
-                        onUploadForStep={(stepId) => setActiveUploadStepId(stepId)}
-                      />
-                    </div>
-
-                    <div style={subtaskColumn}>
-                      <div style={fieldLabel}>
-                        {activeUploadStep ? `Upload file cho bước: ${activeUploadStep.title}` : 'Upload file kết quả'}
-                      </div>
-                      <FileUpload
-                        workspaceId={workspaceId}
-                        projectId={selectedProject.sourceProjectId ?? undefined}
-                        taskId={selectedSubtask.sourceTaskId ?? undefined}
-                        deliverableId={activeUploadStep?.deliverableId ?? undefined}
-                        compact
-                        label="Tải file hoàn thành, báo cáo, ảnh chụp, tài liệu"
-                        onUploaded={(file) => {
-                          updateSubtaskField('attachments', [
-                            {
-                              id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
-                              name: file.fileName,
-                              url: file.url,
-                            },
-                            ...selectedSubtask.attachments,
-                          ])
-                          void refresh()
-                        }}
-                      />
-
-                      <div style={fieldLabel}>File đã gắn vào đầu việc</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {selectedSubtask.attachments.length === 0 ? (
-                          <div style={emptyInline}>Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên.</div>
-                        ) : (
-                          selectedSubtask.attachments.map((file) => (
-                            <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
-                              <i className="ti ti-paperclip" />
-                              <span style={{ flex: 1, minWidth: 0 }}>{file.name}</span>
-                              <i className="ti ti-external-link" />
-                            </a>
-                          ))
-                        )}
-                      </div>
-
-                      <div style={fieldLabel}>Lịch sử dời deadline</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {selectedSubtask.deadlineHistory.length === 0 ? (
-                          <div style={emptyInline}>Chưa có lần dời deadline nào.</div>
-                        ) : (
-                          selectedSubtask.deadlineHistory.map((entry) => (
-                            <div key={entry.id} style={historyRowStyle}>
-                              <div style={{ fontWeight: 700, color: 'var(--txt)' }}>
-                                {toShortDate(entry.oldDate)} → {toShortDate(entry.newDate)}
-                              </div>
-                              <div style={mutedMetaStyle}>{entry.reason}</div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <SubtaskCompactDetail
+                    subtask={selectedSubtask}
+                    project={selectedProject}
+                    people={people}
+                    workspaceId={workspaceId}
+                    activeUploadStep={activeUploadStep}
+                    openSections={openDetailSections}
+                    fileRefreshKey={fileRefreshKey}
+                    onToggleSection={toggleSubtaskSection}
+                    onOpenBlockedSection={() => openBlockedSection(selectedSubtask)}
+                    onUpdateReport={(value) => updateSubtaskField('reportText', value)}
+                    onUpdateAttachments={(attachments) => updateSubtaskField('attachments', attachments)}
+                    onFilesChanged={() => {
+                      setFileRefreshKey((value) => value + 1)
+                      void refresh()
+                    }}
+                    onUpdateStep={(stepId, patch) => updateStep(selectedSubtask.id, stepId, patch)}
+                    onDeleteStep={(stepId) => deleteStep(selectedSubtask.id, stepId)}
+                    onAddStep={(draft) => addStep(selectedSubtask.id, draft)}
+                    onUploadForStep={(stepId) => {
+                      setActiveUploadStepId(stepId)
+                      openSubtaskSection('files')
+                    }}
+                  />
                 </section>
               ) : null}
             </section>
@@ -957,6 +924,304 @@ function ProjectsPageContent() {
         </ModalShell>
       ) : null}
     </div>
+  )
+}
+
+function SubtaskCompactDetail({
+  subtask,
+  project,
+  people,
+  workspaceId,
+  activeUploadStep,
+  openSections,
+  fileRefreshKey,
+  onToggleSection,
+  onOpenBlockedSection,
+  onUpdateReport,
+  onUpdateAttachments,
+  onFilesChanged,
+  onUpdateStep,
+  onDeleteStep,
+  onAddStep,
+  onUploadForStep,
+}: {
+  subtask: SubtaskItem
+  project: ProjectWorkspace
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+  activeUploadStep: StepItem | null
+  openSections: DetailSection[]
+  fileRefreshKey: number
+  onToggleSection: (section: DetailSection) => void
+  onOpenBlockedSection: () => void
+  onUpdateReport: (value: string) => void
+  onUpdateAttachments: (attachments: AttachmentItem[]) => void
+  onFilesChanged: () => void
+  onUpdateStep: (stepId: string, patch: Partial<StepItem>) => void
+  onDeleteStep: (stepId: string) => void
+  onAddStep: (draft: StepDraft) => void
+  onUploadForStep: (stepId: string) => void
+}) {
+  const blockers = getCompletionBlockers(subtask)
+  const workflowSummary = getWorkflowSummary(subtask)
+  const fileSummary = getFileSummary(subtask)
+  const deadlineSummary = getDeadlineSummary(subtask)
+  const peopleById = React.useMemo(
+    () => Object.fromEntries(Object.values(people).map((person) => [person.id, { full_name: person.full_name }])),
+    [people],
+  )
+
+  return (
+    <div style={compactDetailStack}>
+      <div style={subtaskMetaGrid}>
+        <div style={compactMetaCard}>
+          <span style={fieldLabel}>Owner</span>
+          <strong>{people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'}</strong>
+        </div>
+        <div style={compactMetaCard}>
+          <span style={fieldLabel}>Deadline</span>
+          <strong>{subtask.dueDate ? toShortDate(subtask.dueDate) : 'Chưa có'}</strong>
+        </div>
+        <div style={compactMetaCard}>
+          <span style={fieldLabel}>Progress</span>
+          <div style={progressBigRow}>
+            <div style={progressTrack}>
+              <span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} />
+            </div>
+            <span style={progressBadgeStyle}>{getSubtaskProgress(subtask)}%</span>
+          </div>
+        </div>
+      </div>
+
+      {blockers.length ? (
+        <div style={compactWarningBanner}>
+          <div>
+            <strong>Chưa thể hoàn thành:</strong> {getCompactBlockerText(subtask)}
+          </div>
+          <button type="button" onClick={onOpenBlockedSection} style={warningActionButton}>
+            Mở phần cần xử lý
+          </button>
+        </div>
+      ) : null}
+
+      <div style={summaryCardGrid}>
+        <SummaryCard
+          icon="ti-list-check"
+          title="Quy trình"
+          value={workflowSummary.value}
+          hint={workflowSummary.hint}
+          tone={workflowSummary.tone}
+          active={openSections.includes('workflow')}
+          onClick={() => onToggleSection('workflow')}
+        />
+        <SummaryCard
+          icon="ti-paperclip"
+          title="File/Báo cáo"
+          value={fileSummary.value}
+          hint={fileSummary.hint}
+          tone={fileSummary.tone}
+          active={openSections.includes('files')}
+          badge={fileSummary.badge}
+          onClick={() => onToggleSection('files')}
+        />
+        <SummaryCard
+          icon="ti-calendar-time"
+          title="Deadline"
+          value={deadlineSummary.value}
+          hint={deadlineSummary.hint}
+          tone={deadlineSummary.tone}
+          active={openSections.includes('deadline')}
+          onClick={() => onToggleSection('deadline')}
+        />
+      </div>
+
+      <div style={accordionStack}>
+        <AccordionSection
+          id="report"
+          title="Báo cáo / cập nhật kết quả"
+          summary={subtask.reportText.trim() ? 'Đã có báo cáo' : 'Chưa có cập nhật'}
+          open={openSections.includes('report')}
+          onToggle={() => onToggleSection('report')}
+        >
+          <textarea
+            value={subtask.reportText}
+            onChange={(event) => onUpdateReport(event.target.value)}
+            placeholder="Nhập báo cáo, kết quả, khó khăn, phần cần hỗ trợ..."
+            style={textareaStyle}
+          />
+          <div style={accordionActionRow}>
+            <button type="button" onClick={() => onUpdateReport(subtask.reportText)} style={smallPrimaryButton}>
+              Lưu cập nhật
+            </button>
+          </div>
+        </AccordionSection>
+
+        <AccordionSection
+          id="files"
+          title="File / bàn giao"
+          summary={fileSummary.value}
+          badge={fileSummary.badge}
+          open={openSections.includes('files')}
+          onToggle={() => onToggleSection('files')}
+        >
+          <div style={fieldLabel}>
+            {activeUploadStep ? `Upload file cho bước: ${activeUploadStep.title}` : 'Upload file kết quả'}
+          </div>
+          <FileUpload
+            workspaceId={workspaceId}
+            projectId={project.sourceProjectId ?? undefined}
+            taskId={subtask.sourceTaskId ?? undefined}
+            deliverableId={activeUploadStep?.deliverableId ?? undefined}
+            compact
+            label="Tải file hoàn thành, báo cáo, ảnh chụp, tài liệu"
+            onUploaded={(file) => {
+              onUpdateAttachments([
+                {
+                  id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
+                  name: file.fileName,
+                  url: file.url,
+                },
+                ...subtask.attachments,
+              ])
+              onFilesChanged()
+            }}
+          />
+
+          {activeUploadStep?.deliverableId ? (
+            <FileList
+              workspaceId={workspaceId}
+              projectId={project.sourceProjectId ?? undefined}
+              taskId={subtask.sourceTaskId ?? undefined}
+              deliverableId={activeUploadStep.deliverableId}
+              refreshKey={fileRefreshKey}
+              peopleById={peopleById}
+              onChanged={onFilesChanged}
+            />
+          ) : null}
+
+          <div style={fieldLabel}>File đã gắn vào đầu việc</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {subtask.attachments.length === 0 ? (
+              <div style={emptyInline}>Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên.</div>
+            ) : (
+              subtask.attachments.map((file) => (
+                <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
+                  <i className="ti ti-paperclip" />
+                  <span style={{ flex: 1, minWidth: 0 }}>{file.name}</span>
+                  <i className="ti ti-external-link" />
+                </a>
+              ))
+            )}
+          </div>
+        </AccordionSection>
+
+        <AccordionSection
+          id="workflow"
+          title="Quy trình thực hiện"
+          summary={workflowSummary.value}
+          open={openSections.includes('workflow')}
+          onToggle={() => onToggleSection('workflow')}
+        >
+          <StepWorkflowPanel
+            key={subtask.id}
+            subtask={subtask}
+            people={people}
+            onUpdateStep={onUpdateStep}
+            onDeleteStep={onDeleteStep}
+            onAddStep={onAddStep}
+            onUploadForStep={onUploadForStep}
+          />
+        </AccordionSection>
+
+        <AccordionSection
+          id="deadline"
+          title="Lịch sử deadline"
+          summary={deadlineSummary.value}
+          open={openSections.includes('deadline')}
+          onToggle={() => onToggleSection('deadline')}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {subtask.deadlineHistory.length === 0 ? (
+              <div style={emptyInline}>Chưa có lần dời deadline nào.</div>
+            ) : (
+              subtask.deadlineHistory.map((entry) => (
+                <div key={entry.id} style={historyRowStyle}>
+                  <div style={{ fontWeight: 700, color: 'var(--txt)' }}>
+                    {toShortDate(entry.oldDate)} → {toShortDate(entry.newDate)}
+                  </div>
+                  <div style={mutedMetaStyle}>{entry.reason}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </AccordionSection>
+      </div>
+    </div>
+  )
+}
+
+function SummaryCard({
+  icon,
+  title,
+  value,
+  hint,
+  tone,
+  active,
+  badge,
+  onClick,
+}: {
+  icon: string
+  title: string
+  value: string
+  hint: string
+  tone: 'neutral' | 'good' | 'warning' | 'danger'
+  active: boolean
+  badge?: string
+  onClick: () => void
+}) {
+  return (
+    <button type="button" onClick={onClick} style={summaryCardStyle(active, tone)}>
+      <span style={summaryIconStyle(tone)}><i className={`ti ${icon}`} /></span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={summaryTitleStyle}>{title}</span>
+        <strong style={summaryValueStyle}>{value}</strong>
+        <span style={summaryHintStyle}>{hint}</span>
+      </span>
+      {badge ? <span style={summaryBadgeStyle(tone)}>{badge}</span> : null}
+    </button>
+  )
+}
+
+function AccordionSection({
+  title,
+  summary,
+  badge,
+  open,
+  onToggle,
+  children,
+}: {
+  id: DetailSection
+  title: string
+  summary: string
+  badge?: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <section style={accordionSectionStyle}>
+      <button type="button" onClick={onToggle} style={accordionHeaderStyle}>
+        <span style={accordionChevronStyle(open)}>
+          <i className="ti ti-chevron-right" />
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <strong style={accordionTitleStyle}>{title}</strong>
+          <span style={accordionSummaryStyle}>{summary}</span>
+        </span>
+        {badge ? <span style={accordionBadgeStyle}>{badge}</span> : null}
+      </button>
+      {open ? <div style={accordionBodyStyle}>{children}</div> : null}
+    </section>
   )
 }
 
@@ -2237,6 +2502,122 @@ function getSubtaskProgressText(subtask: SubtaskItem) {
   return `Tiến độ: ${stats.completed}/${stats.total} bước hoàn thành · ${getSubtaskProgress(subtask)}%${requiredText}`
 }
 
+function getWorkflowSummary(subtask: SubtaskItem): { value: string; hint: string; tone: 'neutral' | 'good' | 'warning' | 'danger' } {
+  const stats = getRequiredStepStats(subtask)
+  if (!stats.total) {
+    return {
+      value: 'Chưa có bước',
+      hint: 'Bấm để thêm quy trình.',
+      tone: 'warning',
+    }
+  }
+  const progress = getSubtaskProgress(subtask)
+  const hasBlockedStep = subtask.steps.some((step) => ['BLOCKED', 'REVISION_REQUIRED'].includes(step.status))
+  return {
+    value: `${stats.completed}/${stats.total} bước xong`,
+    hint: `${progress}% tiến độ theo bước`,
+    tone: hasBlockedStep ? 'danger' : progress === 100 ? 'good' : 'neutral',
+  }
+}
+
+function getFileSummary(subtask: SubtaskItem): { value: string; hint: string; tone: 'neutral' | 'good' | 'warning' | 'danger'; badge?: string } {
+  const revisionSteps = getRevisionDeliverableSteps(subtask)
+  if (revisionSteps.length) {
+    return {
+      value: 'File cần sửa',
+      hint: revisionSteps.map((step) => step.title).join(', '),
+      tone: 'danger',
+      badge: 'Cần xử lý',
+    }
+  }
+
+  const missingSteps = getMissingDeliverableSteps(subtask)
+  if (missingSteps.length || ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask))) {
+    return {
+      value: 'Chưa nộp file',
+      hint: missingSteps.length ? `${missingSteps.length} bước còn thiếu file/báo cáo` : 'Cần file hoặc báo cáo trước khi chốt.',
+      tone: 'warning',
+      badge: 'Thiếu',
+    }
+  }
+
+  const submittedCount = subtask.attachments.length + subtask.steps.filter((step) => ['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? '')).length
+  if (submittedCount > 0 || subtask.reportText.trim()) {
+    return {
+      value: submittedCount > 0 ? `Đã nộp ${submittedCount} mục` : 'Đã có báo cáo',
+      hint: subtask.steps.some((step) => step.deliverableStatus === 'APPROVED') ? 'Có file đã duyệt' : 'Đang có bằng chứng/báo cáo',
+      tone: 'good',
+    }
+  }
+
+  return {
+    value: 'Chưa yêu cầu file',
+    hint: 'Mở khi cần nộp báo cáo hoặc gắn link.',
+    tone: 'neutral',
+  }
+}
+
+function getDeadlineSummary(subtask: SubtaskItem): { value: string; hint: string; tone: 'neutral' | 'good' | 'warning' | 'danger' } {
+  if (subtask.deadlineHistory.length) {
+    return {
+      value: `Đã dời ${subtask.deadlineHistory.length} lần`,
+      hint: `Deadline hiện tại: ${subtask.dueDate ? toShortDate(subtask.dueDate) : 'chưa có'}`,
+      tone: 'warning',
+    }
+  }
+  if (!subtask.dueDate) {
+    return {
+      value: 'Chưa có deadline',
+      hint: 'Cần bổ sung deadline nếu phải chốt kết quả.',
+      tone: 'neutral',
+    }
+  }
+  if (isOverdue(subtask.dueDate, subtask.status)) {
+    return {
+      value: 'Trễ',
+      hint: `Deadline: ${toShortDate(subtask.dueDate)}`,
+      tone: 'danger',
+    }
+  }
+  return {
+    value: 'Đúng hạn',
+    hint: subtask.dueDate ? `Deadline: ${toShortDate(subtask.dueDate)}` : 'Chưa có deadline',
+    tone: 'good',
+  }
+}
+
+function getMissingDeliverableSteps(subtask: SubtaskItem) {
+  return subtask.steps.filter(
+    (step) =>
+      step.requiresDeliverable &&
+      step.isRequired &&
+      !['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? ''),
+  )
+}
+
+function getRevisionDeliverableSteps(subtask: SubtaskItem) {
+  return subtask.steps.filter(
+    (step) =>
+      step.requiresDeliverable &&
+      ['REVISION_REQUIRED', 'MISSING_INFORMATION'].includes(step.deliverableStatus ?? ''),
+  )
+}
+
+function getBlockedSection(subtask: SubtaskItem): DetailSection {
+  if (getMissingDeliverableSteps(subtask).length || getRevisionDeliverableSteps(subtask).length) return 'files'
+  if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
+  return 'workflow'
+}
+
+function getCompactBlockerText(subtask: SubtaskItem) {
+  if (getRevisionDeliverableSteps(subtask).length) return 'file/báo cáo đang bị yêu cầu sửa.'
+  if (getMissingDeliverableSteps(subtask).length || ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask))) {
+    return 'thiếu file/báo cáo.'
+  }
+  if (subtask.steps.some((step) => step.isRequired && step.status !== 'COMPLETED')) return 'còn bước bắt buộc chưa hoàn thành.'
+  return getCompletionBlockers(subtask).join('; ') || 'còn điều kiện chưa đạt.'
+}
+
 function getCompletionBlockers(subtask: SubtaskItem) {
   const blockers: string[] = []
   const requiredSteps = subtask.steps.filter((step) => step.isRequired)
@@ -2930,16 +3311,227 @@ const warningBanner: React.CSSProperties = {
   fontWeight: 600,
 }
 
-const subtaskGrid: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1.1fr 0.9fr',
-  gap: 18,
-}
-
-const subtaskColumn: React.CSSProperties = {
+const compactDetailStack: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+}
+
+const subtaskMetaGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: 10,
+}
+
+const compactMetaCard: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  minWidth: 0,
+  padding: 12,
+  borderRadius: 12,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt)',
+  fontSize: 13,
+}
+
+const compactWarningBanner: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  padding: '10px 12px',
+  borderRadius: 12,
+  background: 'var(--color-warning-bg)',
+  color: 'var(--color-warning)',
+  fontSize: 12.5,
+}
+
+const warningActionButton: React.CSSProperties = {
+  flexShrink: 0,
+  border: '1px solid rgba(196,123,43,.35)',
+  background: 'var(--surface)',
+  color: 'var(--color-warning)',
+  borderRadius: 999,
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const summaryCardGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: 10,
+}
+
+const toneColor = (tone: 'neutral' | 'good' | 'warning' | 'danger') =>
+  tone === 'good'
+    ? 'var(--color-success)'
+    : tone === 'warning'
+      ? 'var(--color-warning)'
+      : tone === 'danger'
+        ? 'var(--color-danger)'
+        : 'var(--txt-3)'
+
+const toneBg = (tone: 'neutral' | 'good' | 'warning' | 'danger') =>
+  tone === 'good'
+    ? 'var(--color-success-bg)'
+    : tone === 'warning'
+      ? 'var(--color-warning-bg)'
+      : tone === 'danger'
+        ? 'var(--color-danger-bg)'
+        : 'var(--surface-3)'
+
+const summaryCardStyle = (active: boolean, tone: 'neutral' | 'good' | 'warning' | 'danger'): React.CSSProperties => ({
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  minHeight: 92,
+  padding: 12,
+  borderRadius: 13,
+  border: `1px solid ${active ? 'rgba(218,223,33,.45)' : tone === 'neutral' ? 'var(--line)' : toneColor(tone)}`,
+  background: active ? 'rgba(218,223,33,.06)' : 'var(--surface-2)',
+  textAlign: 'left',
+  color: 'var(--txt)',
+  cursor: 'pointer',
+  boxShadow: active ? '0 0 0 1px rgba(218,223,33,.08)' : 'none',
+})
+
+const summaryIconStyle = (tone: 'neutral' | 'good' | 'warning' | 'danger'): React.CSSProperties => ({
+  width: 34,
+  height: 34,
+  flexShrink: 0,
+  borderRadius: 10,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: toneColor(tone),
+  background: toneBg(tone),
+  fontSize: 16,
+})
+
+const summaryTitleStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 800,
+  textTransform: 'uppercase',
+  color: 'var(--txt-3)',
+  marginBottom: 3,
+}
+
+const summaryValueStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 14,
+  color: 'var(--txt)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const summaryHintStyle: React.CSSProperties = {
+  display: 'block',
+  marginTop: 3,
+  fontSize: 11.5,
+  color: 'var(--txt-3)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const summaryBadgeStyle = (tone: 'neutral' | 'good' | 'warning' | 'danger'): React.CSSProperties => ({
+  flexShrink: 0,
+  padding: '4px 8px',
+  borderRadius: 999,
+  background: toneBg(tone),
+  color: toneColor(tone),
+  fontSize: 10.5,
+  fontWeight: 800,
+})
+
+const accordionStack: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const accordionSectionStyle: React.CSSProperties = {
+  borderRadius: 13,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  overflow: 'hidden',
+}
+
+const accordionHeaderStyle: React.CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '12px 13px',
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--txt)',
+  textAlign: 'left',
+  cursor: 'pointer',
+}
+
+const accordionChevronStyle = (open: boolean): React.CSSProperties => ({
+  width: 24,
+  height: 24,
+  flexShrink: 0,
+  borderRadius: 999,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--txt-3)',
+  transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+  transition: 'transform 140ms ease',
+})
+
+const accordionTitleStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 13.5,
+  color: 'var(--txt)',
+}
+
+const accordionSummaryStyle: React.CSSProperties = {
+  display: 'block',
+  marginTop: 2,
+  fontSize: 12,
+  color: 'var(--txt-3)',
+}
+
+const accordionBadgeStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '4px 8px',
+  borderRadius: 999,
+  background: 'var(--color-warning-bg)',
+  color: 'var(--color-warning)',
+  fontSize: 10.5,
+  fontWeight: 800,
+}
+
+const accordionBodyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '0 13px 13px',
+}
+
+const accordionActionRow: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+}
+
+const smallPrimaryButton: React.CSSProperties = {
+  border: '1px solid rgba(218,223,33,.35)',
+  background: 'var(--color-lime)',
+  color: 'var(--color-lime-ink)',
+  borderRadius: 999,
+  padding: '8px 12px',
+  fontSize: 12,
+  fontWeight: 800,
 }
 
 const fieldLabel: React.CSSProperties = {
