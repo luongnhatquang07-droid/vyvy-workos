@@ -10,6 +10,7 @@ export interface SidebarCounts {
   meetings: number
   'task-inbox': number
   'follow-ups': number
+  projects: number
   approvals: number
   deliverables: number
   'ceo-reports': number
@@ -20,6 +21,7 @@ export const EMPTY_SIDEBAR_COUNTS: SidebarCounts = {
   meetings: 0,
   'task-inbox': 0,
   'follow-ups': 0,
+  projects: 0,
   approvals: 0,
   deliverables: 0,
   'ceo-reports': 0,
@@ -44,6 +46,7 @@ export function getSidebarCounts(data: RawCommandCenterData, today = todayKey())
     meetings: meetingsToday,
     'task-inbox': pendingDrafts,
     'follow-ups': remindersDue,
+    projects: data.projects.length,
     approvals: pendingApprovals,
     deliverables: overdueDeliverables,
     'ceo-reports': ceoAttention,
