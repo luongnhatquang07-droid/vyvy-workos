@@ -49,7 +49,8 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
 
     sb.from('meetings')
       .select('id,title,start_at,status,project_id')
-      .eq('workspace_id', workspaceId),
+      .eq('workspace_id', workspaceId)
+      .is('deleted_at', null),
 
     sb.from('meeting_task_drafts')
       .select('id,meeting_id,import_status')
@@ -57,10 +58,11 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
 
     sb.from('deliverables')
       .select('id,name,description,task_id,project_id,step_id,required_format,submitter_id,reviewer_id,due_date,status,type,is_required,approved_version_id,created_at,updated_at')
-      .eq('workspace_id', workspaceId),
+      .eq('workspace_id', workspaceId)
+      .is('deleted_at', null),
 
     sb.from('approvals')
-      .select('id,task_id,deliverable_id,project_id,requested_by,approver_id,status,requested_at,due_at')
+      .select('id,task_id,step_id,deliverable_id,project_id,requested_by,approver_id,status,requested_at,due_at')
       .eq('workspace_id', workspaceId),
 
     sb.from('reminders')
@@ -78,8 +80,49 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .limit(20),
   ])
 
-  const deliverables = requireRows('file/báo cáo', deliverablesRes) as RawCommandCenterData['deliverables']
+  const projects = requireRows('dự án', projectsRes) as RawCommandCenterData['projects']
+  const projectIds = new Set(projects.map((project) => project.id))
+  const workstreams = (requireRows('đầu việc lớn', workstreamsRes) as RawCommandCenterData['workstreams'])
+    .filter((workstream) => projectIds.has(workstream.project_id))
+  const workstreamIds = new Set(workstreams.map((workstream) => workstream.id))
+  const tasks = (requireRows('đầu việc', tasksRes) as RawCommandCenterData['tasks'])
+    .filter((task) =>
+      (!task.project_id || projectIds.has(task.project_id)) &&
+      (!task.workstream_id || workstreamIds.has(task.workstream_id)),
+    )
+  const taskIds = new Set(tasks.map((task) => task.id))
+  const taskSteps = (requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'])
+    .filter((step) => taskIds.has(step.task_id))
+  const stepIds = new Set(taskSteps.map((step) => step.id))
+  const meetings = (requireRows('cuộc họp', meetingsRes) as RawCommandCenterData['meetings'])
+    .filter((meeting) => !meeting.project_id || projectIds.has(meeting.project_id))
+  const meetingIds = new Set(meetings.map((meeting) => meeting.id))
+  const taskDrafts = (requireRows('draft đầu việc từ họp', draftsRes) as RawCommandCenterData['taskDrafts'])
+    .filter((draft) => meetingIds.has(draft.meeting_id))
+  const deliverables = (requireRows('file/báo cáo', deliverablesRes) as RawCommandCenterData['deliverables'])
+    .filter((deliverable) =>
+      (!deliverable.project_id || projectIds.has(deliverable.project_id)) &&
+      (!deliverable.task_id || taskIds.has(deliverable.task_id)) &&
+      (!deliverable.step_id || stepIds.has(deliverable.step_id)),
+    )
   const deliverableIds = deliverables.map((deliverable) => deliverable.id)
+  const deliverableIdSet = new Set(deliverableIds)
+  const approvals = (requireRows('phê duyệt', approvalsRes) as RawCommandCenterData['approvals'])
+    .filter((approval) =>
+      approval.status !== 'CANCELLED' &&
+      (!approval.project_id || projectIds.has(approval.project_id)) &&
+      (!approval.task_id || taskIds.has(approval.task_id)) &&
+      (!approval.step_id || stepIds.has(approval.step_id)) &&
+      (!approval.deliverable_id || deliverableIdSet.has(approval.deliverable_id)),
+    )
+  const reminders = (requireRows('nhắc việc', remindersRes) as RawCommandCenterData['reminders'])
+    .filter((reminder) =>
+      reminder.response_status !== 'CLOSED' &&
+      (!reminder.task_id || taskIds.has(reminder.task_id)) &&
+      (!reminder.deliverable_id || deliverableIdSet.has(reminder.deliverable_id)),
+    )
+  const ceoRequests = (requireRows('báo cáo CEO', ceoRes) as RawCommandCenterData['ceoRequests'])
+    .filter((request) => !request.project_id || projectIds.has(request.project_id))
   let deliverableVersions: RawCommandCenterData['deliverableVersions'] = []
   let attachments: RawCommandCenterData['attachments'] = []
 
@@ -107,18 +150,18 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
 
   return {
     people: requireRows('nhân sự', peopleRes) as RawCommandCenterData['people'],
-    projects: requireRows('dự án', projectsRes) as RawCommandCenterData['projects'],
-    workstreams: requireRows('đầu việc lớn', workstreamsRes) as RawCommandCenterData['workstreams'],
-    tasks: requireRows('đầu việc', tasksRes) as RawCommandCenterData['tasks'],
-    taskSteps: requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'],
-    meetings: requireRows('cuộc họp', meetingsRes) as RawCommandCenterData['meetings'],
-    taskDrafts: requireRows('draft đầu việc từ họp', draftsRes) as RawCommandCenterData['taskDrafts'],
+    projects,
+    workstreams,
+    tasks,
+    taskSteps,
+    meetings,
+    taskDrafts,
     deliverables,
     deliverableVersions,
     attachments,
-    approvals: requireRows('phê duyệt', approvalsRes) as RawCommandCenterData['approvals'],
-    reminders: requireRows('nhắc việc', remindersRes) as RawCommandCenterData['reminders'],
-    ceoRequests: requireRows('báo cáo CEO', ceoRes) as RawCommandCenterData['ceoRequests'],
+    approvals,
+    reminders,
+    ceoRequests,
     activityLogs: requireRows('nhật ký hoạt động', activityRes) as RawCommandCenterData['activityLogs'],
   }
 }

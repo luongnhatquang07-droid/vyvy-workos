@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
+type WorkspaceAuth = Exclude<Awaited<ReturnType<typeof getWorkspace>>, { response: NextResponse }>
+type SoftDeleteTable = 'projects' | 'workstreams' | 'tasks' | 'task_steps' | 'deliverables' | 'meetings'
 
 export async function POST(request: Request) {
   const auth = await getWorkspace()
@@ -173,23 +175,18 @@ export async function DELETE(request: Request) {
   const body = (await request.json()) as { type?: EntityType; id?: string }
   if (!body.type || !body.id) return NextResponse.json({ error: 'Thiếu loại hoặc id cần xóa.' }, { status: 400 })
 
-  const table =
-    body.type === 'project'
-      ? 'projects'
-      : body.type === 'workstream'
-        ? 'workstreams'
-        : body.type === 'task'
-          ? 'tasks'
-          : body.type === 'step'
-            ? 'task_steps'
-            : null
+  try {
+    if (body.type === 'project') await softDeleteProject(auth, body.id)
+    else if (body.type === 'workstream') await softDeleteWorkstream(auth, body.id)
+    else if (body.type === 'task') await softDeleteTask(auth, body.id)
+    else if (body.type === 'step') await softDeleteStep(auth, body.id)
+    else return NextResponse.json({ error: 'Loại thao tác chưa hỗ trợ xóa mềm.' }, { status: 400 })
 
-  if (!table) return NextResponse.json({ error: 'Loại thao tác chưa hỗ trợ xóa mềm.' }, { status: 400 })
-
-  const result = await auth.sb.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', body.id).eq('workspace_id', auth.workspaceId)
-  if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 })
-  await logActivity(auth, 'SOFT_DELETE', body.type, body.id, {})
-  return NextResponse.json({ ok: true })
+    await logActivity(auth, 'SOFT_DELETE', body.type, body.id, {})
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
+  }
 }
 
 async function getWorkspace() {
@@ -228,6 +225,248 @@ async function updateEntity(
 ) {
   const result = await auth.sb.from(table).update(patch).eq('id', id).eq('workspace_id', auth.workspaceId)
   if (result.error) throw result.error
+}
+
+async function softDeleteProject(auth: WorkspaceAuth, projectId: string) {
+  const now = new Date().toISOString()
+  const taskIds = await selectTaskIdsByProject(auth, projectId)
+  const stepIds = await selectStepIdsByTasks(auth, taskIds)
+  const deliverableIds = await selectDeliverableIds(auth, { projectId, taskIds, stepIds })
+
+  await markDeletedByIds(auth, 'projects', [projectId], now)
+  await markDeletedWhere(auth, 'workstreams', 'project_id', projectId, now)
+  await markDeletedByIds(auth, 'tasks', taskIds, now)
+  await markDeletedByIds(auth, 'task_steps', stepIds, now)
+  await markDeletedByIds(auth, 'deliverables', deliverableIds, now)
+  await markDeletedWhere(auth, 'meetings', 'project_id', projectId, now)
+  await closeReminders(auth, { taskIds, deliverableIds }, now)
+  await cancelApprovals(auth, { projectId, taskIds, stepIds, deliverableIds }, now)
+  await closeCeoRequests(auth, projectId)
+}
+
+async function softDeleteWorkstream(auth: WorkspaceAuth, workstreamId: string) {
+  const now = new Date().toISOString()
+  const taskIds = await selectTaskIdsByWorkstream(auth, workstreamId)
+  const stepIds = await selectStepIdsByTasks(auth, taskIds)
+  const deliverableIds = await selectDeliverableIds(auth, { taskIds, stepIds })
+
+  await markDeletedByIds(auth, 'workstreams', [workstreamId], now)
+  await markDeletedByIds(auth, 'tasks', taskIds, now)
+  await markDeletedByIds(auth, 'task_steps', stepIds, now)
+  await markDeletedByIds(auth, 'deliverables', deliverableIds, now)
+  await closeReminders(auth, { taskIds, deliverableIds }, now)
+  await cancelApprovals(auth, { taskIds, stepIds, deliverableIds }, now)
+}
+
+async function softDeleteTask(auth: WorkspaceAuth, taskId: string) {
+  const now = new Date().toISOString()
+  const stepIds = await selectStepIdsByTasks(auth, [taskId])
+  const deliverableIds = await selectDeliverableIds(auth, { taskIds: [taskId], stepIds })
+
+  await markDeletedByIds(auth, 'tasks', [taskId], now)
+  await markDeletedByIds(auth, 'task_steps', stepIds, now)
+  await markDeletedByIds(auth, 'deliverables', deliverableIds, now)
+  await closeReminders(auth, { taskIds: [taskId], deliverableIds }, now)
+  await cancelApprovals(auth, { taskIds: [taskId], stepIds, deliverableIds }, now)
+}
+
+async function softDeleteStep(auth: WorkspaceAuth, stepId: string) {
+  const now = new Date().toISOString()
+  const deliverableIds = await selectDeliverableIds(auth, { stepIds: [stepId] })
+
+  await markDeletedByIds(auth, 'task_steps', [stepId], now)
+  await markDeletedByIds(auth, 'deliverables', deliverableIds, now)
+  await closeReminders(auth, { deliverableIds }, now)
+  await cancelApprovals(auth, { stepIds: [stepId], deliverableIds }, now)
+}
+
+async function selectTaskIdsByProject(auth: WorkspaceAuth, projectId: string) {
+  const result = await auth.sb
+    .from('tasks')
+    .select('id')
+    .eq('workspace_id', auth.workspaceId)
+    .eq('project_id', projectId)
+    .is('deleted_at', null)
+  if (result.error) throw result.error
+  return idsFromRows(result.data)
+}
+
+async function selectTaskIdsByWorkstream(auth: WorkspaceAuth, workstreamId: string) {
+  const result = await auth.sb
+    .from('tasks')
+    .select('id')
+    .eq('workspace_id', auth.workspaceId)
+    .eq('workstream_id', workstreamId)
+    .is('deleted_at', null)
+  if (result.error) throw result.error
+  return idsFromRows(result.data)
+}
+
+async function selectStepIdsByTasks(auth: WorkspaceAuth, taskIds: string[]) {
+  if (!taskIds.length) return []
+  const result = await auth.sb
+    .from('task_steps')
+    .select('id')
+    .eq('workspace_id', auth.workspaceId)
+    .in('task_id', taskIds)
+    .is('deleted_at', null)
+  if (result.error) throw result.error
+  return idsFromRows(result.data)
+}
+
+async function selectDeliverableIds(
+  auth: WorkspaceAuth,
+  scope: { projectId?: string; taskIds?: string[]; stepIds?: string[] },
+) {
+  const groups: string[][] = []
+
+  if (scope.projectId) {
+    const result = await auth.sb
+      .from('deliverables')
+      .select('id')
+      .eq('workspace_id', auth.workspaceId)
+      .eq('project_id', scope.projectId)
+      .is('deleted_at', null)
+    if (result.error) throw result.error
+    groups.push(idsFromRows(result.data))
+  }
+
+  if (scope.taskIds?.length) {
+    const result = await auth.sb
+      .from('deliverables')
+      .select('id')
+      .eq('workspace_id', auth.workspaceId)
+      .in('task_id', scope.taskIds)
+      .is('deleted_at', null)
+    if (result.error) throw result.error
+    groups.push(idsFromRows(result.data))
+  }
+
+  if (scope.stepIds?.length) {
+    const result = await auth.sb
+      .from('deliverables')
+      .select('id')
+      .eq('workspace_id', auth.workspaceId)
+      .in('step_id', scope.stepIds)
+      .is('deleted_at', null)
+    if (result.error) throw result.error
+    groups.push(idsFromRows(result.data))
+  }
+
+  return unique(groups.flat())
+}
+
+async function markDeletedByIds(auth: WorkspaceAuth, table: SoftDeleteTable, ids: string[], deletedAt: string) {
+  if (!ids.length) return
+  const result = await auth.sb
+    .from(table)
+    .update({ deleted_at: deletedAt })
+    .eq('workspace_id', auth.workspaceId)
+    .in('id', unique(ids))
+  if (result.error) throw result.error
+}
+
+async function markDeletedWhere(
+  auth: WorkspaceAuth,
+  table: Extract<SoftDeleteTable, 'workstreams' | 'meetings'>,
+  column: 'project_id',
+  value: string,
+  deletedAt: string,
+) {
+  const result = await auth.sb
+    .from(table)
+    .update({ deleted_at: deletedAt })
+    .eq('workspace_id', auth.workspaceId)
+    .eq(column, value)
+    .is('deleted_at', null)
+  if (result.error) throw result.error
+}
+
+async function closeReminders(
+  auth: WorkspaceAuth,
+  scope: { taskIds?: string[]; deliverableIds?: string[] },
+  updatedAt: string,
+) {
+  const patch = { status: 'closed', response_status: 'CLOSED', updated_at: updatedAt }
+
+  if (scope.taskIds?.length) {
+    const result = await auth.sb
+      .from('reminders')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .in('task_id', unique(scope.taskIds))
+    if (result.error) throw result.error
+  }
+
+  if (scope.deliverableIds?.length) {
+    const result = await auth.sb
+      .from('reminders')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .in('deliverable_id', unique(scope.deliverableIds))
+    if (result.error) throw result.error
+  }
+}
+
+async function cancelApprovals(
+  auth: WorkspaceAuth,
+  scope: { projectId?: string; taskIds?: string[]; stepIds?: string[]; deliverableIds?: string[] },
+  updatedAt: string,
+) {
+  const patch = { status: 'CANCELLED', updated_at: updatedAt }
+
+  if (scope.projectId) {
+    const result = await auth.sb
+      .from('approvals')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .eq('project_id', scope.projectId)
+    if (result.error) throw result.error
+  }
+
+  if (scope.taskIds?.length) {
+    const result = await auth.sb
+      .from('approvals')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .in('task_id', unique(scope.taskIds))
+    if (result.error) throw result.error
+  }
+
+  if (scope.stepIds?.length) {
+    const result = await auth.sb
+      .from('approvals')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .in('step_id', unique(scope.stepIds))
+    if (result.error) throw result.error
+  }
+
+  if (scope.deliverableIds?.length) {
+    const result = await auth.sb
+      .from('approvals')
+      .update(patch)
+      .eq('workspace_id', auth.workspaceId)
+      .in('deliverable_id', unique(scope.deliverableIds))
+    if (result.error) throw result.error
+  }
+}
+
+async function closeCeoRequests(auth: WorkspaceAuth, projectId: string) {
+  const result = await auth.sb
+    .from('ceo_decision_requests')
+    .update({ status: 'closed', updated_at: new Date().toISOString() })
+    .eq('workspace_id', auth.workspaceId)
+    .eq('project_id', projectId)
+  if (result.error) throw result.error
+}
+
+function idsFromRows(rows: { id: string }[] | null) {
+  return unique((rows ?? []).map((row) => row.id))
+}
+
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
 }
 
 function mapPatch(input: Record<string, unknown>, allowed: string[]) {

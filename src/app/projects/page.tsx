@@ -7,7 +7,7 @@ import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
-import { CommandDataProvider, useCommandData } from '@/hooks/useCommandData'
+import { useCommandData } from '@/hooks/useCommandData'
 import {
   isVersionInvalid,
   isVersionRevision,
@@ -162,11 +162,7 @@ const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'B
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export default function ProjectsPage() {
-  return (
-    <CommandDataProvider>
-      <ProjectsPageContent />
-    </CommandDataProvider>
-  )
+  return <ProjectsPageContent />
 }
 
 function ProjectsPageContent() {

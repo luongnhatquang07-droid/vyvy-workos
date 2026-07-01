@@ -111,6 +111,7 @@ export interface ApprovalRow {
   id: string
   workspace_id: string
   task_id: string | null
+  step_id: string | null
   deliverable_id: string | null
   project_id: string | null
   requested_by: string | null
@@ -315,6 +316,7 @@ export interface CommandCenterAttachmentRow {
 export interface CommandCenterApprovalRow {
   id: string
   task_id: string | null
+  step_id: string | null
   deliverable_id: string | null
   project_id: string | null
   requested_by: string | null
