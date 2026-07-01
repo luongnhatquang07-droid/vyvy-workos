@@ -113,6 +113,22 @@
   --color-danger-bg:   #F4DEDE;
   --color-waiting-bg:  #E6ECEF;
 
+  /* Dark premium app shell tokens */
+  --app-bg: #080A0D;
+  --app-surface: #0D1015;
+  --app-surface-2: #12161D;
+  --app-surface-3: #171B22;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.14);
+  --app-text: #F3F4F1;
+  --app-text-muted: #9CA3AF;
+  --app-text-soft: #C9CDD3;
+  --brand-lime: #DADF21;
+  --brand-lime-soft: rgba(218, 223, 33, 0.14);
+  --brand-lime-border: rgba(218, 223, 33, 0.45);
+  --danger-soft: rgba(239, 68, 68, 0.18);
+  --danger-text: #F87171;
+
   /* Border variants */
   --color-border-weak:   rgba(25,25,25,0.08);
   --color-border-strong: rgba(25,25,25,0.26);
@@ -169,6 +185,21 @@ html[data-theme='dark'] {
   --color-warning-bg:  #33270F;
   --color-danger-bg:   #3A1D20;
   --color-waiting-bg:  #16242B;
+
+  --app-bg: #080A0D;
+  --app-surface: #0D1015;
+  --app-surface-2: #12161D;
+  --app-surface-3: #171B22;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.14);
+  --app-text: #F3F4F1;
+  --app-text-muted: #9CA3AF;
+  --app-text-soft: #C9CDD3;
+  --brand-lime: #DADF21;
+  --brand-lime-soft: rgba(218, 223, 33, 0.14);
+  --brand-lime-border: rgba(218, 223, 33, 0.45);
+  --danger-soft: rgba(239, 68, 68, 0.18);
+  --danger-text: #F87171;
 
   --shadow-sm:  0 1px 2px rgba(0,0,0,0.28);
   --shadow-md:  0 8px 20px rgba(0,0,0,0.30);

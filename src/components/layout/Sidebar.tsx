@@ -174,27 +174,27 @@ export function Sidebar({
 }
 
 function badgeStyleFor(variant?: string): React.CSSProperties {
-  if (variant === 'hot') return { background: 'rgba(184,64,64,.3)', color: '#f0b3b3' }
-  if (variant === 'lime') return { background: 'rgba(218,223,33,.2)', color: 'var(--color-lime)' }
-  return { background: 'rgba(255,255,255,.10)', color: '#CFC9BE' }
+  if (variant === 'hot') return { background: 'var(--danger-soft)', color: 'var(--danger-text)' }
+  if (variant === 'lime') return { background: 'var(--brand-lime-soft)', color: 'var(--brand-lime)' }
+  return { background: 'rgba(255,255,255,.07)', color: 'var(--app-text-soft)' }
 }
 
 const sidebarFrameStyle = (collapsed: boolean): React.CSSProperties => ({
   width: collapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
   background:
-    "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0) 18%), linear-gradient(180deg, rgba(218,223,33,0.06), rgba(218,223,33,0) 22%), var(--color-sidebar-bg)",
+    'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0) 18%), linear-gradient(135deg, rgba(218,223,33,0.07), rgba(218,223,33,0) 32%), linear-gradient(180deg, var(--app-surface-2), var(--app-bg))',
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
   transition: 'width var(--motion-slow) var(--ease-out)',
   overflow: 'hidden',
-  borderRight: '1px solid rgba(255,255,255,0.08)',
-  boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.03), 18px 0 44px rgba(0,0,0,0.18)',
+  borderRight: '1px solid var(--app-border)',
+  boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.035), 18px 0 48px rgba(0,0,0,0.28)',
 })
 
 const brandSectionStyle = (collapsed: boolean): React.CSSProperties => ({
   padding: collapsed ? '20px 12px 14px' : '18px 14px 14px',
-  borderBottom: '1px solid rgba(255,255,255,0.06)',
+  borderBottom: '1px solid var(--app-border)',
 })
 
 const brandRowStyle = (collapsed: boolean): React.CSSProperties => ({
@@ -209,18 +209,18 @@ const logoStyle: React.CSSProperties = {
   width: 34,
   height: 34,
   borderRadius: '50%',
-  background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.12), rgba(255,255,255,0) 38%), #0F0F0F',
-  border: '1px solid rgba(255,255,255,0.24)',
+  background: 'radial-gradient(circle at 30% 30%, rgba(218,223,33,0.22), rgba(218,223,33,0) 42%), var(--app-surface-3)',
+  border: '1px solid var(--app-border-strong)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  color: '#fff',
+  color: 'var(--app-text)',
   fontWeight: 600,
   fontFamily: 'var(--font-display)',
   fontSize: 18,
   lineHeight: 1,
   flexShrink: 0,
-  boxShadow: '0 10px 24px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)',
+  boxShadow: '0 12px 28px rgba(0,0,0,0.36), 0 0 0 1px rgba(218,223,33,0.08), inset 0 1px 0 rgba(255,255,255,0.10)',
 }
 
 const brandTitleStyle: React.CSSProperties = {
@@ -228,17 +228,17 @@ const brandTitleStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: 16,
   letterSpacing: '0.2px',
-  color: '#F4F0E7',
+  color: 'var(--app-text)',
 }
 
 const brandSubStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#8C8278',
+  color: 'var(--app-text-muted)',
   marginTop: -2,
 }
 
 const collapseButtonStyle: React.CSSProperties = {
-  color: 'rgba(255,255,255,0.38)',
+  color: 'var(--app-text-muted)',
   fontSize: 16,
   padding: '4px 6px',
   borderRadius: 'var(--radius-sm)',
@@ -251,24 +251,24 @@ const quickSearchStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 9,
-  background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
-  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025)), var(--app-surface-2)',
+  border: '1px solid var(--app-border-strong)',
   borderRadius: 12,
   padding: '8px 12px',
-  color: '#9c958a',
+  color: 'var(--app-text-muted)',
   fontSize: 13,
   textAlign: 'left',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+  boxShadow: '0 10px 24px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.05)',
   backdropFilter: 'blur(12px)',
 }
 
 const kbdStyle: React.CSSProperties = {
   fontSize: 11,
-  background: 'rgba(255,255,255,0.08)',
-  border: '1px solid rgba(255,255,255,0.14)',
+  background: 'rgba(255,255,255,0.07)',
+  border: '1px solid var(--app-border-strong)',
   borderRadius: 5,
   padding: '1px 6px',
-  color: '#9c958a',
+  color: 'var(--app-text-muted)',
   fontFamily: 'var(--font-mono)',
 }
 
@@ -283,7 +283,7 @@ const groupTitleStyle: React.CSSProperties = {
   fontSize: 10.5,
   textTransform: 'uppercase',
   letterSpacing: '0.9px',
-  color: '#736c61',
+  color: 'rgba(156,163,175,0.72)',
   padding: '14px 10px 6px',
   fontWeight: 600,
 }
@@ -295,8 +295,8 @@ const navLinkStyle = (collapsed: boolean, isActive: boolean): React.CSSPropertie
   padding: collapsed ? '10px 0' : '8px 10px',
   margin: collapsed ? '0' : '0 4px',
   justifyContent: collapsed ? 'center' : 'flex-start',
-  color: isActive ? 'var(--color-lime)' : '#CFC9BE',
-  background: isActive ? 'linear-gradient(90deg, rgba(74,84,28,0.9), rgba(45,51,26,0.72))' : 'transparent',
+  color: isActive ? 'var(--brand-lime)' : 'var(--app-text-soft)',
+  background: isActive ? 'linear-gradient(90deg, var(--brand-lime-soft), rgba(218,223,33,0.045)), var(--app-surface-3)' : 'transparent',
   borderRadius: 9,
   fontSize: 13.5,
   fontWeight: isActive ? 600 : 500,
@@ -305,7 +305,7 @@ const navLinkStyle = (collapsed: boolean, isActive: boolean): React.CSSPropertie
   overflow: 'hidden',
   position: 'relative',
   transition: 'background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out)',
-  boxShadow: isActive ? '0 10px 24px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.04)' : 'none',
+  boxShadow: isActive ? '0 14px 28px rgba(0,0,0,0.22), 0 0 0 1px var(--brand-lime-border), inset 0 1px 0 rgba(255,255,255,0.05)' : 'none',
 })
 
 const activeRailStyle: React.CSSProperties = {
@@ -315,7 +315,7 @@ const activeRailStyle: React.CSSProperties = {
   bottom: 8,
   width: 3,
   borderRadius: '0 3px 3px 0',
-  background: 'var(--color-lime)',
+  background: 'var(--brand-lime)',
 }
 
 const navIconStyle = (isActive: boolean): React.CSSProperties => ({
@@ -323,7 +323,7 @@ const navIconStyle = (isActive: boolean): React.CSSProperties => ({
   width: 20,
   textAlign: 'center',
   flexShrink: 0,
-  color: isActive ? 'var(--color-lime)' : '#a39c8f',
+  color: isActive ? 'var(--brand-lime)' : 'var(--app-text-muted)',
   lineHeight: 1,
 })
 
@@ -339,8 +339,8 @@ const badgeBaseStyle: React.CSSProperties = {
 const userSectionStyle = (collapsed: boolean): React.CSSProperties => ({
   marginTop: 'auto',
   padding: collapsed ? '14px 0' : '14px',
-  borderTop: '1px solid rgba(255,255,255,0.08)',
-  background: 'linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0))',
+  borderTop: '1px solid var(--app-border)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)), var(--app-surface)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: collapsed ? 'center' : 'flex-start',
@@ -350,7 +350,7 @@ const userSectionStyle = (collapsed: boolean): React.CSSProperties => ({
 const userNameStyle: React.CSSProperties = {
   fontSize: 'var(--text-sm)',
   fontWeight: 600,
-  color: '#F4F0E7',
+  color: 'var(--app-text)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -358,7 +358,7 @@ const userNameStyle: React.CSSProperties = {
 
 const userRoleStyle: React.CSSProperties = {
   fontSize: 'var(--text-xs)',
-  color: 'rgba(255,255,255,0.38)',
+  color: 'var(--app-text-muted)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
