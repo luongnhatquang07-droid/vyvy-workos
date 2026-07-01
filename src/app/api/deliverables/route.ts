@@ -93,6 +93,7 @@ async function ensureEntityInWorkspace(
     .select('id')
     .eq('id', id)
     .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
     .maybeSingle()
   return !error && Boolean(data)
 }
@@ -129,6 +130,7 @@ async function loadDeliverableDetail(workspaceId: string, deliverableId: string)
     .select('id,workspace_id,project_id,task_id,step_id,name,description,type,required_format,submitter_id,reviewer_id,due_date,status,is_required,approved_version_id,created_at,updated_at')
     .eq('workspace_id', workspaceId)
     .eq('id', deliverableId)
+    .is('deleted_at', null)
     .maybeSingle()
 
   if (deliverableRes.error) throw deliverableRes.error

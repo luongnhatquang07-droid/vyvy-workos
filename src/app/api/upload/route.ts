@@ -127,6 +127,7 @@ async function belongsToWorkspace(
     .select('id')
     .eq('id', id)
     .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
     .maybeSingle()
 
   if (error) return false

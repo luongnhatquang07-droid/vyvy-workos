@@ -223,9 +223,11 @@ async function resolveReminderContext(
   if (item.reminderId) {
     const existing = await client
       .from('reminders')
-      .select('id,reminder_level,response_status,last_reminded_at')
+      .select('id,task_id,deliverable_id,reminder_level,response_status,last_reminded_at,status')
       .eq('workspace_id', workspaceId)
       .eq('id', item.reminderId)
+      .neq('status', 'closed')
+      .neq('response_status', 'CLOSED')
       .maybeSingle()
 
     if (existing.error) return { error: existing.error.message, status: 500 }
@@ -245,6 +247,7 @@ async function resolveReminderContext(
       .select('id,task_id')
       .eq('workspace_id', workspaceId)
       .eq('id', deliverableId)
+      .is('deleted_at', null)
       .maybeSingle()
     if (deliverable.error) return { error: deliverable.error.message, status: 500 }
     if (!deliverable.data) return { error: 'Không tìm thấy bàn giao trong workspace.', status: 404 }
@@ -284,6 +287,7 @@ async function resolveReminderContext(
       .select('id')
       .eq('workspace_id', workspaceId)
       .eq('id', taskId)
+      .is('deleted_at', null)
       .maybeSingle()
     if (task.error) return { error: task.error.message, status: 500 }
     if (!task.data) return { error: 'Không tìm thấy task trong workspace.', status: 404 }
