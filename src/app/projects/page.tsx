@@ -185,6 +185,16 @@ function ProjectsPageContent() {
   const [activeUploadStepId, setActiveUploadStepId] = React.useState<string | null>(null)
   const [openDetailSections, setOpenDetailSections] = React.useState<DetailSection[]>([])
   const [fileRefreshKey, setFileRefreshKey] = React.useState(0)
+  const selectedProjectIdRef = React.useRef<string | null>(null)
+  const selectedSubtaskIdRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    selectedProjectIdRef.current = selectedProjectId
+  }, [selectedProjectId])
+
+  React.useEffect(() => {
+    selectedSubtaskIdRef.current = selectedSubtaskId
+  }, [selectedSubtaskId])
 
   React.useEffect(() => {
     if (loading) return
@@ -200,9 +210,14 @@ function ProjectsPageContent() {
       data?.meetings ?? [],
     )
     queueMicrotask(() => {
+      const currentProjectId = selectedProjectIdRef.current
+      const currentSubtaskId = selectedSubtaskIdRef.current
+      const nextProject = seeded.find((project) => project.id === currentProjectId) ?? seeded[0] ?? null
+      const nextSubtask = nextProject && currentSubtaskId ? findSubtask(nextProject, currentSubtaskId) : null
+
       setWorkspace(seeded)
-      setSelectedProjectId(seeded[0]?.id ?? null)
-      setSelectedSubtaskId(null)
+      setSelectedProjectId(nextProject?.id ?? null)
+      setSelectedSubtaskId(nextSubtask?.id ?? null)
       setReady(true)
     })
   }, [data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
@@ -466,7 +481,8 @@ function ProjectsPageContent() {
   async function deleteProject(projectId: string) {
     const project = workspace.find((item) => item.id === projectId)
     if (!project || !window.confirm(`Xoa du an "${project.name}" va toan bo dau viec ben trong?`)) return
-    await commitWorkspaceMutation('DELETE', { type: 'project', id: project.sourceProjectId ?? project.id })
+    const result = await commitWorkspaceMutation('DELETE', { type: 'project', id: project.sourceProjectId ?? project.id })
+    if (result) updateWorkspace((current) => current.filter((item) => item.id !== projectId))
   }
 
   async function deleteWorkstream(projectId: string, workstreamId: string) {
