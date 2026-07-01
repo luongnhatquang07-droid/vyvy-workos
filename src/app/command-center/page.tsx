@@ -163,6 +163,8 @@ function emptyRawData() {
     meetings: [],
     taskDrafts: [],
     deliverables: [],
+    deliverableVersions: [],
+    attachments: [],
     approvals: [],
     reminders: [],
     ceoRequests: [],

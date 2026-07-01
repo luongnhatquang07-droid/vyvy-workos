@@ -298,6 +298,19 @@ export interface CommandCenterDeliverableVersionRow {
   reviewed_at: string | null
 }
 
+export interface CommandCenterAttachmentRow {
+  id: string
+  workspace_id: string
+  storage_mode?: string | null
+  storage_path: string
+  file_name: string | null
+  mime_type: string | null
+  size_bytes: number | null
+  uploaded_by: string | null
+  uploaded_at: string | null
+  deleted_at: string | null
+}
+
 export interface CommandCenterApprovalRow {
   id: string
   task_id: string | null
@@ -361,6 +374,8 @@ export interface RawCommandCenterData {
   meetings: CommandCenterMeetingRow[]
   taskDrafts: CommandCenterMeetingTaskDraftRow[]
   deliverables: CommandCenterDeliverableRow[]
+  deliverableVersions: CommandCenterDeliverableVersionRow[]
+  attachments: CommandCenterAttachmentRow[]
   approvals: CommandCenterApprovalRow[]
   reminders: CommandCenterReminderRow[]
   ceoRequests: CommandCenterCeoDecisionRequestRow[]

@@ -78,6 +78,33 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .limit(20),
   ])
 
+  const deliverables = requireRows('file/báo cáo', deliverablesRes) as RawCommandCenterData['deliverables']
+  const deliverableIds = deliverables.map((deliverable) => deliverable.id)
+  let deliverableVersions: RawCommandCenterData['deliverableVersions'] = []
+  let attachments: RawCommandCenterData['attachments'] = []
+
+  if (deliverableIds.length) {
+    const versionsRes = await sb
+      .from('deliverable_versions')
+      .select('id,deliverable_id,version_number,attachment_id,external_url,submitted_by,submitted_at,change_note,review_status,review_comment,reviewed_by,reviewed_at')
+      .in('deliverable_id', deliverableIds)
+      .order('version_number', { ascending: false })
+
+    deliverableVersions = requireRows('version bàn giao', versionsRes) as RawCommandCenterData['deliverableVersions']
+    const attachmentIds = deliverableVersions.map((version) => version.attachment_id).filter(Boolean) as string[]
+
+    if (attachmentIds.length) {
+      const attachmentsRes = await sb
+        .from('attachments')
+        .select('id,workspace_id,storage_path,file_name,mime_type,size_bytes,uploaded_by,uploaded_at,deleted_at')
+        .eq('workspace_id', workspaceId)
+        .in('id', attachmentIds)
+        .is('deleted_at', null)
+
+      attachments = requireRows('attachment', attachmentsRes) as RawCommandCenterData['attachments']
+    }
+  }
+
   return {
     people: requireRows('nhân sự', peopleRes) as RawCommandCenterData['people'],
     projects: requireRows('dự án', projectsRes) as RawCommandCenterData['projects'],
@@ -86,7 +113,9 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     taskSteps: requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'],
     meetings: requireRows('cuộc họp', meetingsRes) as RawCommandCenterData['meetings'],
     taskDrafts: requireRows('draft đầu việc từ họp', draftsRes) as RawCommandCenterData['taskDrafts'],
-    deliverables: requireRows('file/báo cáo', deliverablesRes) as RawCommandCenterData['deliverables'],
+    deliverables,
+    deliverableVersions,
+    attachments,
     approvals: requireRows('phê duyệt', approvalsRes) as RawCommandCenterData['approvals'],
     reminders: requireRows('nhắc việc', remindersRes) as RawCommandCenterData['reminders'],
     ceoRequests: requireRows('báo cáo CEO', ceoRes) as RawCommandCenterData['ceoRequests'],
