@@ -21,7 +21,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     activityRes,
   ] = await Promise.all([
     sb.from('people')
-      .select('id,full_name,job_title,email,messenger_url,department_id,profile_id,status,deleted_at,department:departments!people_department_id_fkey(name)')
+      .select('id,full_name,job_title,email,phone,messenger_url,department_id,profile_id,status,deleted_at,department:departments!people_department_id_fkey(name)')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null),
 

@@ -170,6 +170,7 @@ export interface CommandCenterPersonRow {
   full_name: string
   job_title: string | null
   email: string | null
+  phone: string | null
   messenger_url: string | null
   department_id: string | null
   profile_id: string | null

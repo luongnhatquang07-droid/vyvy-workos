@@ -4,6 +4,13 @@ import React from 'react'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { PageHead } from '@/components/ui/PageHead'
 import { useCommandData } from '@/hooks/useCommandData'
+import type {
+  CommandCenterDeliverableRow,
+  CommandCenterPersonRow,
+  CommandCenterProjectRow,
+  CommandCenterReminderRow,
+  CommandCenterTaskRow,
+} from '@/lib/database.types'
 
 const RESPONSE_MAP = {
   NOT_REMINDERED: { label: 'Chưa nhắc', color: 'var(--color-text-muted)', bg: 'var(--color-surface-2)' },
@@ -18,47 +25,226 @@ const RESPONSE_MAP = {
   CLOSED: { label: 'Đã đóng', color: 'var(--color-text-muted)', bg: 'var(--color-surface-2)' },
 } as const
 
+type FollowUpItem = {
+  id: string
+  reminderId: string | null
+  deliverableId: string | null
+  taskId: string | null
+  personId: string | null
+  personName: string
+  personRole: string
+  messengerUrl: string | null
+  zaloUrl: string | null
+  itemTitle: string
+  itemType: 'file' | 'task'
+  projectName: string
+  deadline: string
+  statusLabel: string
+  responseStatus: keyof typeof RESPONSE_MAP
+  reminderLevel: number
+  sentCount: number
+  lastRemindedAt: string | null
+  nextFollowUpAt: string | null
+  isDueNow: boolean
+  isOverdue: boolean
+}
+
+type ComposerState = {
+  items: FollowUpItem[]
+  mode: 'single' | 'bulk'
+  message: string
+  nextOption: NextOption
+  customNext: string
+}
+
+type NextOption = '2h' | 'afternoon' | 'tomorrow_morning' | '24h' | 'custom'
+
+type ReminderLog = {
+  id: string
+  reminder_id: string
+  sent_by: string | null
+  channel: string | null
+  message_content: string | null
+  sent_at: string | null
+  confirmed_sent: boolean | null
+  result: string | null
+  follow_up_at: string | null
+}
+
 export default function FollowUpsPage() {
-  const { data, loading, error } = useCommandData()
+  const { data, loading, error, refresh } = useCommandData()
+  const [composer, setComposer] = React.useState<ComposerState | null>(null)
+  const [logs, setLogs] = React.useState<ReminderLog[]>([])
+  const [toast, setToast] = React.useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null)
+  const [saving, setSaving] = React.useState(false)
 
-  const reminders = [...(data?.reminders ?? [])].sort(
-    (a, b) => (b.reminder_level ?? 0) - (a.reminder_level ?? 0),
+  const people = React.useMemo(() => toMap(data?.people ?? []), [data?.people])
+  const tasks = React.useMemo(() => toMap(data?.tasks ?? []), [data?.tasks])
+  const projects = React.useMemo(() => toMap(data?.projects ?? []), [data?.projects])
+  const deliverables = React.useMemo(() => toMap(data?.deliverables ?? []), [data?.deliverables])
+  const reminderItems = React.useMemo(
+    () => (data?.reminders ?? []).map((reminder) => toReminderItem(reminder, people, tasks, projects, deliverables)).filter(Boolean) as FollowUpItem[],
+    [data?.reminders, deliverables, people, projects, tasks],
   )
-  const people = Object.fromEntries((data?.people ?? []).map((person) => [person.id, person]))
-  const tasks = Object.fromEntries((data?.tasks ?? []).map((task) => [task.id, task]))
-  const deliverables = Object.fromEntries((data?.deliverables ?? []).map((item) => [item.id, item]))
-  const today = new Date().toISOString().slice(0, 10)
-  const reminderDeliverableIds = new Set(reminders.map((reminder) => reminder.deliverable_id).filter(Boolean))
-  const missingDeliverables = (data?.deliverables ?? []).filter(
-    (item) =>
-      item.is_required &&
-      !['SUBMITTED', 'APPROVED'].includes(item.status) &&
-      !reminderDeliverableIds.has(item.id),
-  )
-  const overdueDeliverables = missingDeliverables.filter((item) => item.due_date && item.due_date < today)
 
-  const lateEscalation = reminders.filter(
-    (reminder) =>
-      reminder.reminder_level >= 2 &&
-      ['NO_RESPONSE', 'WAITING_RESPONSE'].includes(reminder.response_status),
+  const reminderDeliverableIds = React.useMemo(
+    () => new Set(reminderItems.map((item) => item.deliverableId).filter(Boolean)),
+    [reminderItems],
   )
-  const promised = reminders.filter((reminder) => reminder.response_status === 'PROMISED_DELIVERY')
-  const submitted = reminders.filter((reminder) => reminder.response_status === 'FILE_SUBMITTED')
-  const pending = reminders.filter((reminder) =>
-    ['NOT_REMINDERED', 'REMINDERED', 'WAITING_RESPONSE'].includes(reminder.response_status),
+
+  const missingFileItems = React.useMemo(
+    () =>
+      (data?.deliverables ?? [])
+        .filter((item) => item.is_required && !['SUBMITTED', 'APPROVED'].includes(item.status) && !reminderDeliverableIds.has(item.id))
+        .map((deliverable) => toMissingFileItem(deliverable, people, tasks, projects))
+        .filter(Boolean) as FollowUpItem[],
+    [data?.deliverables, people, projects, reminderDeliverableIds, tasks],
   )
+
+  const allItems = React.useMemo(() => [...reminderItems, ...missingFileItems], [missingFileItems, reminderItems])
+  const dueNow = React.useMemo(
+    () => allItems.filter((item) => item.isDueNow && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)),
+    [allItems],
+  )
+  const lateEscalation = React.useMemo(
+    () => allItems.filter((item) => item.sentCount >= 2 || (item.isOverdue && item.sentCount >= 1) || item.responseStatus === 'NO_RESPONSE'),
+    [allItems],
+  )
+  const pending = React.useMemo(
+    () => allItems.filter((item) => ['NOT_REMINDERED', 'REMINDERED', 'WAITING_RESPONSE'].includes(item.responseStatus)),
+    [allItems],
+  )
+  const promised = React.useMemo(
+    () => allItems.filter((item) => item.responseStatus === 'PROMISED_DELIVERY'),
+    [allItems],
+  )
+  const submitted = React.useMemo(
+    () => allItems.filter((item) => item.responseStatus === 'FILE_SUBMITTED'),
+    [allItems],
+  )
+  const dueGroups = React.useMemo(() => groupItemsByPerson(dueNow), [dueNow])
+
+  React.useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 2800)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  async function openComposer(items: FollowUpItem[], mode: 'single' | 'bulk' = 'single') {
+    const next = {
+      items,
+      mode,
+      message: buildMessage(items),
+      nextOption: '24h' as NextOption,
+      customNext: '',
+    }
+    setComposer(next)
+    setLogs([])
+    await loadLogs(items)
+  }
+
+  async function loadLogs(items: FollowUpItem[]) {
+    const reminderIds = items.map((item) => item.reminderId).filter(Boolean) as string[]
+    if (!reminderIds.length) return
+    try {
+      const response = await fetch(`/api/follow-ups?reminderIds=${encodeURIComponent(reminderIds.join(','))}`, { cache: 'no-store' })
+      const payload = (await response.json()) as { logs?: ReminderLog[]; error?: string }
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không đọc được lịch sử nhắc.')
+      setLogs(payload.logs ?? [])
+    } catch (err) {
+      setToast({ tone: 'error', text: err instanceof Error ? err.message : 'Không đọc được lịch sử nhắc.' })
+    }
+  }
+
+  async function copyMessage() {
+    if (!composer) return
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(composer.message)
+      } else if (!fallbackCopyText(composer.message)) {
+        throw new Error('Clipboard unavailable')
+      }
+      setToast({ tone: 'ok', text: 'Đã copy tin nhắn' })
+    } catch {
+      if (fallbackCopyText(composer.message)) {
+        setToast({ tone: 'ok', text: 'Đã copy tin nhắn' })
+      } else {
+        setToast({ tone: 'error', text: 'Không copy được tin nhắn. Hãy copy thủ công trong khung soạn.' })
+      }
+    }
+  }
+
+  function openContact(channel: 'messenger' | 'zalo') {
+    if (!composer) return
+    const first = composer.items[0]
+    const url = channel === 'messenger' ? first.messengerUrl : first.zaloUrl
+    if (!url) {
+      setToast({ tone: 'error', text: channel === 'messenger' ? 'Chưa có link Messenger' : 'Chưa có số/link Zalo' })
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setToast({ tone: 'info', text: channel === 'messenger' ? 'Đã mở Messenger, chưa tính là đã gửi' : 'Đã mở Zalo, chưa tính là đã gửi' })
+  }
+
+  async function runAction(action: 'markSent' | 'schedule' | 'escalate') {
+    if (!composer) return
+    if (action === 'markSent' && !composer.message.trim()) {
+      setToast({ tone: 'error', text: 'Tin nhắn đang trống.' })
+      return
+    }
+    const missingPerson = composer.items.find((item) => !item.personId)
+    if (missingPerson) {
+      setToast({ tone: 'error', text: 'Item này chưa có người nhận nhắc.' })
+      return
+    }
+
+    setSaving(true)
+    try {
+      const response = await fetch('/api/follow-ups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          items: composer.items.map((item) => ({
+            reminderId: item.reminderId,
+            deliverableId: item.deliverableId,
+            taskId: item.taskId,
+            personId: item.personId,
+          })),
+          message: composer.message,
+          channel: 'manual',
+          nextFollowUpAt: resolveNextFollowUpAt(composer.nextOption, composer.customNext),
+        }),
+      })
+      const payload = (await response.json()) as { ok?: boolean; error?: string }
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không lưu được follow-up.')
+
+      await refresh()
+      if (action === 'markSent') setToast({ tone: 'ok', text: 'Đã lưu lịch sử nhắc' })
+      if (action === 'schedule') setToast({ tone: 'ok', text: 'Đã hẹn nhắc lại' })
+      if (action === 'escalate') setToast({ tone: 'ok', text: 'Đã đánh dấu cần escalate' })
+      await loadLogs(composer.items)
+      if (action === 'markSent') setComposer(null)
+    } catch (err) {
+      setToast({ tone: 'error', text: err instanceof Error ? err.message : 'Không lưu được follow-up.' })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div style={pageStyle}>
       <PageHead
         icon="ti-bell-ringing"
         title="Nhắc việc & theo dõi"
-        desc="Quản lý người đang nợ báo cáo, file bàn giao và các lượt follow-up."
+        desc="Soạn tin nhắc, copy qua Messenger/Zalo, rồi xác nhận đã gửi để lưu lịch sử và lịch follow-up tiếp theo."
       />
 
       {error ? <DataErrorState message={error} /> : null}
+      {toast ? <div style={toastStyle(toast.tone)}>{toast.text}</div> : null}
 
       <div style={summaryGrid}>
+        <SummaryCard icon="ti-calendar-check" label="Cần dí hôm nay" value={dueNow.length} tone="warning" />
         <SummaryCard icon="ti-alert-triangle" label="Cần leo thang" value={lateEscalation.length} tone="danger" highlight />
         <SummaryCard icon="ti-hourglass" label="Đang chờ phản hồi" value={pending.length} tone="warning" />
         <SummaryCard icon="ti-clock-check" label="Đã hứa nộp" value={promised.length} tone="success" />
@@ -68,76 +254,51 @@ export default function FollowUpsPage() {
       <div style={layoutGrid}>
         <section style={panelStyle} data-vyvy-card="true">
           <div style={tableHead}>
-            <div style={headLabel}>Danh sách đang theo</div>
-            <div style={headCount}>{reminders.length} mục</div>
+            <div>
+              <div style={headLabel}>Danh sách đang theo</div>
+              <div style={headMeta}>Bấm vào một dòng để soạn tin nhắc.</div>
+            </div>
+            <div style={headCount}>{allItems.length} mục</div>
           </div>
 
           <div style={tableHeaderRow}>
             <span>Người</span>
             <span>Đang nợ</span>
-            <span>Số lần nhắc</span>
+            <span>Số lần</span>
             <span>Trạng thái</span>
-            <span>Lần gần nhất</span>
+            <span>Nhắc tiếp</span>
           </div>
 
           {loading ? (
             <div style={emptyState}>Đang tải danh sách follow-up...</div>
-          ) : reminders.length === 0 ? (
+          ) : allItems.length === 0 ? (
             <div style={emptyState}>Hiện chưa có mục nào cần theo dõi.</div>
           ) : (
-            reminders.map((reminder, index) => {
-              const person = reminder.person_id ? people[reminder.person_id] : null
-              const task = reminder.task_id ? tasks[reminder.task_id] : null
-              const deliverable = reminder.deliverable_id ? deliverables[reminder.deliverable_id] : null
-              const status =
-                RESPONSE_MAP[reminder.response_status as keyof typeof RESPONSE_MAP] ??
-                RESPONSE_MAP.NOT_REMINDERED
-              const lastReminder = reminder.last_reminded_at
-                ? new Date(reminder.last_reminded_at).toLocaleDateString('vi-VN')
-                : 'Chưa nhắc'
-
-              return (
-                <div
-                  key={reminder.id}
-                  data-vyvy-row="true"
-                  data-vyvy-alert={reminder.reminder_level >= 2 && ['NO_RESPONSE', 'WAITING_RESPONSE'].includes(reminder.response_status) ? 'true' : undefined}
-                  style={{
-                    ...tableRow,
-                    borderBottom:
-                      index < reminders.length - 1 ? '1px solid var(--color-border)' : undefined,
-                    borderLeft:
-                      reminder.reminder_level >= 2 &&
-                      ['NO_RESPONSE', 'WAITING_RESPONSE'].includes(reminder.response_status)
-                        ? '3px solid var(--color-danger)'
-                        : '3px solid transparent',
-                  }}
-                >
-                  <div>
-                    <div style={rowTitle}>{person?.full_name ?? 'Chưa xác định'}</div>
-                    <div style={rowMeta}>{person?.job_title ?? 'Chưa có chức danh'}</div>
-                  </div>
-                  <div>
-                    <div style={rowTitle}>{deliverable?.name ?? task?.title ?? 'Chưa rõ hạng mục'}</div>
-                    <div style={rowMeta}>
-                      {deliverable ? 'Bàn giao / file' : 'Task / báo cáo'}
-                    </div>
-                  </div>
-                  <div style={centerCell}>
-                    <span style={countBubble(reminder.reminder_level >= 2)}>{reminder.reminder_level}x</span>
-                  </div>
-                  <div>
-                    <span style={{ ...badgeBase, color: status.color, background: status.bg }}>
-                      {status.label}
-                    </span>
-                  </div>
-                  <div style={rowMeta}>{lastReminder}</div>
-                </div>
-              )
-            })
+            allItems.map((item, index) => <FollowUpRow key={item.id} item={item} index={index} total={allItems.length} onOpen={() => void openComposer([item])} />)
           )}
         </section>
 
         <aside style={sideColumn}>
+          <section style={panelStyle} data-vyvy-card="true">
+            <div style={asideHead}>
+              <div style={headLabel}>Cần dí hôm nay</div>
+              <div style={headMeta}>Đã gom theo từng người để tránh gửi lẫn tin.</div>
+            </div>
+            <div style={stackStyle}>
+              {dueGroups.length === 0 ? (
+                <div style={emptySmall}>Không có mục nào tới lịch dí ngay.</div>
+              ) : (
+                dueGroups.map((group) => (
+                  <button key={group.personId} style={groupButtonStyle} onClick={() => void openComposer(group.items, group.items.length > 1 ? 'bulk' : 'single')}>
+                    <span style={priorityTitle}>{group.personName}</span>
+                    <span style={priorityMeta}>{group.items.length} mục cần nhắc · {group.items[0]?.projectName || 'Chưa rõ dự án'}</span>
+                    <span style={groupFootStyle}>Soạn tin nhóm theo người</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
           <section style={panelStyle} data-vyvy-card="true">
             <div style={asideHead}>
               <div style={headLabel}>Ưu tiên ngay</div>
@@ -146,25 +307,15 @@ export default function FollowUpsPage() {
               {lateEscalation.length === 0 ? (
                 <div style={emptySmall}>Chưa có ai cần leo thang.</div>
               ) : (
-                lateEscalation.slice(0, 5).map((reminder) => {
-                  const person = reminder.person_id ? people[reminder.person_id] : null
-                  const task = reminder.task_id ? tasks[reminder.task_id] : null
-                  const deliverable = reminder.deliverable_id ? deliverables[reminder.deliverable_id] : null
-
-                  return (
-                    <div key={reminder.id} style={priorityItem}>
-                      <div style={priorityTitle}>{person?.full_name ?? 'Chưa rõ người'}</div>
-                      <div style={priorityMeta}>
-                        {deliverable?.name ?? task?.title ?? 'Chưa rõ hạng mục'}
-                      </div>
-                      <div style={priorityFoot}>
-                        <span style={{ ...badgeBase, background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}>
-                          {reminder.reminder_level} lần chưa phản hồi
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })
+                lateEscalation.slice(0, 5).map((item) => (
+                  <button key={item.id} style={priorityItemButton} onClick={() => void openComposer([item])}>
+                    <span style={priorityTitle}>{item.personName}</span>
+                    <span style={priorityMeta}>{item.itemTitle}</span>
+                    <span style={{ ...badgeBase, background: 'var(--color-danger-bg)', color: 'var(--color-danger)', marginTop: 8 }}>
+                      {escalationLabel(item)}
+                    </span>
+                  </button>
+                ))
               )}
             </div>
           </section>
@@ -174,53 +325,224 @@ export default function FollowUpsPage() {
               <div style={headLabel}>File cần dí</div>
             </div>
             <div style={stackStyle}>
-              {missingDeliverables.length === 0 ? (
+              {missingFileItems.length === 0 ? (
                 <div style={emptySmall}>Không còn deliverable bắt buộc nào chưa nộp.</div>
               ) : (
-                missingDeliverables.slice(0, 6).map((item) => {
-                  const person = item.submitter_id ? people[item.submitter_id] : null
-                  const task = item.task_id ? tasks[item.task_id] : null
-                  const overdue = Boolean(item.due_date && item.due_date < today)
-
-                  return (
-                    <div key={item.id} style={priorityItem}>
-                      <div style={priorityTitle}>{person?.full_name ?? 'Chưa gắn người nộp'}</div>
-                      <div style={priorityMeta}>{item.name}</div>
-                      <div style={priorityMeta}>{task?.title ?? 'Chưa gắn task'}</div>
-                      <div style={priorityFoot}>
-                        <span style={{ ...badgeBase, background: overdue ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)', color: overdue ? 'var(--color-danger)' : 'var(--color-warning)' }}>
-                          {overdue ? 'Quá hạn' : 'Chưa nộp'}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })
+                missingFileItems.slice(0, 6).map((item) => (
+                  <button key={item.id} style={priorityItemButton} onClick={() => void openComposer([item])}>
+                    <span style={priorityTitle}>{item.personName}</span>
+                    <span style={priorityMeta}>{item.itemTitle}</span>
+                    <span style={{ ...badgeBase, background: item.isOverdue ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)', color: item.isOverdue ? 'var(--color-danger)' : 'var(--color-warning)', marginTop: 8 }}>
+                      {item.isOverdue ? 'Quá hạn' : 'Chưa nộp'}
+                    </span>
+                  </button>
+                ))
               )}
-              {overdueDeliverables.length > 0 ? (
-                <div style={emptySmall}>{overdueDeliverables.length} file đã quá hạn cần nhắc trước.</div>
-              ) : null}
-            </div>
-          </section>
-
-          <section style={panelStyle} data-vyvy-card="true">
-            <div style={asideHead}>
-              <div style={headLabel}>Mẫu tin nhắc</div>
-            </div>
-            <div style={messageBox}>
-              <div style={templateTitle}>Tin nhắc nhẹ</div>
-              <p style={templateText}>
-                Chào anh/chị, em nhắc lại phần việc đang chờ nộp. Mình giúp em cập nhật trước cuối ngày để team chốt tiến độ nhé.
-              </p>
-            </div>
-            <div style={{ ...messageBox, marginTop: 12 }}>
-              <div style={templateTitle}>Tin nhắc escalated</div>
-              <p style={templateText}>
-                Em cần cập nhật gấp vì hạng mục này đã nhắc nhiều lần và đang ảnh hưởng tiến độ chung. Mình phản hồi giúp em thời điểm chốt mới.
-              </p>
             </div>
           </section>
         </aside>
       </div>
+
+      {composer ? (
+        <ReminderComposerDrawer
+          composer={composer}
+          logs={logs}
+          saving={saving}
+          onClose={() => setComposer(null)}
+          onMessageChange={(message) => setComposer((current) => current ? { ...current, message } : current)}
+          onNextChange={(nextOption, customNext) => setComposer((current) => current ? { ...current, nextOption, customNext: customNext ?? current.customNext } : current)}
+          onCopy={() => void copyMessage()}
+          onOpenMessenger={() => openContact('messenger')}
+          onOpenZalo={() => openContact('zalo')}
+          onSent={() => void runAction('markSent')}
+          onNotSent={() => {
+            setToast({ tone: 'info', text: 'Chưa gửi, app không lưu lịch sử nhắc.' })
+            setComposer(null)
+          }}
+          onSchedule={() => void runAction('schedule')}
+          onEscalate={() => void runAction('escalate')}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function FollowUpRow({ item, index, total, onOpen }: { item: FollowUpItem; index: number; total: number; onOpen: () => void }) {
+  const status = RESPONSE_MAP[item.responseStatus] ?? RESPONSE_MAP.NOT_REMINDERED
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-vyvy-row="true"
+      data-vyvy-alert={item.sentCount >= 2 || item.isOverdue ? 'true' : undefined}
+      style={{
+        ...tableRow,
+        borderBottom: index < total - 1 ? '1px solid var(--color-border)' : undefined,
+        borderLeft: item.sentCount >= 2 || item.isOverdue ? '3px solid var(--color-danger)' : '3px solid transparent',
+      }}
+    >
+      <div>
+        <div style={rowTitle}>{item.personName}</div>
+        <div style={rowMeta}>{item.personRole || 'Chưa có chức danh'}</div>
+      </div>
+      <div>
+        <div style={rowTitle}>{item.itemTitle}</div>
+        <div style={rowMeta}>{item.projectName} · {item.itemType === 'file' ? 'Bàn giao / file' : 'Task / báo cáo'}</div>
+      </div>
+      <div style={centerCell}>
+        <span style={countBubble(item.sentCount >= 2)}>{item.sentCount}x</span>
+      </div>
+      <div>
+        <span style={{ ...badgeBase, color: status.color, background: status.bg }}>{status.label}</span>
+      </div>
+      <div style={rowMeta}>{item.nextFollowUpAt ? formatDateTime(item.nextFollowUpAt) : 'Cần nhắc'}</div>
+    </button>
+  )
+}
+
+function ReminderComposerDrawer({
+  composer,
+  logs,
+  saving,
+  onClose,
+  onMessageChange,
+  onNextChange,
+  onCopy,
+  onOpenMessenger,
+  onOpenZalo,
+  onSent,
+  onNotSent,
+  onSchedule,
+  onEscalate,
+}: {
+  composer: ComposerState
+  logs: ReminderLog[]
+  saving: boolean
+  onClose: () => void
+  onMessageChange: (message: string) => void
+  onNextChange: (option: NextOption, customNext?: string) => void
+  onCopy: () => void
+  onOpenMessenger: () => void
+  onOpenZalo: () => void
+  onSent: () => void
+  onNotSent: () => void
+  onSchedule: () => void
+  onEscalate: () => void
+}) {
+  const first = composer.items[0]
+  const maxCount = Math.max(...composer.items.map((item) => item.sentCount), 0)
+  const deadlines = Array.from(new Set(composer.items.map((item) => item.deadline).filter(Boolean)))
+  const projects = Array.from(new Set(composer.items.map((item) => item.projectName).filter(Boolean)))
+  const statuses = Array.from(new Set(composer.items.map((item) => item.statusLabel).filter(Boolean)))
+
+  return (
+    <div style={drawerBackdrop} role="dialog" aria-modal="true">
+      <aside style={drawerStyle}>
+        <div style={drawerHeader}>
+          <div>
+            <div style={eyebrow}>Soạn nhắc việc</div>
+            <div style={drawerTitle}>{first?.personName ?? 'Chưa rõ người nhận'}</div>
+            <div style={drawerMeta}>{composer.mode === 'bulk' ? `${composer.items.length} mục được gom đúng theo một người` : first?.itemTitle}</div>
+          </div>
+          <button type="button" onClick={onClose} style={iconButtonStyle} aria-label="Đóng">
+            <i className="ti ti-x" />
+          </button>
+        </div>
+
+        <div style={drawerBody}>
+          <div style={infoGrid}>
+            <InfoBlock label="Người cần nhắc" value={first?.personName ?? 'Chưa xác định'} />
+            <InfoBlock label="Dự án" value={projects.join(', ') || 'Chưa rõ'} />
+            <InfoBlock label="Deadline" value={deadlines.map(formatDateOnly).join(', ') || 'Chưa có'} />
+            <InfoBlock label="Trạng thái" value={statuses.join(', ') || 'Chưa rõ'} />
+            <InfoBlock label="Số lần đã nhắc" value={`${maxCount} lần`} />
+            <InfoBlock label="Escalation" value={maxCount >= 2 ? 'Cần escalate' : maxCount === 1 ? 'Theo dõi tiếp' : 'Nhắc lần đầu'} />
+          </div>
+
+          <div style={owedBox}>
+            <div style={boxTitle}>Việc đang nợ</div>
+            {composer.items.map((item) => (
+              <div key={item.id} style={owedItemStyle}>
+                <span>{item.itemTitle}</span>
+                <small>{item.deadline ? `Deadline ${formatDateOnly(item.deadline)}` : 'Chưa có deadline'} · {item.statusLabel}</small>
+              </div>
+            ))}
+          </div>
+
+          {!first?.messengerUrl && !first?.zaloUrl ? (
+            <div style={contactWarning}>Chưa có link liên hệ, hãy copy tin nhắn thủ công.</div>
+          ) : null}
+
+          <label style={fieldLabel}>
+            Mẫu tin nhắn tự soạn, có thể sửa trước khi copy
+            <textarea value={composer.message} onChange={(event) => onMessageChange(event.target.value)} style={messageTextarea} />
+          </label>
+
+          <div style={nextGrid}>
+            <label style={fieldLabel}>
+              Hẹn nhắc lại
+              <select value={composer.nextOption} onChange={(event) => onNextChange(event.target.value as NextOption)} style={selectStyle}>
+                <option value="2h">2 giờ nữa</option>
+                <option value="afternoon">Chiều nay</option>
+                <option value="tomorrow_morning">Sáng mai</option>
+                <option value="24h">24 giờ nữa</option>
+                <option value="custom">Chọn ngày/giờ khác</option>
+              </select>
+            </label>
+            {composer.nextOption === 'custom' ? (
+              <label style={fieldLabel}>
+                Ngày/giờ tùy chọn
+                <input type="datetime-local" value={composer.customNext} onChange={(event) => onNextChange('custom', event.target.value)} style={selectStyle} />
+              </label>
+            ) : (
+              <div style={nextPreviewStyle}>Sẽ nhắc lại: {formatDateTime(resolveNextFollowUpAt(composer.nextOption, composer.customNext))}</div>
+            )}
+          </div>
+
+          <div style={buttonGrid}>
+            <button type="button" style={secondaryButton} onClick={onCopy}>
+              <i className="ti ti-copy" /> Copy tin nhắn
+            </button>
+            <button type="button" style={secondaryButton} onClick={onOpenMessenger}>
+              <i className="ti ti-brand-messenger" /> Mở Messenger
+            </button>
+            <button type="button" style={secondaryButton} onClick={onOpenZalo}>
+              <i className="ti ti-message-circle" /> Mở Zalo
+            </button>
+            <button type="button" style={secondaryButton} onClick={onSchedule} disabled={saving}>
+              <i className="ti ti-calendar-plus" /> Hẹn nhắc lại
+            </button>
+            <button type="button" style={secondaryDangerButton} onClick={onEscalate} disabled={saving}>
+              <i className="ti ti-arrow-up-right" /> Escalate
+            </button>
+          </div>
+
+          <div style={drawerFooter}>
+            <button type="button" style={secondaryButton} onClick={onNotSent} disabled={saving}>
+              Chưa gửi
+            </button>
+            <button type="button" style={primaryButton} onClick={onSent} disabled={saving}>
+              <i className={`ti ${saving ? 'ti-loader-2' : 'ti-check'}`} />
+              Đã gửi
+            </button>
+          </div>
+
+          <div style={historyBox}>
+            <div style={boxTitle}>Lịch sử nhắc</div>
+            {logs.length === 0 ? (
+              <div style={emptySmall}>Chưa có lịch sử nhắc đã gửi.</div>
+            ) : (
+              logs.map((log) => (
+                <div key={log.id} style={logItemStyle}>
+                  <div style={rowTitle}>{log.confirmed_sent ? 'Đã gửi' : 'Chưa xác nhận gửi'} · {log.channel ?? 'manual'}</div>
+                  <div style={rowMeta}>{log.sent_at ? formatDateTime(log.sent_at) : ''} · Nhắc lại {log.follow_up_at ? formatDateTime(log.follow_up_at) : 'chưa hẹn'}</div>
+                  <div style={logMessageStyle}>{log.message_content}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   )
 }
@@ -256,11 +578,7 @@ function SummaryCard({
           : 'rgba(45, 51, 26, 0.08)'
 
   return (
-    <div
-      style={summaryCard}
-      data-vyvy-card="true"
-      data-vyvy-alert={highlight && value > 0 ? 'true' : undefined}
-    >
+    <div style={summaryCard} data-vyvy-card="true" data-vyvy-alert={highlight && value > 0 ? 'true' : undefined}>
       <div style={{ ...summaryIcon, background: bg, color }}>
         <i className={`ti ${icon}`} />
       </div>
@@ -272,6 +590,222 @@ function SummaryCard({
   )
 }
 
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={infoBlockStyle}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function toReminderItem(
+  reminder: CommandCenterReminderRow,
+  people: Record<string, CommandCenterPersonRow>,
+  tasks: Record<string, CommandCenterTaskRow>,
+  projects: Record<string, CommandCenterProjectRow>,
+  deliverables: Record<string, CommandCenterDeliverableRow>,
+): FollowUpItem | null {
+  const person = reminder.person_id ? people[reminder.person_id] : null
+  const task = reminder.task_id ? tasks[reminder.task_id] : null
+  const deliverable = reminder.deliverable_id ? deliverables[reminder.deliverable_id] : null
+  const project = getProjectForItem(deliverable, task, projects)
+  const responseStatus = (reminder.response_status ?? 'NOT_REMINDERED') as keyof typeof RESPONSE_MAP
+  const status = RESPONSE_MAP[responseStatus] ?? RESPONSE_MAP.NOT_REMINDERED
+  const deadline = deliverable?.due_date ?? task?.due_date ?? ''
+  const sentCount = reminder.last_reminded_at ? reminder.reminder_level ?? 0 : 0
+
+  return {
+    id: `reminder-${reminder.id}`,
+    reminderId: reminder.id,
+    deliverableId: reminder.deliverable_id,
+    taskId: reminder.task_id,
+    personId: reminder.person_id,
+    personName: person?.full_name ?? 'Chưa xác định',
+    personRole: person?.job_title ?? '',
+    messengerUrl: person?.messenger_url ?? null,
+    zaloUrl: makeZaloUrl(person?.phone ?? null),
+    itemTitle: deliverable?.name ?? task?.title ?? 'Chưa rõ hạng mục',
+    itemType: deliverable ? 'file' : 'task',
+    projectName: project?.name ?? 'Chưa rõ dự án',
+    deadline,
+    statusLabel: status.label,
+    responseStatus,
+    reminderLevel: reminder.reminder_level ?? 0,
+    sentCount,
+    lastRemindedAt: reminder.last_reminded_at,
+    nextFollowUpAt: reminder.next_follow_up_at,
+    isDueNow: !reminder.next_follow_up_at || new Date(reminder.next_follow_up_at).getTime() <= Date.now(),
+    isOverdue: Boolean(deadline && deadline < todayKey()),
+  }
+}
+
+function toMissingFileItem(
+  deliverable: CommandCenterDeliverableRow,
+  people: Record<string, CommandCenterPersonRow>,
+  tasks: Record<string, CommandCenterTaskRow>,
+  projects: Record<string, CommandCenterProjectRow>,
+): FollowUpItem | null {
+  const person = deliverable.submitter_id ? people[deliverable.submitter_id] : null
+  const task = deliverable.task_id ? tasks[deliverable.task_id] : null
+  const project = getProjectForItem(deliverable, task, projects)
+  return {
+    id: `deliverable-${deliverable.id}`,
+    reminderId: null,
+    deliverableId: deliverable.id,
+    taskId: deliverable.task_id,
+    personId: deliverable.submitter_id,
+    personName: person?.full_name ?? 'Chưa gắn người nộp',
+    personRole: person?.job_title ?? '',
+    messengerUrl: person?.messenger_url ?? null,
+    zaloUrl: makeZaloUrl(person?.phone ?? null),
+    itemTitle: deliverable.name,
+    itemType: 'file',
+    projectName: project?.name ?? 'Chưa rõ dự án',
+    deadline: deliverable.due_date ?? task?.due_date ?? '',
+    statusLabel: deliverable.status === 'REVISION_REQUIRED' ? 'Yêu cầu sửa' : 'Chưa nộp',
+    responseStatus: 'NOT_REMINDERED',
+    reminderLevel: 0,
+    sentCount: 0,
+    lastRemindedAt: null,
+    nextFollowUpAt: null,
+    isDueNow: true,
+    isOverdue: Boolean((deliverable.due_date ?? task?.due_date) && (deliverable.due_date ?? task?.due_date)! < todayKey()),
+  }
+}
+
+function getProjectForItem(
+  deliverable: CommandCenterDeliverableRow | null,
+  task: CommandCenterTaskRow | null,
+  projects: Record<string, CommandCenterProjectRow>,
+) {
+  const projectId = deliverable?.project_id ?? task?.project_id ?? null
+  return projectId ? projects[projectId] : null
+}
+
+function groupItemsByPerson(items: FollowUpItem[]) {
+  const byPerson = new Map<string, { personId: string; personName: string; items: FollowUpItem[] }>()
+  for (const item of items) {
+    const key = item.personId ?? `unknown-${item.id}`
+    const current = byPerson.get(key) ?? { personId: key, personName: item.personName, items: [] }
+    current.items.push(item)
+    byPerson.set(key, current)
+  }
+  return Array.from(byPerson.values()).sort((a, b) => b.items.length - a.items.length || a.personName.localeCompare(b.personName, 'vi'))
+}
+
+function buildMessage(items: FollowUpItem[]) {
+  const first = items[0]
+  if (!first) return ''
+  const name = first.personName === 'Chưa xác định' || first.personName === 'Chưa gắn người nộp' ? 'anh/chị' : first.personName
+
+  if (items.length > 1) {
+    const lines = items.map((item, index) => {
+      const deadline = item.deadline ? ` · Deadline: ${formatDateOnly(item.deadline)}` : ''
+      return `${index + 1}. ${item.itemTitle}${deadline}`
+    })
+    return [
+      `${name} ơi, em gom các mục đang cần anh/chị cập nhật để em chốt tiến độ dự án:`,
+      '',
+      ...lines,
+      '',
+      'Nhờ anh/chị gửi file/link hoặc phản hồi trạng thái giúp em trong hôm nay nhé.',
+    ].join('\n')
+  }
+
+  const escalationIntro = first.sentCount >= 2
+    ? `${name} ơi, em nhắc thêm lần ${first.sentCount + 1} vì mục này đang ảnh hưởng tiến độ chung.`
+    : `${name} ơi, phần “${first.itemTitle}” đang cần nộp file/báo cáo để em cập nhật tiến độ dự án.`
+
+  return [
+    escalationIntro,
+    '',
+    `Dự án: ${first.projectName}`,
+    `Deadline: ${first.deadline ? formatDateOnly(first.deadline) : 'Chưa có'}`,
+    `Trạng thái: ${first.statusLabel}`,
+    `Đã nhắc: ${first.sentCount} lần`,
+    '',
+    first.sentCount >= 2
+      ? 'Nhờ anh/chị phản hồi giúp em thời điểm chốt hoặc gửi lại file/link ngay khi có thể.'
+      : 'Nhờ anh/chị gửi lại file hoặc link giúp em trong hôm nay nhé.',
+  ].join('\n')
+}
+
+function resolveNextFollowUpAt(option: NextOption, customValue: string) {
+  if (option === 'custom') {
+    const custom = new Date(customValue)
+    return Number.isNaN(custom.getTime()) ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : custom.toISOString()
+  }
+  const now = new Date()
+  if (option === '2h') return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString()
+  if (option === '24h') return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString()
+  if (option === 'afternoon') {
+    const afternoon = new Date(now)
+    afternoon.setHours(15, 0, 0, 0)
+    if (afternoon.getTime() <= now.getTime()) afternoon.setDate(afternoon.getDate() + 1)
+    return afternoon.toISOString()
+  }
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(9, 0, 0, 0)
+  return tomorrow.toISOString()
+}
+
+function escalationLabel(item: FollowUpItem) {
+  if (item.responseStatus === 'ESCALATED') return 'Đã escalate'
+  if (item.sentCount >= 3) return 'Escalation level 3'
+  if (item.sentCount >= 2) return 'Escalation level 2'
+  if (item.isOverdue) return 'Quá hạn cần xử lý'
+  return 'Theo dõi'
+}
+
+function makeZaloUrl(phone: string | null) {
+  const digits = phone?.replace(/\D/g, '') ?? ''
+  return digits ? `https://zalo.me/${digits}` : null
+}
+
+function fallbackCopyText(text: string) {
+  if (typeof document === 'undefined') return false
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  } finally {
+    textarea.remove()
+  }
+  return copied
+}
+
+function toMap<T extends { id: string }>(items: T[]): Record<string, T> {
+  return Object.fromEntries(items.map((item) => [item.id, item]))
+}
+
+function todayKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function formatDateOnly(value: string) {
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 const pageStyle: React.CSSProperties = {
   padding: 'var(--space-6)',
   display: 'flex',
@@ -279,9 +813,24 @@ const pageStyle: React.CSSProperties = {
   gap: 'var(--space-5)',
 }
 
+const toastStyle = (tone: 'ok' | 'error' | 'info'): React.CSSProperties => ({
+  position: 'fixed',
+  top: 18,
+  right: 18,
+  zIndex: 80,
+  padding: '10px 14px',
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border-strong)',
+  background: tone === 'error' ? 'var(--color-danger-bg)' : tone === 'ok' ? 'var(--color-success-bg)' : 'var(--color-surface)',
+  color: tone === 'error' ? 'var(--color-danger)' : tone === 'ok' ? 'var(--color-success)' : 'var(--color-text)',
+  fontSize: 13,
+  fontWeight: 700,
+  boxShadow: 'var(--shadow-md)',
+})
+
 const summaryGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
   gap: 'var(--space-3)',
 }
 
@@ -322,7 +871,7 @@ const summaryLabel: React.CSSProperties = {
 
 const layoutGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1.4fr) minmax(320px, 0.72fr)',
+  gridTemplateColumns: 'minmax(0, 1.42fr) minmax(320px, 0.72fr)',
   gap: 'var(--space-4)',
   alignItems: 'start',
 }
@@ -361,6 +910,12 @@ const headLabel: React.CSSProperties = {
   color: 'var(--color-text)',
 }
 
+const headMeta: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 12,
+  color: 'var(--color-text-muted)',
+}
+
 const headCount: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--color-text-muted)',
@@ -368,7 +923,7 @@ const headCount: React.CSSProperties = {
 
 const tableHeaderRow: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '1fr 1.1fr 110px 140px 120px',
+  gridTemplateColumns: '1fr 1.15fr 96px 138px 130px',
   gap: 12,
   padding: '10px 20px',
   background: 'var(--color-surface-2)',
@@ -379,10 +934,16 @@ const tableHeaderRow: React.CSSProperties = {
 
 const tableRow: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '1fr 1.1fr 110px 140px 120px',
+  gridTemplateColumns: '1fr 1.15fr 96px 138px 130px',
   gap: 12,
   alignItems: 'center',
   padding: '14px 20px',
+  width: '100%',
+  textAlign: 'left',
+  background: 'transparent',
+  color: 'inherit',
+  border: 0,
+  cursor: 'pointer',
 }
 
 const rowTitle: React.CSSProperties = {
@@ -430,11 +991,28 @@ const stackStyle: React.CSSProperties = {
   gap: 10,
 }
 
-const priorityItem: React.CSSProperties = {
+const groupButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
   padding: 12,
   borderRadius: 'var(--radius-lg)',
   border: '1px solid var(--color-border)',
   background: 'var(--color-surface-2)',
+  color: 'inherit',
+  cursor: 'pointer',
+  textAlign: 'left',
+}
+
+const groupFootStyle: React.CSSProperties = {
+  marginTop: 9,
+  color: 'var(--color-warning)',
+  fontSize: 11,
+  fontWeight: 700,
+}
+
+const priorityItemButton: React.CSSProperties = {
+  ...groupButtonStyle,
 }
 
 const priorityTitle: React.CSSProperties = {
@@ -450,31 +1028,6 @@ const priorityMeta: React.CSSProperties = {
   lineHeight: 1.45,
 }
 
-const priorityFoot: React.CSSProperties = {
-  marginTop: 10,
-}
-
-const messageBox: React.CSSProperties = {
-  margin: 14,
-  padding: 14,
-  borderRadius: 'var(--radius-lg)',
-  background: 'var(--color-surface-2)',
-  border: '1px solid var(--color-border)',
-}
-
-const templateTitle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  color: 'var(--color-text)',
-}
-
-const templateText: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 12,
-  color: 'var(--color-text-muted)',
-  lineHeight: 1.55,
-}
-
 const emptyState: React.CSSProperties = {
   padding: '38px 24px',
   textAlign: 'center',
@@ -487,4 +1040,226 @@ const emptySmall: React.CSSProperties = {
   textAlign: 'center',
   color: 'var(--color-text-muted)',
   fontSize: 12,
+}
+
+const drawerBackdrop: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 70,
+  background: 'rgba(0, 0, 0, 0.54)',
+  display: 'flex',
+  justifyContent: 'flex-end',
+}
+
+const drawerStyle: React.CSSProperties = {
+  width: 'min(560px, 100vw)',
+  height: '100vh',
+  background: 'var(--color-surface)',
+  borderLeft: '1px solid var(--color-border-strong)',
+  boxShadow: 'var(--shadow-lg)',
+  overflow: 'auto',
+}
+
+const drawerHeader: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '18px 20px',
+  borderBottom: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+}
+
+const drawerBody: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  padding: 18,
+}
+
+const eyebrow: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 800,
+  textTransform: 'uppercase',
+  color: 'var(--color-text-muted)',
+}
+
+const drawerTitle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 21,
+  fontWeight: 800,
+  color: 'var(--color-text)',
+}
+
+const drawerMeta: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 12,
+  color: 'var(--color-text-muted)',
+}
+
+const iconButtonStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  color: 'var(--color-text)',
+  background: 'var(--color-surface-2)',
+}
+
+const infoGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 10,
+}
+
+const infoBlockStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  padding: 11,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  fontSize: 12,
+  color: 'var(--color-text-muted)',
+}
+
+const owedBox: React.CSSProperties = {
+  padding: 13,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+}
+
+const boxTitle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  color: 'var(--color-text)',
+  marginBottom: 8,
+}
+
+const owedItemStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  padding: '9px 0',
+  borderTop: '1px solid var(--color-border)',
+  color: 'var(--color-text)',
+  fontSize: 13,
+}
+
+const contactWarning: React.CSSProperties = {
+  padding: '10px 12px',
+  borderRadius: 'var(--radius-lg)',
+  background: 'var(--color-warning-bg)',
+  color: 'var(--color-warning)',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const fieldLabel: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 7,
+  fontSize: 12,
+  fontWeight: 700,
+  color: 'var(--color-text)',
+}
+
+const messageTextarea: React.CSSProperties = {
+  minHeight: 190,
+  resize: 'vertical',
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border-strong)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text)',
+  padding: 12,
+  lineHeight: 1.55,
+}
+
+const nextGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+  gap: 10,
+  alignItems: 'end',
+}
+
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text)',
+  padding: '10px 11px',
+}
+
+const nextPreviewStyle: React.CSSProperties = {
+  padding: '10px 11px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text-muted)',
+  fontSize: 12,
+}
+
+const buttonGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 9,
+}
+
+const secondaryButton: React.CSSProperties = {
+  display: 'inline-flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  gap: 7,
+  padding: '10px 12px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text)',
+  fontSize: 13,
+  fontWeight: 700,
+}
+
+const secondaryDangerButton: React.CSSProperties = {
+  ...secondaryButton,
+  color: 'var(--color-danger)',
+  background: 'var(--color-danger-bg)',
+}
+
+const drawerFooter: React.CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  justifyContent: 'flex-end',
+  paddingTop: 2,
+}
+
+const primaryButton: React.CSSProperties = {
+  ...secondaryButton,
+  background: 'var(--lime)',
+  color: 'var(--lime-ink)',
+  border: '1px solid transparent',
+}
+
+const historyBox: React.CSSProperties = {
+  paddingTop: 2,
+}
+
+const logItemStyle: React.CSSProperties = {
+  padding: 11,
+  borderRadius: 'var(--radius-lg)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  marginTop: 8,
+}
+
+const logMessageStyle: React.CSSProperties = {
+  marginTop: 8,
+  whiteSpace: 'pre-wrap',
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: 'var(--color-text)',
 }
