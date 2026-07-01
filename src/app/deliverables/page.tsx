@@ -8,6 +8,7 @@ import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
+import type { VersionReviewStatus } from '@/lib/deliverableVersionStatus'
 import type {
   CommandCenterDeliverableRow,
   CommandCenterProjectRow,
@@ -21,7 +22,7 @@ type DeliverableStatus = CommandCenterDeliverableRow['status']
 interface DetailVersion {
   id: string
   version_number: number
-  review_status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  review_status: VersionReviewStatus
 }
 
 interface DetailPayload {

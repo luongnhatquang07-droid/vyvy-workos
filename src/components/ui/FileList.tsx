@@ -1,6 +1,16 @@
 'use client'
 
 import React from 'react'
+import {
+  isVersionInvalid,
+  normalizeVersionReviewStatus,
+  versionReviewLabel,
+  versionReviewTone,
+  type VersionReviewStatus,
+} from '@/lib/deliverableVersionStatus'
+
+const MAX_FILE_SIZE = 25 * 1024 * 1024
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'])
 
 interface StorageFile {
   name: string
@@ -16,7 +26,7 @@ interface VersionItem {
   submitted_by: string | null
   submitted_at: string | null
   change_note: string | null
-  review_status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  review_status: VersionReviewStatus
   review_comment: string | null
   reviewed_at: string | null
   storageMode: 'supabase' | 'external_url'
@@ -57,19 +67,12 @@ function fileIcon(name: string, mime = '') {
   return 'ti-file'
 }
 
-function reviewLabel(status: VersionItem['review_status']) {
-  if (status === 'APPROVED') return 'Đã duyệt'
-  if (status === 'REVISION_REQUESTED') return 'Yêu cầu sửa'
-  if (status === 'REJECTED') return 'Từ chối'
-  if (status === 'CANCELLED') return 'Đã hủy'
-  if (status === 'NOT_REQUESTED') return 'Chưa yêu cầu'
-  return 'Chờ review'
-}
-
-function reviewTone(status: VersionItem['review_status']) {
-  if (status === 'APPROVED') return { color: 'var(--color-success)', bg: 'var(--color-success-bg)' }
-  if (status === 'REVISION_REQUESTED' || status === 'REJECTED') return { color: 'var(--color-danger)', bg: 'var(--color-danger-bg)' }
-  return { color: 'var(--color-warning)', bg: 'var(--color-warning-bg)' }
+function validateReplacementFile(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
+  if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh và ZIP.'
+  if (file.size <= 0) return 'File đang rỗng, chưa thể tải lên.'
+  if (file.size > MAX_FILE_SIZE) return 'File vượt quá giới hạn 25MB.'
+  return ''
 }
 
 export function FileList({
@@ -85,7 +88,12 @@ export function FileList({
   const [versions, setVersions] = React.useState<VersionItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
+  const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
+  const [replacingId, setReplacingId] = React.useState<string | null>(null)
+  const [replaceDraft, setReplaceDraft] = React.useState<{ versionId: string; reason: string } | null>(null)
+  const [notice, setNotice] = React.useState('')
   const [error, setError] = React.useState('')
+  const replaceInputRef = React.useRef<HTMLInputElement>(null)
 
   const loadFiles = React.useCallback(async () => {
     setLoading(true)
@@ -134,24 +142,114 @@ export function FileList({
     })
   }, [loadFiles, refreshKey])
 
-  async function deleteVersion(versionId: string) {
+  function askVersionReason(actionLabel: string) {
+    return window.prompt(
+      `${actionLabel}\n\nChọn/nhập lý do: Up nhầm file, File sai nội dung, File trùng, Khác`,
+      'Up nhầm file',
+    )?.trim() ?? ''
+  }
+
+  async function runVersionLifecycleAction(
+    versionId: string,
+    action: 'deleteVersion' | 'markVersionMistake' | 'supersedeVersion',
+    reason: string,
+  ) {
     if (!workspaceId || !deliverableId) return
     setDeletingId(versionId)
+    setMenuOpenId(null)
     setError('')
+    setNotice('')
     try {
       const response = await fetch('/api/deliverables', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, deliverableId, versionId, action: 'deleteVersion' }),
+        body: JSON.stringify({ workspaceId, deliverableId, versionId, action, reason }),
       })
       const payload = (await response.json()) as { error?: string }
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xóa được version.')
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xử lý được version.')
       await loadFiles()
+      setNotice('Đã cập nhật trạng thái version.')
       onChanged?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không xóa được version.')
+      setError(err instanceof Error ? err.message : 'Không xử lý được version.')
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  async function deleteVersion(versionId: string) {
+    const reason = askVersionReason('Xóa/hủy version chưa duyệt')
+    if (!reason) return
+    await runVersionLifecycleAction(versionId, 'deleteVersion', reason)
+  }
+
+  async function markVersionMistake(versionId: string) {
+    const reason = askVersionReason('Đánh dấu version up nhầm')
+    if (!reason) return
+    await runVersionLifecycleAction(versionId, 'markVersionMistake', reason)
+  }
+
+  async function supersedeVersion(versionId: string) {
+    const reason = askVersionReason('Đánh dấu version cũ đã bị thay thế')
+    if (!reason) return
+    await runVersionLifecycleAction(versionId, 'supersedeVersion', reason)
+  }
+
+  async function copyLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setNotice('Đã copy link file.')
+    } catch {
+      setError('Không copy được link. Hãy mở file rồi copy thủ công.')
+    }
+    setMenuOpenId(null)
+  }
+
+  function startReplacement(version: VersionItem) {
+    const status = normalizeVersionReviewStatus(version.review_status)
+    const reason = askVersionReason(status === 'APPROVED' ? 'Tạo version thay thế' : 'Thay file cho version này')
+    if (!reason) return
+    setReplaceDraft({ versionId: version.id, reason })
+    setMenuOpenId(null)
+    queueMicrotask(() => replaceInputRef.current?.click())
+  }
+
+  async function uploadReplacement(file: File) {
+    if (!workspaceId || !deliverableId || !replaceDraft) return
+    const validationError = validateReplacementFile(file)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
+    setReplacingId(replaceDraft.versionId)
+    setError('')
+    setNotice('')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('workspaceId', workspaceId)
+      if (projectId) formData.append('projectId', projectId)
+      if (taskId) formData.append('taskId', taskId)
+      formData.append('deliverableId', deliverableId)
+      formData.append('supersedesVersionId', replaceDraft.versionId)
+      formData.append('replaceReason', replaceDraft.reason)
+      formData.append('changeNote', replaceDraft.reason)
+
+      const response = await fetch('/api/upload', { method: 'POST', body: formData })
+      const payload = (await response.json()) as { error?: string; versionNumber?: number }
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không thay file được.')
+
+      await loadFiles()
+      setNotice(payload.versionNumber ? `Đã tạo Version ${payload.versionNumber} thay thế.` : 'Đã tạo version thay thế.')
+      onChanged?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thay file được.')
+    } finally {
+      setReplacingId(null)
+      setReplaceDraft(null)
+      if (replaceInputRef.current) replaceInputRef.current.value = ''
     }
   }
 
@@ -173,16 +271,30 @@ export function FileList({
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <input
+          ref={replaceInputRef}
+          type="file"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file) void uploadReplacement(file)
+          }}
+        />
+        {notice ? <div style={noticeText}>{notice}</div> : null}
         {versions.map((version) => {
           const fileName = version.external_url ?? version.attachment?.file_name ?? `Version ${version.version_number}`
           const mime = version.external_url ? 'external_url' : version.attachment?.mime_type ?? ''
           const url = version.external_url ?? version.attachment?.url ?? null
-          const tone = reviewTone(version.review_status)
+          const status = normalizeVersionReviewStatus(version.review_status)
+          const tone = versionReviewTone(status)
           const submitter = version.submitted_by ? peopleById[version.submitted_by] : null
-          const canDelete = version.review_status !== 'APPROVED'
+          const invalid = isVersionInvalid(status)
+          const approved = status === 'APPROVED'
+          const menuOpen = menuOpenId === version.id
+          const busy = deletingId === version.id || replacingId === version.id
 
           return (
-            <div key={version.id} style={versionRowStyle}>
+            <div key={version.id} style={versionRowStyle(invalid)}>
               <div style={versionHeaderStyle}>
                 <i className={`ti ${fileIcon(fileName, mime)}`} style={fileIconStyle} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -197,26 +309,67 @@ export function FileList({
                   {version.change_note ? <div style={noteTextStyle}>{version.change_note}</div> : null}
                   {version.review_comment ? <div style={reviewCommentStyle}>{version.review_comment}</div> : null}
                 </div>
-                <span style={{ ...badgeStyle, color: tone.color, background: tone.bg }}>{reviewLabel(version.review_status)}</span>
-              </div>
-
-              <div style={versionActionsStyle}>
-                {url ? (
-                  <a href={url} target="_blank" rel="noopener noreferrer" style={actionLinkStyle}>
-                    <i className="ti ti-download" />
-                    Xem / tải
-                  </a>
-                ) : null}
-                {canDelete ? (
+                <span style={{ ...badgeStyle, color: tone.color, background: tone.bg }}>{versionReviewLabel(status)}</span>
+                <div style={menuWrapStyle}>
                   <button
                     type="button"
-                    onClick={() => void deleteVersion(version.id)}
-                    disabled={deletingId === version.id}
-                    style={dangerButtonStyle}
+                    onClick={() => setMenuOpenId(menuOpen ? null : version.id)}
+                    disabled={busy}
+                    aria-label="Mở menu xử lý version"
+                    title="Xử lý version"
+                    style={menuButtonStyle}
                   >
-                    {deletingId === version.id ? 'Đang xóa...' : 'Xóa version'}
+                    {busy ? <i className="ti ti-loader-2" style={loaderStyle} /> : <i className="ti ti-dots" />}
                   </button>
-                ) : null}
+                  {menuOpen ? (
+                    <div style={menuPanelStyle}>
+                      {url ? (
+                        <>
+                          <a href={url} target="_blank" rel="noopener noreferrer" style={menuItemStyle}>
+                            <i className="ti ti-eye" />
+                            Xem file
+                          </a>
+                          <a href={url} download style={menuItemStyle}>
+                            <i className="ti ti-download" />
+                            Tải xuống
+                          </a>
+                          <button type="button" onClick={() => void copyLink(url)} style={menuItemStyle}>
+                            <i className="ti ti-link" />
+                            Copy link
+                          </button>
+                        </>
+                      ) : null}
+                      {!invalid && approved ? (
+                        <>
+                          <button type="button" onClick={() => startReplacement(version)} style={menuItemStyle}>
+                            <i className="ti ti-upload" />
+                            Tạo version thay thế
+                          </button>
+                          <button type="button" onClick={() => void supersedeVersion(version.id)} style={menuItemStyle}>
+                            <i className="ti ti-replace" />
+                            Đánh dấu đã thay thế
+                          </button>
+                        </>
+                      ) : null}
+                      {!invalid && !approved ? (
+                        <>
+                          <button type="button" onClick={() => startReplacement(version)} style={menuItemStyle}>
+                            <i className="ti ti-upload" />
+                            Thay file
+                          </button>
+                          <button type="button" onClick={() => void markVersionMistake(version.id)} style={menuItemStyle}>
+                            <i className="ti ti-alert-circle" />
+                            Đánh dấu up nhầm
+                          </button>
+                          <button type="button" onClick={() => void deleteVersion(version.id)} style={dangerMenuItemStyle}>
+                            <i className="ti ti-trash" />
+                            Xóa version
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           )
@@ -264,6 +417,15 @@ const errorText: React.CSSProperties = {
   padding: '8px 0',
 }
 
+const noticeText: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--color-success)',
+  background: 'var(--color-success-bg)',
+  border: '1px solid rgba(56, 142, 60, 0.22)',
+  borderRadius: 8,
+  padding: '7px 9px',
+}
+
 const retryButtonStyle: React.CSSProperties = {
   border: '1px solid var(--color-border)',
   borderRadius: 8,
@@ -284,12 +446,13 @@ const fileRowStyle: React.CSSProperties = {
   borderRadius: 'var(--radius-md)',
 }
 
-const versionRowStyle: React.CSSProperties = {
+const versionRowStyle = (invalid: boolean): React.CSSProperties => ({
   padding: 12,
   background: 'var(--color-surface-2)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-md)',
-}
+  opacity: invalid ? 0.58 : 1,
+})
 
 const versionHeaderStyle: React.CSSProperties = {
   display: 'flex',
@@ -344,13 +507,6 @@ const badgeStyle: React.CSSProperties = {
   fontWeight: 800,
 }
 
-const versionActionsStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'flex-end',
-  gap: 8,
-  marginTop: 10,
-}
-
 const actionLinkStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -365,15 +521,60 @@ const actionLinkStyle: React.CSSProperties = {
   flexShrink: 0,
 }
 
-const dangerButtonStyle: React.CSSProperties = {
+const menuWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  flexShrink: 0,
+}
+
+const menuButtonStyle: React.CSSProperties = {
+  width: 30,
+  height: 30,
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 5,
-  fontSize: 11,
-  fontWeight: 700,
-  color: 'var(--color-danger)',
-  padding: '5px 8px',
-  border: '1px solid rgba(184,64,64,0.24)',
+  justifyContent: 'center',
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  color: 'var(--color-text-muted)',
+  background: 'var(--color-surface)',
+}
+
+const menuPanelStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 34,
+  right: 0,
+  zIndex: 20,
+  minWidth: 190,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  padding: 6,
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  background: 'var(--color-surface)',
+  boxShadow: '0 18px 42px rgba(0,0,0,.28)',
+}
+
+const menuItemStyle: React.CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px 9px',
   borderRadius: 7,
-  background: 'var(--color-danger-bg)',
+  border: 0,
+  background: 'transparent',
+  color: 'var(--color-text)',
+  textDecoration: 'none',
+  fontSize: 12,
+  fontWeight: 750,
+  textAlign: 'left',
+}
+
+const dangerMenuItemStyle: React.CSSProperties = {
+  ...menuItemStyle,
+  color: 'var(--color-danger)',
+}
+
+const loaderStyle: React.CSSProperties = {
+  animation: 'spin 0.8s linear infinite',
 }

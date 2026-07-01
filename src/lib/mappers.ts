@@ -5,6 +5,7 @@ import type {
   CommandCenterApprovalRow,
   CommandCenterCeoDecisionRequestRow,
   CommandCenterDeliverableRow,
+  CommandCenterDeliverableVersionRow,
   CommandCenterMeetingRow,
   CommandCenterPersonRow,
   CommandCenterProjectRow,
@@ -12,6 +13,13 @@ import type {
   RawCommandCenterData,
   CommandCenterReminderRow,
 } from '@/lib/database.types'
+import {
+  isVersionInvalid,
+  isVersionPending,
+  isVersionRevision,
+  isVersionValidForCompletion,
+  normalizeVersionReviewStatus,
+} from '@/lib/deliverableVersionStatus'
 import type {
   ActionKind,
   ActivityLogEntry,
@@ -255,6 +263,34 @@ function mapActivityLog(row: CommandCenterActivityLogRow): ActivityLogEntry {
   }
 }
 
+function getDeliverableCheckState(
+  row: CommandCenterDeliverableRow,
+  versions: CommandCenterDeliverableVersionRow[],
+) {
+  const requiresApproval = Boolean(row.reviewer_id)
+  const relatedVersions = versions
+    .filter((version) => version.deliverable_id === row.id)
+    .sort((a, b) => b.version_number - a.version_number)
+  const latestRelevant = relatedVersions.find((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
+
+  if (latestRelevant) {
+    const status = normalizeVersionReviewStatus(latestRelevant.review_status)
+    return {
+      present: !isVersionRevision(status) && (status === 'APPROVED' || isVersionPending(status)),
+      gateOpen: isVersionValidForCompletion(status, requiresApproval),
+    }
+  }
+
+  if (relatedVersions.length) {
+    return { present: false, gateOpen: false }
+  }
+
+  return {
+    present: row.status === 'APPROVED' || (row.status === 'SUBMITTED' && !requiresApproval),
+    gateOpen: row.status === 'APPROVED' || (row.status === 'SUBMITTED' && !requiresApproval),
+  }
+}
+
 export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData {
   const today = getVietnamDateKey()
 
@@ -315,19 +351,22 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
 
   const deliverableChecks: DeliverableCheck[] = raw.deliverables
     .filter((row) => row.task_id)
-    .map((row) => ({
-      taskId: row.task_id!,
-      taskTitle: row.name,
-      ownerName: people.find((person) => person.id === row.submitter_id)?.name ?? '',
-      items: [
-        {
-          label: 'File/Link',
-          present: row.status === 'APPROVED' || row.status === 'SUBMITTED',
-          required: true,
-        },
-      ],
-      gateOpen: row.status === 'APPROVED',
-    }))
+    .map((row) => {
+      const checkState = getDeliverableCheckState(row, raw.deliverableVersions)
+      return {
+        taskId: row.task_id!,
+        taskTitle: row.name,
+        ownerName: people.find((person) => person.id === row.submitter_id)?.name ?? '',
+        items: [
+          {
+            label: 'File/Link',
+            present: checkState.present,
+            required: true,
+          },
+        ],
+        gateOpen: checkState.gateOpen,
+      }
+    })
 
   const kpi = computeKPI(meetings, tasks, approvals, ceoRequests, reminders, deliverables)
   const priorityItems = buildPriorityList(tasks, meetings, approvals, ceoRequests, people, projects)

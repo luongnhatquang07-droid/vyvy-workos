@@ -115,7 +115,7 @@ export interface ApprovalRow {
   project_id: string | null
   requested_by: string | null
   approver_id: string | null
-  status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  status: 'NOT_REQUESTED' | 'PENDING' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED' | 'UPLOADED_BY_MISTAKE' | 'SUPERSEDED'
   requested_at: string | null
   due_at: string | null
 }
@@ -292,7 +292,7 @@ export interface CommandCenterDeliverableVersionRow {
   submitted_by: string | null
   submitted_at: string | null
   change_note: string | null
-  review_status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  review_status: 'NOT_REQUESTED' | 'PENDING' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED' | 'UPLOADED_BY_MISTAKE' | 'SUPERSEDED'
   review_comment: string | null
   reviewed_by: string | null
   reviewed_at: string | null
@@ -318,7 +318,7 @@ export interface CommandCenterApprovalRow {
   project_id: string | null
   requested_by: string | null
   approver_id: string | null
-  status: 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+  status: 'NOT_REQUESTED' | 'PENDING' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED' | 'UPLOADED_BY_MISTAKE' | 'SUPERSEDED'
   requested_at: string | null
   due_at: string | null
 }

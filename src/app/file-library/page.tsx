@@ -2,10 +2,12 @@
 
 import React from 'react'
 import { DataErrorState } from '@/components/ui/DataErrorState'
+import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { useToast } from '@/components/feedback/Toast'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
+import { normalizeVersionReviewStatus, versionReviewLabel, versionReviewTone } from '@/lib/deliverableVersionStatus'
 import type {
   CommandCenterAttachmentRow,
   CommandCenterDeliverableRow,
@@ -21,7 +23,6 @@ type FilterKey = 'all' | 'not_submitted' | 'submitted' | 'pending_review' | 'rev
 type ScopeType = 'all' | 'project' | 'workstream' | 'task' | 'deliverable'
 type LibraryScope = { type: ScopeType; id: string | null; label: string }
 type DeliverableStatus = CommandCenterDeliverableRow['status']
-type ReviewStatus = CommandCenterDeliverableVersionRow['review_status']
 
 interface DetailVersion extends CommandCenterDeliverableVersionRow {
   storageMode?: 'supabase' | 'external_url'
@@ -52,15 +53,6 @@ const STATUS_META: Record<DeliverableStatus | 'OVERDUE', { label: string; icon: 
   REVISION_REQUIRED: { label: 'Yêu cầu sửa', icon: 'ti-rotate-clockwise', color: 'var(--color-danger)', bg: 'var(--color-danger-bg)' },
   APPROVED: { label: 'Đã duyệt', icon: 'ti-rosette-check', color: 'var(--color-success)', bg: 'var(--color-success-bg)' },
   OVERDUE: { label: 'Quá hạn', icon: 'ti-alert-triangle', color: 'var(--color-danger)', bg: 'var(--color-danger-bg)' },
-}
-
-const REVIEW_META: Record<ReviewStatus, { label: string; color: string }> = {
-  NOT_REQUESTED: { label: 'Chưa yêu cầu duyệt', color: 'var(--color-text-muted)' },
-  PENDING: { label: 'Chờ duyệt', color: 'var(--color-warning)' },
-  APPROVED: { label: 'Đã duyệt', color: 'var(--color-success)' },
-  REJECTED: { label: 'Từ chối', color: 'var(--color-danger)' },
-  REVISION_REQUESTED: { label: 'Yêu cầu sửa', color: 'var(--color-danger)' },
-  CANCELLED: { label: 'Đã hủy', color: 'var(--color-text-muted)' },
 }
 
 export default function FileLibraryPage() {
@@ -672,7 +664,8 @@ function FileRow({
   const submitter = item.submitter_id ? peopleById[item.submitter_id] : null
   const status = STATUS_META[isOverdue(item, today) ? 'OVERDUE' : item.status]
   const fileName = getVersionFileName(latestVersion, attachment, item)
-  const review = latestVersion ? REVIEW_META[latestVersion.review_status] : null
+  const reviewStatus = latestVersion ? normalizeVersionReviewStatus(latestVersion.review_status) : null
+  const reviewTone = versionReviewTone(reviewStatus)
 
   return (
     <button type="button" onClick={onClick} style={fileRowStyle(selected)}>
@@ -698,8 +691,8 @@ function FileRow({
           {latestVersion ? `v${latestVersion.version_number}` : 'Chưa có version'}
           {attachment?.size_bytes ? ` · ${formatBytes(attachment.size_bytes)}` : ''}
         </span>
-        <span style={{ ...rowTinyStyle, color: review?.color ?? 'var(--color-text-muted)' }}>
-          {review?.label ?? (item.due_date ? `Hạn ${formatDate(item.due_date)}` : 'Chưa có hạn')}
+        <span style={{ ...rowTinyStyle, color: latestVersion ? reviewTone.color : 'var(--color-text-muted)' }}>
+          {latestVersion ? versionReviewLabel(reviewStatus) : (item.due_date ? `Hạn ${formatDate(item.due_date)}` : 'Chưa có hạn')}
         </span>
       </div>
     </button>
@@ -829,55 +822,19 @@ function DetailPanel({
 
       <section style={detailSectionStyle}>
         <div style={sectionTitleStyle}>Lịch sử version</div>
-        <VersionHistory versions={detail?.versions} fallbackVersions={versionsByDeliverable[selected.id] ?? []} attachmentsById={attachmentsById} />
+        {workspaceId ? (
+          <FileList
+            workspaceId={workspaceId}
+            projectId={projectId ?? undefined}
+            taskId={selected.task_id ?? undefined}
+            deliverableId={selected.id}
+            peopleById={peopleById}
+            onChanged={onUploaded}
+          />
+        ) : (
+          <div style={mutedLineStyle}>Chưa xác định workspace nên chưa tải được lịch sử version.</div>
+        )}
       </section>
-    </div>
-  )
-}
-
-function VersionHistory({
-  versions,
-  fallbackVersions,
-  attachmentsById,
-}: {
-  versions?: DetailVersion[]
-  fallbackVersions: CommandCenterDeliverableVersionRow[]
-  attachmentsById: Record<string, CommandCenterAttachmentRow>
-}) {
-  const list: Array<DetailVersion | CommandCenterDeliverableVersionRow> = versions?.length ? versions : fallbackVersions
-  if (!list.length) return <div style={mutedLineStyle}>Chưa có version nào. Upload file hoặc gắn link để tạo version đầu tiên.</div>
-
-  return (
-    <div style={versionListStyle}>
-      {list.map((version) => {
-        const detailVersion = version as Partial<DetailVersion>
-        const attachment = detailVersion.attachment ?? (version.attachment_id ? attachmentsById[version.attachment_id] : null)
-        const fileName = version.external_url ?? attachment?.file_name ?? `Version ${version.version_number}`
-        const review = REVIEW_META[version.review_status]
-        const attachmentUrl = attachment && 'url' in attachment && typeof attachment.url === 'string' ? attachment.url : null
-        const url: string | null = version.external_url ?? attachmentUrl
-        return (
-          <div key={version.id} style={versionRowStyle}>
-            <div style={versionIconStyle}><i className={`ti ${version.external_url ? 'ti-link' : fileIcon(fileName, attachment?.mime_type)}`} /></div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={versionNameStyle}>
-                v{version.version_number} · {fileName}
-              </div>
-              <div style={versionMetaStyle}>
-                <span>{version.submitted_at ? formatDateTime(version.submitted_at) : 'Chưa có thời gian nộp'}</span>
-                {attachment?.size_bytes ? <span>{formatBytes(attachment.size_bytes)}</span> : null}
-                <span style={{ color: review.color }}>{review.label}</span>
-              </div>
-              {version.change_note ? <div style={changeNoteStyle}>{version.change_note}</div> : null}
-            </div>
-            {url ? (
-              <a href={url} target="_blank" rel="noopener noreferrer" style={openLinkStyle} onClick={(event) => event.stopPropagation()}>
-                <i className="ti ti-external-link" />
-              </a>
-            ) : null}
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -941,11 +898,13 @@ function isNotSubmitted(item: CommandCenterDeliverableRow) {
 }
 
 function isPendingReview(item: CommandCenterDeliverableRow, latestVersion?: CommandCenterDeliverableVersionRow | null) {
-  return item.status === 'SUBMITTED' || latestVersion?.review_status === 'PENDING'
+  const latestStatus = latestVersion ? normalizeVersionReviewStatus(latestVersion.review_status) : null
+  return item.status === 'SUBMITTED' || latestStatus === 'PENDING' || latestStatus === 'PENDING_REVIEW'
 }
 
 function isRevision(item: CommandCenterDeliverableRow, latestVersion?: CommandCenterDeliverableVersionRow | null) {
-  return item.status === 'REVISION_REQUIRED' || item.status === 'MISSING_INFORMATION' || latestVersion?.review_status === 'REVISION_REQUESTED'
+  const latestStatus = latestVersion ? normalizeVersionReviewStatus(latestVersion.review_status) : null
+  return item.status === 'REVISION_REQUIRED' || item.status === 'MISSING_INFORMATION' || latestStatus === 'REVISION_REQUESTED' || latestStatus === 'REJECTED'
 }
 
 function isOverdue(item: CommandCenterDeliverableRow, today: string) {
@@ -978,10 +937,6 @@ function formatBytes(bytes: number) {
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString('vi-VN')
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 const pageStyle: React.CSSProperties = {
@@ -1058,13 +1013,6 @@ const sectionToggleStyle: React.CSSProperties = { display: 'flex', alignItems: '
 const mutedLineStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 12, lineHeight: 1.5 }
 const loadingLineStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 12, padding: '8px 10px', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-2)' }
 const errorBlockStyle: React.CSSProperties = { color: 'var(--color-danger)', background: 'var(--color-danger-bg)', border: '1px solid rgba(184,64,64,.22)', borderRadius: 'var(--radius-md)', padding: 10, fontSize: 12, lineHeight: 1.5 }
-const versionListStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 }
-const versionRowStyle: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start', padding: 10, borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }
-const versionIconStyle: React.CSSProperties = { width: 30, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)', color: 'var(--color-text-muted)' }
-const versionNameStyle: React.CSSProperties = { color: 'var(--color-text)', fontSize: 12.5, fontWeight: 800, overflowWrap: 'anywhere' }
-const versionMetaStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4, color: 'var(--color-text-muted)', fontSize: 11 }
-const changeNoteStyle: React.CSSProperties = { marginTop: 6, color: 'var(--color-text-muted)', fontSize: 11.5, lineHeight: 1.45 }
-const openLinkStyle: React.CSSProperties = { width: 30, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }
 const emptyBlockStyle = (compact?: boolean): React.CSSProperties => ({ minHeight: compact ? 260 : 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--color-text-muted)', textAlign: 'center', padding: 24 })
 
 const responsiveCss = `

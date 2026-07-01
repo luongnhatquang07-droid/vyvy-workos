@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import {
+  isVersionInvalid,
+  isVersionPending,
+  isVersionRevision,
+  normalizeVersionReviewStatus,
+  type VersionReviewStatus,
+} from '@/lib/deliverableVersionStatus'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
@@ -16,6 +23,10 @@ function errorMessage(error: unknown) {
 
 function cleanId(value: FormDataEntryValue | null) {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function cleanText(value: FormDataEntryValue | null) {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function sanitizeFileName(name: string) {
@@ -145,6 +156,127 @@ async function validateEntityScope({
   return ''
 }
 
+async function logActivity(
+  workspaceId: string,
+  actorId: string | null,
+  action: string,
+  deliverableId: string,
+  metadata: Record<string, unknown> = {},
+) {
+  const client = createServiceClient()
+  await client.from('activity_logs').insert({
+    workspace_id: workspaceId,
+    actor_id: actorId,
+    action,
+    entity_type: 'deliverable',
+    entity_id: deliverableId,
+    metadata,
+  })
+}
+
+async function recomputeDeliverableStatus(
+  client: ReturnType<typeof createServiceClient>,
+  workspaceId: string,
+  actorId: string | null,
+  deliverableId: string,
+) {
+  const versionsRes = await client
+    .from('deliverable_versions')
+    .select('id,version_number,review_status')
+    .eq('deliverable_id', deliverableId)
+    .order('version_number', { ascending: false })
+
+  if (versionsRes.error) throw versionsRes.error
+
+  const latestRelevant = (versionsRes.data ?? [])
+    .map((version) => ({ id: version.id, reviewStatus: normalizeVersionReviewStatus(version.review_status) }))
+    .find((version) => !isVersionInvalid(version.reviewStatus))
+
+  let status: 'NOT_SUBMITTED' | 'SUBMITTED' | 'REVISION_REQUIRED' | 'APPROVED' = 'NOT_SUBMITTED'
+  let approvedVersionId: string | null = null
+
+  if (latestRelevant?.reviewStatus === 'APPROVED') {
+    status = 'APPROVED'
+    approvedVersionId = latestRelevant.id
+  } else if (latestRelevant && isVersionRevision(latestRelevant.reviewStatus)) {
+    status = 'REVISION_REQUIRED'
+  } else if (latestRelevant && isVersionPending(latestRelevant.reviewStatus)) {
+    status = 'SUBMITTED'
+  }
+
+  const updateRes = await client
+    .from('deliverables')
+    .update({
+      status,
+      approved_version_id: approvedVersionId,
+      updated_at: new Date().toISOString(),
+      updated_by: actorId,
+    })
+    .eq('id', deliverableId)
+    .eq('workspace_id', workspaceId)
+
+  if (updateRes.error) throw updateRes.error
+}
+
+async function markSupersededUploadVersion({
+  client,
+  workspaceId,
+  actorId,
+  deliverableId,
+  versionId,
+  reason,
+}: {
+  client: ReturnType<typeof createServiceClient>
+  workspaceId: string
+  actorId: string | null
+  deliverableId: string
+  versionId: string
+  reason: string
+}) {
+  const oldVersionRes = await client
+    .from('deliverable_versions')
+    .select('id,version_number,review_status')
+    .eq('id', versionId)
+    .eq('deliverable_id', deliverableId)
+    .maybeSingle()
+
+  if (oldVersionRes.error) throw oldVersionRes.error
+  if (!oldVersionRes.data) throw new Error('Không tìm thấy version cần thay thế.')
+
+  const previousStatus = normalizeVersionReviewStatus(oldVersionRes.data.review_status)
+  if (isVersionInvalid(previousStatus)) throw new Error('Version này đã được xử lý trước đó.')
+
+  const nextStatus: Extract<VersionReviewStatus, 'UPLOADED_BY_MISTAKE' | 'SUPERSEDED'> =
+    previousStatus === 'APPROVED' ? 'SUPERSEDED' : 'UPLOADED_BY_MISTAKE'
+
+  const updateRes = await client
+    .from('deliverable_versions')
+    .update({
+      review_status: nextStatus,
+      review_comment: reason,
+      reviewed_by: actorId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', versionId)
+    .eq('deliverable_id', deliverableId)
+
+  if (updateRes.error) throw updateRes.error
+
+  await logActivity(
+    workspaceId,
+    actorId,
+    nextStatus === 'SUPERSEDED' ? 'deliverable.version.superseded' : 'deliverable.version.marked_mistake',
+    deliverableId,
+    {
+      versionId,
+      versionNumber: oldVersionRes.data.version_number,
+      reason,
+      before: previousStatus,
+      after: nextStatus,
+    },
+  )
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData()
@@ -153,7 +285,9 @@ export async function POST(req: NextRequest) {
     const projectId = cleanId(form.get('projectId'))
     const taskId = cleanId(form.get('taskId'))
     const deliverableId = cleanId(form.get('deliverableId'))
-    const changeNote = typeof form.get('changeNote') === 'string' ? String(form.get('changeNote')).trim() : ''
+    const supersedesVersionId = cleanId(form.get('supersedesVersionId'))
+    const changeNote = cleanText(form.get('changeNote'))
+    const replaceReason = cleanText(form.get('replaceReason')) || changeNote || 'Thay file bằng version mới.'
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'Thiếu file hoặc workspaceId.' }, { status: 400 })
@@ -221,7 +355,7 @@ export async function POST(req: NextRequest) {
         attachment_id: attachment.id,
         submitted_by: context.uploaderId,
         change_note: changeNote || null,
-        review_status: 'PENDING',
+        review_status: 'PENDING_REVIEW',
       }).select('id,version_number').single()
 
       if (versionRes.error || !versionRes.data) {
@@ -229,11 +363,18 @@ export async function POST(req: NextRequest) {
       }
       versionId = versionRes.data.id
 
-      await client
-        .from('deliverables')
-        .update({ status: 'SUBMITTED', updated_at: new Date().toISOString(), updated_by: context.uploaderId })
-        .eq('id', deliverableId)
-        .eq('workspace_id', workspaceId)
+      if (supersedesVersionId) {
+        await markSupersededUploadVersion({
+          client,
+          workspaceId,
+          actorId: context.uploaderId,
+          deliverableId,
+          versionId: supersedesVersionId,
+          reason: replaceReason,
+        })
+      }
+
+      await recomputeDeliverableStatus(client, workspaceId, context.uploaderId, deliverableId)
 
       await client
         .from('reminders')
@@ -244,6 +385,16 @@ export async function POST(req: NextRequest) {
         })
         .eq('workspace_id', workspaceId)
         .eq('deliverable_id', deliverableId)
+
+      await logActivity(context.workspaceId, context.uploaderId, 'deliverable.version.uploaded_file', deliverableId, {
+        versionId,
+        versionNumber,
+        attachmentId: attachment.id,
+        fileName: file.name,
+        supersedesVersionId,
+        before: null,
+        after: 'PENDING_REVIEW',
+      })
     }
 
     const { data: signedUrl } = await client.storage

@@ -8,8 +8,16 @@ import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { CommandDataProvider, useCommandData } from '@/hooks/useCommandData'
+import {
+  isVersionInvalid,
+  isVersionRevision,
+  isVersionValidForCompletion,
+  normalizeVersionReviewStatus,
+  type VersionReviewStatus,
+} from '@/lib/deliverableVersionStatus'
 import type {
   CommandCenterDeliverableRow,
+  CommandCenterDeliverableVersionRow,
   CommandCenterMeetingRow,
   CommandCenterPersonRow,
   CommandCenterProjectRow,
@@ -43,7 +51,13 @@ interface StepItem {
   requiresDeliverable: boolean
   deliverableId: string | null
   deliverableStatus: CommandCenterDeliverableRow['status'] | null
+  deliverableReviewStatus: VersionReviewStatus | null
+  deliverableIsValid: boolean
+  deliverableBlocker: DeliverableBlocker
+  deliverableRequiresApproval: boolean
 }
+
+type DeliverableBlocker = 'MISTAKE' | 'REVISION' | 'MISSING' | 'PENDING_APPROVAL' | null
 
 interface StepDraft {
   title: string
@@ -68,6 +82,8 @@ interface SubtaskItem {
   status: TaskStatus
   reportText: string
   needsFile: boolean
+  taskDeliverableValid: boolean
+  fileBlocker: DeliverableBlocker
   attachments: AttachmentItem[]
   deadlineHistory: Array<{ id: string; oldDate: string; newDate: string; reason: string }>
   steps: StepItem[]
@@ -184,6 +200,7 @@ function ProjectsPageContent() {
       data?.workstreams ?? [],
       data?.taskSteps ?? [],
       data?.deliverables ?? [],
+      data?.deliverableVersions ?? [],
       data?.meetings ?? [],
     )
     queueMicrotask(() => {
@@ -192,7 +209,7 @@ function ProjectsPageContent() {
       setSelectedSubtaskId(null)
       setReady(true)
     })
-  }, [data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
+  }, [data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -529,7 +546,8 @@ function ProjectsPageContent() {
     if (nextStatus === 'COMPLETED') {
       const blockers = getCompletionBlockers(selectedSubtask)
       if (blockers.length) {
-        window.alert(`Chưa thể hoàn thành vì còn thiếu: ${blockers.join('; ')}.`)
+        const hasSpecificFileBlocker = blockers.some((blocker) => blocker.startsWith('file đã nộp') || blocker.startsWith('file đang chờ') || blocker.startsWith('file/báo cáo'))
+        window.alert(hasSpecificFileBlocker ? `Chưa thể hoàn thành vì ${blockers.join('; ')}.` : `Chưa thể hoàn thành vì còn thiếu: ${blockers.join('; ')}.`)
         openBlockedSection(selectedSubtask)
         return
       }
@@ -2214,6 +2232,7 @@ function seedWorkspace(
   workstreams: CommandCenterWorkstreamRow[],
   taskSteps: CommandCenterTaskStepRow[],
   deliverables: CommandCenterDeliverableRow[],
+  deliverableVersions: CommandCenterDeliverableVersionRow[],
   meetings: CommandCenterMeetingRow[],
 ): ProjectWorkspace[] {
   const today = getVietnamDateKey()
@@ -2225,7 +2244,7 @@ function seedWorkspace(
     const startDate = project.start_date ?? shiftDate(today, index * 3)
     const mappedWorkstreams = projectWorkstreams.map((workstream) => {
       const streamTasks = projectTasks.filter((task) => task.workstream_id === workstream.id)
-      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables))
+      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions))
       return toWorkstreamItem(workstream, subtasks, startDate, fallbackOwner)
     })
 
@@ -2238,7 +2257,7 @@ function seedWorkspace(
           startDate,
           dueDate: project.due_date ?? shiftDate(startDate, 21),
           status: 'NOT_STARTED',
-          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables)),
+          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions)),
         }
       : null
     const projectTree = ungroupedWorkstream ? [...mappedWorkstreams, ungroupedWorkstream] : mappedWorkstreams
@@ -2292,6 +2311,7 @@ function toSeedSubtask(
   index: number,
   taskSteps: CommandCenterTaskStepRow[],
   deliverables: CommandCenterDeliverableRow[],
+  deliverableVersions: CommandCenterDeliverableVersionRow[],
 ): SubtaskItem {
   const dueDate = task.due_date ?? shiftDate(projectStart, 5 + index * 2)
   const startDate = task.start_date ?? shiftDate(dueDate, -3)
@@ -2300,6 +2320,7 @@ function toSeedSubtask(
     .filter((step) => step.task_id === task.id)
     .map((step) => {
       const linkedDeliverable = taskDeliverables.find((deliverable) => deliverable.step_id === step.id)
+      const evidence = getDeliverableEvidenceState(linkedDeliverable, deliverableVersions)
       return {
         id: step.id,
         title: step.title,
@@ -2312,10 +2333,15 @@ function toSeedSubtask(
         isRequired: step.is_required !== false,
         requiresDeliverable: Boolean(linkedDeliverable),
         deliverableId: linkedDeliverable?.id ?? null,
-        deliverableStatus: linkedDeliverable?.status ?? null,
+        deliverableStatus: evidence.status,
+        deliverableReviewStatus: evidence.reviewStatus,
+        deliverableIsValid: evidence.valid,
+        deliverableBlocker: evidence.blocker,
+        deliverableRequiresApproval: evidence.requiresApproval,
       }
     })
   const taskLevelDeliverable = taskDeliverables.find((deliverable) => !deliverable.step_id)
+  const taskEvidence = getDeliverableEvidenceState(taskLevelDeliverable, deliverableVersions)
 
   return {
     id: task.id,
@@ -2330,10 +2356,81 @@ function toSeedSubtask(
     status: normalizeStatus(task.status),
     reportText: '',
     needsFile: Boolean(taskLevelDeliverable ?? taskDeliverables.length),
+    taskDeliverableValid: taskEvidence.valid,
+    fileBlocker: taskEvidence.blocker,
     attachments: [],
     deadlineHistory: [],
     steps: persistedSteps,
   }
+}
+
+function getDeliverableEvidenceState(
+  deliverable: CommandCenterDeliverableRow | null | undefined,
+  versions: CommandCenterDeliverableVersionRow[],
+): {
+  status: CommandCenterDeliverableRow['status'] | null
+  reviewStatus: VersionReviewStatus | null
+  valid: boolean
+  blocker: DeliverableBlocker
+  requiresApproval: boolean
+} {
+  if (!deliverable) {
+    return { status: null, reviewStatus: null, valid: false, blocker: null, requiresApproval: false }
+  }
+
+  const requiresApproval = Boolean(deliverable.reviewer_id)
+  const relatedVersions = versions
+    .filter((version) => version.deliverable_id === deliverable.id)
+    .sort((a, b) => b.version_number - a.version_number)
+  const latestRelevant = relatedVersions.find((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
+
+  if (relatedVersions.length && !latestRelevant) {
+    return {
+      status: 'NOT_SUBMITTED',
+      reviewStatus: normalizeVersionReviewStatus(relatedVersions[0].review_status),
+      valid: false,
+      blocker: 'MISTAKE',
+      requiresApproval,
+    }
+  }
+
+  if (latestRelevant) {
+    const reviewStatus = normalizeVersionReviewStatus(latestRelevant.review_status)
+    const valid = isVersionValidForCompletion(reviewStatus, requiresApproval)
+    const status: CommandCenterDeliverableRow['status'] =
+      reviewStatus === 'APPROVED'
+        ? 'APPROVED'
+        : isVersionRevision(reviewStatus)
+          ? 'REVISION_REQUIRED'
+          : 'SUBMITTED'
+    return {
+      status,
+      reviewStatus,
+      valid,
+      blocker: valid ? null : isVersionRevision(reviewStatus) ? 'REVISION' : requiresApproval ? 'PENDING_APPROVAL' : 'MISSING',
+      requiresApproval,
+    }
+  }
+
+  if (deliverable.status === 'APPROVED') {
+    return { status: deliverable.status, reviewStatus: 'APPROVED', valid: true, blocker: null, requiresApproval }
+  }
+
+  if (deliverable.status === 'SUBMITTED') {
+    return {
+      status: deliverable.status,
+      reviewStatus: 'PENDING',
+      valid: !requiresApproval,
+      blocker: requiresApproval ? 'PENDING_APPROVAL' : null,
+      requiresApproval,
+    }
+  }
+
+  if (deliverable.status === 'REVISION_REQUIRED' || deliverable.status === 'MISSING_INFORMATION') {
+    return { status: deliverable.status, reviewStatus: 'REVISION_REQUESTED', valid: false, blocker: 'REVISION', requiresApproval }
+  }
+
+  return { status: deliverable.status, reviewStatus: null, valid: false, blocker: 'MISSING', requiresApproval }
 }
 
 function normalizeStatus(value: string): TaskStatus {
@@ -2360,6 +2457,10 @@ function makeStep(title: string, ownerId: string | null, dueDate: string): StepI
     requiresDeliverable: false,
     deliverableId: null,
     deliverableStatus: null,
+    deliverableReviewStatus: null,
+    deliverableIsValid: false,
+    deliverableBlocker: null,
+    deliverableRequiresApproval: false,
   }
 }
 
@@ -2400,6 +2501,10 @@ function stepObjective(step: StepItem) {
 function deliverableStatusLabel(step: StepItem) {
   if (!step.requiresDeliverable) return 'Không yêu cầu'
   if (!step.deliverableId) return 'Chưa tạo mục file'
+  if (step.deliverableBlocker === 'MISTAKE') return 'File up nhầm - cần nộp lại'
+  if (step.deliverableRequiresApproval && !step.deliverableIsValid && step.deliverableReviewStatus && !isVersionRevision(step.deliverableReviewStatus)) return 'Đang chờ duyệt'
+  if (step.deliverableIsValid && step.deliverableReviewStatus === 'APPROVED') return 'File đã duyệt'
+  if (step.deliverableIsValid) return 'Đã nộp 1 file'
   if (step.deliverableStatus === 'SUBMITTED') return 'Đã nộp 1 file'
   if (step.deliverableStatus === 'APPROVED') return 'File đã duyệt'
   if (step.deliverableStatus === 'REVISION_REQUIRED' || step.deliverableStatus === 'MISSING_INFORMATION') return 'File cần sửa'
@@ -2546,13 +2651,33 @@ function getWorkflowSummary(subtask: SubtaskItem): { value: string; hint: string
 }
 
 function getFileSummary(subtask: SubtaskItem): { value: string; hint: string; tone: 'neutral' | 'good' | 'warning' | 'danger'; badge?: string } {
+  const mistakenSteps = getMistakenDeliverableSteps(subtask)
+  if (subtask.fileBlocker === 'MISTAKE' || mistakenSteps.length) {
+    return {
+      value: 'File up nhầm',
+      hint: mistakenSteps.length ? `${mistakenSteps.length} bước cần nộp lại file đúng` : 'File đã nộp bị đánh dấu up nhầm.',
+      tone: 'danger',
+      badge: 'Up nhầm',
+    }
+  }
+
   const revisionSteps = getRevisionDeliverableSteps(subtask)
-  if (revisionSteps.length) {
+  if (subtask.fileBlocker === 'REVISION' || revisionSteps.length) {
     return {
       value: 'File cần sửa',
-      hint: revisionSteps.map((step) => step.title).join(', '),
+      hint: revisionSteps.length ? revisionSteps.map((step) => step.title).join(', ') : 'File/báo cáo đang bị yêu cầu sửa.',
       tone: 'danger',
       badge: 'Cần xử lý',
+    }
+  }
+
+  const pendingApprovalSteps = getPendingApprovalDeliverableSteps(subtask)
+  if (subtask.fileBlocker === 'PENDING_APPROVAL' || pendingApprovalSteps.length) {
+    return {
+      value: 'Chờ duyệt file',
+      hint: pendingApprovalSteps.length ? `${pendingApprovalSteps.length} bước đã nộp và đang chờ duyệt` : 'File đã nộp nhưng cần được duyệt trước khi hoàn thành.',
+      tone: 'warning',
+      badge: 'Chờ duyệt',
     }
   }
 
@@ -2566,7 +2691,7 @@ function getFileSummary(subtask: SubtaskItem): { value: string; hint: string; to
     }
   }
 
-  const submittedCount = subtask.attachments.length + subtask.steps.filter((step) => ['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? '')).length
+  const submittedCount = subtask.attachments.length + (subtask.taskDeliverableValid ? 1 : 0) + subtask.steps.filter((step) => step.deliverableIsValid).length
   if (submittedCount > 0 || subtask.reportText.trim()) {
     return {
       value: submittedCount > 0 ? `Đã nộp ${submittedCount} mục` : 'Đã có báo cáo',
@@ -2616,7 +2741,10 @@ function getMissingDeliverableSteps(subtask: SubtaskItem) {
     (step) =>
       step.requiresDeliverable &&
       step.isRequired &&
-      !['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? ''),
+      !step.deliverableIsValid &&
+      step.deliverableBlocker !== 'REVISION' &&
+      step.deliverableBlocker !== 'MISTAKE' &&
+      step.deliverableBlocker !== 'PENDING_APPROVAL',
   )
 }
 
@@ -2624,17 +2752,44 @@ function getRevisionDeliverableSteps(subtask: SubtaskItem) {
   return subtask.steps.filter(
     (step) =>
       step.requiresDeliverable &&
-      ['REVISION_REQUIRED', 'MISSING_INFORMATION'].includes(step.deliverableStatus ?? ''),
+      step.deliverableBlocker === 'REVISION',
+  )
+}
+
+function getMistakenDeliverableSteps(subtask: SubtaskItem) {
+  return subtask.steps.filter(
+    (step) =>
+      step.requiresDeliverable &&
+      step.isRequired &&
+      step.deliverableBlocker === 'MISTAKE',
+  )
+}
+
+function getPendingApprovalDeliverableSteps(subtask: SubtaskItem) {
+  return subtask.steps.filter(
+    (step) =>
+      step.requiresDeliverable &&
+      step.isRequired &&
+      step.deliverableBlocker === 'PENDING_APPROVAL',
   )
 }
 
 function getBlockedSection(subtask: SubtaskItem): DetailSection {
-  if (getMissingDeliverableSteps(subtask).length || getRevisionDeliverableSteps(subtask).length) return 'files'
+  if (
+    getMissingDeliverableSteps(subtask).length ||
+    getRevisionDeliverableSteps(subtask).length ||
+    getMistakenDeliverableSteps(subtask).length ||
+    getPendingApprovalDeliverableSteps(subtask).length
+  ) return 'files'
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
   return 'workflow'
 }
 
 function getCompactBlockerText(subtask: SubtaskItem) {
+  if (subtask.fileBlocker === 'MISTAKE' || getMistakenDeliverableSteps(subtask).length) {
+    return 'file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng.'
+  }
+  if (subtask.fileBlocker === 'PENDING_APPROVAL' || getPendingApprovalDeliverableSteps(subtask).length) return 'file/báo cáo đang chờ duyệt.'
   if (getRevisionDeliverableSteps(subtask).length) return 'file/báo cáo đang bị yêu cầu sửa.'
   if (getMissingDeliverableSteps(subtask).length || ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask))) {
     return 'thiếu file/báo cáo.'
@@ -2651,11 +2806,24 @@ function getCompletionBlockers(subtask: SubtaskItem) {
     blockers.push(`${incompleteRequired.length} bước bắt buộc chưa hoàn thành`)
   }
 
+  const mistakenDeliverables = getMistakenDeliverableSteps(subtask)
+  if (subtask.fileBlocker === 'MISTAKE' || mistakenDeliverables.length) {
+    blockers.push('file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng')
+  }
+
+  const pendingApprovalDeliverables = getPendingApprovalDeliverableSteps(subtask)
+  if (subtask.fileBlocker === 'PENDING_APPROVAL' || pendingApprovalDeliverables.length) {
+    blockers.push(`file đang chờ duyệt${pendingApprovalDeliverables.length ? ` ở ${pendingApprovalDeliverables.map((step) => step.title).join(', ')}` : ''}`)
+  }
+
   const missingDeliverables = subtask.steps.filter(
     (step) =>
       step.requiresDeliverable &&
       step.isRequired &&
-      !['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? ''),
+      !step.deliverableIsValid &&
+      step.deliverableBlocker !== 'REVISION' &&
+      step.deliverableBlocker !== 'MISTAKE' &&
+      step.deliverableBlocker !== 'PENDING_APPROVAL',
   )
   if (missingDeliverables.length) {
     blockers.push(missingDeliverables.map((step) => step.title).join(', '))
@@ -2664,10 +2832,10 @@ function getCompletionBlockers(subtask: SubtaskItem) {
   const revisionDeliverables = subtask.steps.filter(
     (step) =>
       step.requiresDeliverable &&
-      ['REVISION_REQUIRED', 'MISSING_INFORMATION'].includes(step.deliverableStatus ?? ''),
+      step.deliverableBlocker === 'REVISION',
   )
-  if (revisionDeliverables.length) {
-    blockers.push(`file cần sửa ở ${revisionDeliverables.map((step) => step.title).join(', ')}`)
+  if (subtask.fileBlocker === 'REVISION' || revisionDeliverables.length) {
+    blockers.push(revisionDeliverables.length ? `file cần sửa ở ${revisionDeliverables.map((step) => step.title).join(', ')}` : 'file/báo cáo đang bị yêu cầu sửa')
   }
 
   if (!subtask.steps.length && subtask.needsFile && !hasEvidence(subtask)) {
@@ -2699,7 +2867,8 @@ function hasEvidence(subtask: SubtaskItem) {
   return Boolean(
     subtask.reportText.trim()
     || subtask.attachments.length
-    || subtask.steps.some((step) => ['SUBMITTED', 'APPROVED'].includes(step.deliverableStatus ?? '')),
+    || subtask.taskDeliverableValid
+    || subtask.steps.some((step) => step.deliverableIsValid),
   )
 }
 

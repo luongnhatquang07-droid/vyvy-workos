@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import {
+  isVersionInvalid,
+  isVersionPending,
+  isVersionRevision,
+  normalizeVersionReviewStatus,
+  type VersionReviewStatus,
+} from '@/lib/deliverableVersionStatus'
 
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
 
@@ -9,7 +16,7 @@ type WorkspaceContext =
   | { ok: false; response: NextResponse }
 
 type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'MISSING_INFORMATION' | 'REVISION_REQUIRED' | 'APPROVED'
-type ReviewStatus = 'NOT_REQUESTED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'REVISION_REQUESTED' | 'CANCELLED'
+type ReviewStatus = VersionReviewStatus
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status })
@@ -107,10 +114,12 @@ async function getLatestVersion(deliverableId: string) {
     .select('id,version_number,review_status')
     .eq('deliverable_id', deliverableId)
     .order('version_number', { ascending: false })
-    .limit(1)
-    .maybeSingle()
   if (error) throw error
-  return data as { id: string; version_number: number; review_status: ReviewStatus } | null
+  const versions = (data ?? []) as Array<{ id: string; version_number: number; review_status: string | null }>
+  const latest = versions.find((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
+  return latest
+    ? { ...latest, review_status: normalizeVersionReviewStatus(latest.review_status) }
+    : null
 }
 
 async function loadDeliverableDetail(workspaceId: string, deliverableId: string) {
@@ -268,6 +277,108 @@ async function logActivity(
   })
 }
 
+async function recomputeDeliverableStatus(
+  client: ReturnType<typeof createServiceClient>,
+  workspaceId: string,
+  actorId: string | null,
+  deliverableId: string,
+) {
+  const versionsRes = await client
+    .from('deliverable_versions')
+    .select('id,version_number,review_status')
+    .eq('deliverable_id', deliverableId)
+    .order('version_number', { ascending: false })
+
+  if (versionsRes.error) throw versionsRes.error
+
+  const versions = (versionsRes.data ?? []).map((version) => ({
+    id: version.id,
+    versionNumber: version.version_number,
+    reviewStatus: normalizeVersionReviewStatus(version.review_status),
+  }))
+  const latestRelevant = versions.find((version) => !isVersionInvalid(version.reviewStatus))
+
+  let status: DeliverableStatus = 'NOT_SUBMITTED'
+  let approvedVersionId: string | null = null
+
+  if (latestRelevant?.reviewStatus === 'APPROVED') {
+    status = 'APPROVED'
+    approvedVersionId = latestRelevant.id
+  } else if (latestRelevant && isVersionRevision(latestRelevant.reviewStatus)) {
+    status = 'REVISION_REQUIRED'
+  } else if (latestRelevant && isVersionPending(latestRelevant.reviewStatus)) {
+    status = 'SUBMITTED'
+  }
+
+  const updateRes = await client
+    .from('deliverables')
+    .update({
+      status,
+      approved_version_id: approvedVersionId,
+      updated_by: actorId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .eq('id', deliverableId)
+
+  if (updateRes.error) throw updateRes.error
+  return { status, approvedVersionId }
+}
+
+async function markVersionLifecycleStatus({
+  client,
+  workspaceId,
+  actorId,
+  deliverableId,
+  versionId,
+  nextStatus,
+  reason,
+  action,
+}: {
+  client: ReturnType<typeof createServiceClient>
+  workspaceId: string
+  actorId: string | null
+  deliverableId: string
+  versionId: string
+  nextStatus: Extract<ReviewStatus, 'UPLOADED_BY_MISTAKE' | 'SUPERSEDED'>
+  reason: string
+  action: string
+}) {
+  const versionRes = await client
+    .from('deliverable_versions')
+    .select('id,version_number,review_status')
+    .eq('id', versionId)
+    .eq('deliverable_id', deliverableId)
+    .maybeSingle()
+
+  if (versionRes.error) throw versionRes.error
+  if (!versionRes.data) throw new Error('Không tìm thấy version.')
+
+  const previousStatus = normalizeVersionReviewStatus(versionRes.data.review_status)
+  const comment = reason ? `${reason}` : nextStatus === 'SUPERSEDED' ? 'Đánh dấu đã thay thế.' : 'Đánh dấu up nhầm.'
+
+  const updateRes = await client
+    .from('deliverable_versions')
+    .update({
+      review_status: nextStatus,
+      review_comment: comment,
+      reviewed_by: actorId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', versionId)
+    .eq('deliverable_id', deliverableId)
+
+  if (updateRes.error) throw updateRes.error
+
+  await logActivity(workspaceId, actorId, action, deliverableId, {
+    versionId,
+    versionNumber: versionRes.data.version_number,
+    reason: comment,
+    before: previousStatus,
+    after: nextStatus,
+  })
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const workspaceId = searchParams.get('workspaceId') ?? ''
@@ -381,6 +492,8 @@ export async function PATCH(req: NextRequest) {
     if (action === 'submitLink') {
       const externalUrl = cleanText(body.externalUrl)
       if (!/^https?:\/\/\S+/i.test(externalUrl)) return jsonError('Link phải bắt đầu bằng http:// hoặc https://.', 400)
+      const supersedesVersionId = cleanId(body.supersedesVersionId)
+      const replaceReason = cleanText(body.replaceReason) || cleanText(body.changeNote) || 'Tạo version link thay thế.'
       const versionNumber = await nextVersionNumber(deliverableId)
       const versionRes = await client
         .from('deliverable_versions')
@@ -390,18 +503,28 @@ export async function PATCH(req: NextRequest) {
           external_url: externalUrl,
           submitted_by: context.personId,
           change_note: cleanText(body.changeNote) || null,
-          review_status: 'PENDING',
+          review_status: 'PENDING_REVIEW',
         })
         .select('id')
         .single()
       if (versionRes.error || !versionRes.data) return jsonError(versionRes.error?.message ?? 'Không lưu được version link.', 500)
 
-      const updateRes = await client
-        .from('deliverables')
-        .update({ status: 'SUBMITTED', updated_by: context.personId, updated_at: new Date().toISOString() })
-        .eq('workspace_id', context.workspaceId)
-        .eq('id', deliverableId)
-      if (updateRes.error) return jsonError(updateRes.error.message, 500)
+      if (supersedesVersionId) {
+        const oldVersion = (detail.versions ?? []).find((version) => version.id === supersedesVersionId)
+        const oldStatus = normalizeVersionReviewStatus(oldVersion?.review_status)
+        await markVersionLifecycleStatus({
+          client,
+          workspaceId: context.workspaceId,
+          actorId: context.personId,
+          deliverableId,
+          versionId: supersedesVersionId,
+          nextStatus: oldStatus === 'APPROVED' ? 'SUPERSEDED' : 'UPLOADED_BY_MISTAKE',
+          reason: replaceReason,
+          action: oldStatus === 'APPROVED' ? 'deliverable.version.superseded' : 'deliverable.version.marked_mistake',
+        })
+      }
+
+      await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
       await closeRelatedReminders(context.workspaceId, deliverableId)
 
       if (body.requiresApproval === true && deliverable.reviewer_id) {
@@ -417,13 +540,30 @@ export async function PATCH(req: NextRequest) {
         })
       }
 
-      await logActivity(context.workspaceId, context.personId, 'deliverable.version.submitted_link', deliverableId, { versionNumber })
+      await logActivity(context.workspaceId, context.personId, 'deliverable.version.submitted_link', deliverableId, {
+        versionId: versionRes.data.id,
+        versionNumber,
+        supersedesVersionId,
+        before: null,
+        after: 'PENDING_REVIEW',
+      })
       return NextResponse.json({ ok: true, versionId: versionRes.data.id, versionNumber })
     }
 
     if (action === 'approve' || action === 'requestRevision' || action === 'markMissing') {
       const versionId = cleanId(body.versionId) ?? (await getLatestVersion(deliverableId))?.id
       if (!versionId) return jsonError('Chưa có version nào để review.', 400)
+
+      const currentVersionRes = await client
+        .from('deliverable_versions')
+        .select('id,review_status')
+        .eq('id', versionId)
+        .eq('deliverable_id', deliverableId)
+        .maybeSingle()
+      if (currentVersionRes.error) return jsonError(currentVersionRes.error.message, 500)
+      if (!currentVersionRes.data) return jsonError('Không tìm thấy version cần review.', 404)
+      const previousReviewStatus = normalizeVersionReviewStatus(currentVersionRes.data.review_status)
+      if (isVersionInvalid(previousReviewStatus)) return jsonError('Version này đã bị đánh dấu up nhầm hoặc đã thay thế, không thể review.', 400)
 
       const reviewStatus: ReviewStatus = action === 'approve' ? 'APPROVED' : 'REVISION_REQUESTED'
       const nextStatus: DeliverableStatus =
@@ -466,18 +606,24 @@ export async function PATCH(req: NextRequest) {
           .eq('deliverable_id', deliverableId)
       }
 
-      await logActivity(context.workspaceId, context.personId, `deliverable.${action}`, deliverableId, { versionId })
+      await logActivity(context.workspaceId, context.personId, `deliverable.${action}`, deliverableId, {
+        versionId,
+        reason: cleanText(body.reviewComment) || null,
+        before: previousReviewStatus,
+        after: reviewStatus,
+      })
       return NextResponse.json({ ok: true })
     }
 
     if (action === 'deleteVersion') {
       const versionId = cleanId(body.versionId)
       if (!versionId) return jsonError('Thiếu versionId.', 400)
-      if (deliverable.approved_version_id === versionId) return jsonError('Không thể xóa version đã duyệt.', 400)
+      const reason = cleanText(body.reason)
+      if (!reason) return jsonError('Cần nhập lý do trước khi xóa/hủy version.', 400)
 
       const versionRes = await client
         .from('deliverable_versions')
-        .select('id,attachment_id,review_status')
+        .select('id,version_number,review_status')
         .eq('id', versionId)
         .eq('deliverable_id', deliverableId)
         .maybeSingle()
@@ -485,20 +631,55 @@ export async function PATCH(req: NextRequest) {
       if (!versionRes.data) return jsonError('Không tìm thấy version.', 404)
       if (versionRes.data.review_status === 'APPROVED') return jsonError('Không thể xóa version đã duyệt.', 400)
 
-      const deleteRes = await client.from('deliverable_versions').delete().eq('id', versionId)
-      if (deleteRes.error) return jsonError(deleteRes.error.message, 500)
-      if (versionRes.data.attachment_id) {
-        await client.from('attachments').update({ deleted_at: new Date().toISOString() }).eq('id', versionRes.data.attachment_id)
+      await markVersionLifecycleStatus({
+        client,
+        workspaceId: context.workspaceId,
+        actorId: context.personId,
+        deliverableId,
+        versionId,
+        nextStatus: 'UPLOADED_BY_MISTAKE',
+        reason,
+        action: 'deliverable.version.deleted_soft',
+      })
+      await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
+      return NextResponse.json({ ok: true })
+    }
+
+    if (action === 'markVersionMistake' || action === 'supersedeVersion') {
+      const versionId = cleanId(body.versionId)
+      const reason = cleanText(body.reason)
+      if (!versionId) return jsonError('Thiếu versionId.', 400)
+      if (!reason) return jsonError('Cần nhập lý do xử lý version.', 400)
+
+      const versionRes = await client
+        .from('deliverable_versions')
+        .select('id,review_status')
+        .eq('id', versionId)
+        .eq('deliverable_id', deliverableId)
+        .maybeSingle()
+      if (versionRes.error) return jsonError(versionRes.error.message, 500)
+      if (!versionRes.data) return jsonError('Không tìm thấy version.', 404)
+
+      const previousStatus = normalizeVersionReviewStatus(versionRes.data.review_status)
+      if (action === 'markVersionMistake' && previousStatus === 'APPROVED') {
+        return jsonError('Version đã duyệt không được đánh dấu up nhầm. Hãy tạo version thay thế hoặc đánh dấu đã thay thế.', 400)
+      }
+      if (isVersionInvalid(previousStatus)) {
+        return jsonError('Version này đã được xử lý trước đó.', 400)
       }
 
-      const latest = await getLatestVersion(deliverableId)
-      const status: DeliverableStatus = latest ? 'SUBMITTED' : 'NOT_SUBMITTED'
-      await client
-        .from('deliverables')
-        .update({ status, updated_by: context.personId, updated_at: new Date().toISOString() })
-        .eq('workspace_id', context.workspaceId)
-        .eq('id', deliverableId)
-      await logActivity(context.workspaceId, context.personId, 'deliverable.version.deleted', deliverableId, { versionId })
+      const nextStatus = action === 'supersedeVersion' ? 'SUPERSEDED' : 'UPLOADED_BY_MISTAKE'
+      await markVersionLifecycleStatus({
+        client,
+        workspaceId: context.workspaceId,
+        actorId: context.personId,
+        deliverableId,
+        versionId,
+        nextStatus,
+        reason,
+        action: action === 'supersedeVersion' ? 'deliverable.version.superseded' : 'deliverable.version.marked_mistake',
+      })
+      await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
       return NextResponse.json({ ok: true })
     }
 
