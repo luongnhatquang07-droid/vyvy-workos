@@ -189,7 +189,7 @@ function ProjectsPageContent() {
     queueMicrotask(() => {
       setWorkspace(seeded)
       setSelectedProjectId(seeded[0]?.id ?? null)
-      setSelectedSubtaskId(firstSubtaskId(seeded[0]) ?? null)
+      setSelectedSubtaskId(null)
       setReady(true)
     })
   }, [data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
@@ -200,6 +200,10 @@ function ProjectsPageContent() {
       setActiveUploadStepId(null)
     })
   }, [selectedSubtaskId])
+
+  function selectSubtask(subtaskId: string) {
+    setSelectedSubtaskId((current) => (current === subtaskId ? null : subtaskId))
+  }
 
   const selectedProject = workspace.find((project) => project.id === selectedProjectId) ?? workspace[0] ?? null
   const selectedSubtask = selectedProject ? findSubtask(selectedProject, selectedSubtaskId) : null
@@ -224,7 +228,7 @@ function ProjectsPageContent() {
     const nextProject = nextWorkspace.find((project) => project.id === selectedProjectId) ?? nextWorkspace[0] ?? null
     setSelectedProjectId(nextProject?.id ?? null)
     const nextSubtask = nextProject ? findSubtask(nextProject, selectedSubtaskId) : null
-    setSelectedSubtaskId(nextSubtask?.id ?? firstSubtaskId(nextProject) ?? null)
+    setSelectedSubtaskId(nextSubtask?.id ?? null)
   }
 
   function updateWorkspace(mutator: (current: ProjectWorkspace[]) => ProjectWorkspace[]) {
@@ -289,7 +293,10 @@ function ProjectsPageContent() {
         type: 'project',
         payload: composerDraft,
       })
-      if (result?.id) setSelectedProjectId(result.id)
+      if (result?.id) {
+        setSelectedProjectId(result.id)
+        setSelectedSubtaskId(null)
+      }
     }
 
     if (composerMode === 'workstream' && selectedProject) {
@@ -311,7 +318,9 @@ function ProjectsPageContent() {
           workstreamId: composerParentId,
         },
       })
-      if (result?.id) setSelectedSubtaskId(result.id)
+      if (result?.id) {
+        setSelectedSubtaskId(result.id)
+      }
     }
 
     if (composerMode === 'meeting' && selectedProject) {
@@ -628,6 +637,64 @@ function ProjectsPageContent() {
     setDeadlineReason('')
   }
 
+  function renderInlineSubtaskDetail(subtask: SubtaskItem) {
+    if (!selectedProject || selectedSubtaskId !== subtask.id) return null
+
+    return (
+      <section data-vyvy-inline-subtask-detail="true" style={subtaskPanel}>
+        <div style={subtaskPanelHead}>
+          <div>
+            <div style={eyebrow}>Chi tiáº¿t Ä‘áº§u viá»‡c con</div>
+            <div style={sectionTitle}>{subtask.title}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>XÃ³a Ä‘áº§u viá»‡c con</DangerButton>
+            <select value={subtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
+              {Object.entries(STATUS_META).map(([value, meta]) => (
+                <option key={value} value={value}>{meta.label}</option>
+              ))}
+            </select>
+            <select
+              value={subtask.ownerId ?? ''}
+              onChange={(e) => updateSubtaskField('ownerId', e.target.value || null)}
+              style={selectStyle}
+            >
+              <option value="">ChÆ°a gáº¯n ngÆ°á»i</option>
+              {Object.values(people).map((person) => (
+                <option key={person.id} value={person.id}>{person.full_name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <SubtaskCompactDetail
+          subtask={subtask}
+          project={selectedProject}
+          people={people}
+          workspaceId={workspaceId}
+          activeUploadStep={activeUploadStep}
+          openSections={openDetailSections}
+          fileRefreshKey={fileRefreshKey}
+          onToggleSection={toggleSubtaskSection}
+          onOpenBlockedSection={() => openBlockedSection(subtask)}
+          onUpdateReport={(value) => updateSubtaskField('reportText', value)}
+          onUpdateAttachments={(attachments) => updateSubtaskField('attachments', attachments)}
+          onFilesChanged={() => {
+            setFileRefreshKey((value) => value + 1)
+            void refresh()
+          }}
+          onUpdateStep={(stepId, patch) => updateStep(subtask.id, stepId, patch)}
+          onDeleteStep={(stepId) => deleteStep(subtask.id, stepId)}
+          onAddStep={(draft) => addStep(subtask.id, draft)}
+          onUploadForStep={(stepId) => {
+            setActiveUploadStepId(stepId)
+            openSubtaskSection('files')
+          }}
+        />
+      </section>
+    )
+  }
+
   return (
     <div style={pageStyle}>
       <PageHead
@@ -674,7 +741,7 @@ function ProjectsPageContent() {
                     data-vyvy-card="true"
                     onClick={() => {
                       setSelectedProjectId(project.id)
-                      setSelectedSubtaskId(firstSubtaskId(project) ?? null)
+                      setSelectedSubtaskId(null)
                     }}
                     style={projectCardStyle(project.id === selectedProject?.id)}
                   >
@@ -697,7 +764,8 @@ function ProjectsPageContent() {
           </aside>
 
           {selectedProject ? (
-            <section style={detailShell}>
+            <div style={workspaceMainLayout}>
+              <section style={detailShell}>
               <div style={detailHeader}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={detailTitleRow}>
@@ -745,7 +813,8 @@ function ProjectsPageContent() {
                   project={selectedProject}
                   people={people}
                   selectedSubtaskId={selectedSubtaskId}
-                  onSelectSubtask={setSelectedSubtaskId}
+                  onSelectSubtask={selectSubtask}
+                  renderSubtaskDetail={renderInlineSubtaskDetail}
                   onOpenSubtaskComposer={(workstreamId) => openComposer('subtask', workstreamId)}
                   onDeleteWorkstream={(workstreamId) => deleteWorkstream(selectedProject.id, workstreamId)}
                 />
@@ -755,8 +824,9 @@ function ProjectsPageContent() {
                 <KanbanTab
                   project={selectedProject}
                   people={people}
-                  onSelectSubtask={setSelectedSubtaskId}
+                  onSelectSubtask={selectSubtask}
                   selectedSubtaskId={selectedSubtaskId}
+                  renderSubtaskDetail={renderInlineSubtaskDetail}
                 />
               ) : null}
 
@@ -768,60 +838,9 @@ function ProjectsPageContent() {
                 <MeetingsTab project={selectedProject} />
               ) : null}
 
-              {selectedSubtask ? (
-                <section style={subtaskPanel}>
-                  <div style={subtaskPanelHead}>
-                    <div>
-                      <div style={eyebrow}>Đầu việc con đang chọn</div>
-                      <div style={sectionTitle}>{selectedSubtask.title}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, selectedSubtask.id)}>Xóa đầu việc con</DangerButton>
-                      <select value={selectedSubtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
-                        {Object.entries(STATUS_META).map(([value, meta]) => (
-                          <option key={value} value={value}>{meta.label}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={selectedSubtask.ownerId ?? ''}
-                        onChange={(e) => updateSubtaskField('ownerId', e.target.value || null)}
-                        style={selectStyle}
-                      >
-                        <option value="">Chưa gắn người</option>
-                        {Object.values(people).map((person) => (
-                          <option key={person.id} value={person.id}>{person.full_name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
 
-                  <SubtaskCompactDetail
-                    subtask={selectedSubtask}
-                    project={selectedProject}
-                    people={people}
-                    workspaceId={workspaceId}
-                    activeUploadStep={activeUploadStep}
-                    openSections={openDetailSections}
-                    fileRefreshKey={fileRefreshKey}
-                    onToggleSection={toggleSubtaskSection}
-                    onOpenBlockedSection={() => openBlockedSection(selectedSubtask)}
-                    onUpdateReport={(value) => updateSubtaskField('reportText', value)}
-                    onUpdateAttachments={(attachments) => updateSubtaskField('attachments', attachments)}
-                    onFilesChanged={() => {
-                      setFileRefreshKey((value) => value + 1)
-                      void refresh()
-                    }}
-                    onUpdateStep={(stepId, patch) => updateStep(selectedSubtask.id, stepId, patch)}
-                    onDeleteStep={(stepId) => deleteStep(selectedSubtask.id, stepId)}
-                    onAddStep={(draft) => addStep(selectedSubtask.id, draft)}
-                    onUploadForStep={(stepId) => {
-                      setActiveUploadStepId(stepId)
-                      openSubtaskSection('files')
-                    }}
-                  />
-                </section>
-              ) : null}
-            </section>
+              </section>
+            </div>
           ) : null}
         </div>
       )}
@@ -1466,6 +1485,7 @@ function OverviewTab({
   people,
   selectedSubtaskId,
   onSelectSubtask,
+  renderSubtaskDetail,
   onOpenSubtaskComposer,
   onDeleteWorkstream,
 }: {
@@ -1473,6 +1493,7 @@ function OverviewTab({
   people: Record<string, CommandCenterPersonRow>
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
+  renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
   onOpenSubtaskComposer: (workstreamId: string) => void
   onDeleteWorkstream: (workstreamId: string) => void
 }) {
@@ -1504,6 +1525,7 @@ function OverviewTab({
           ) : (
             <div style={subtaskTable}>
               {workstream.subtasks.map((subtask) => (
+                <div key={subtask.id} style={subtaskInlineItem}>
                 <button
                   key={subtask.id}
                   data-vyvy-row="true"
@@ -1523,6 +1545,8 @@ function OverviewTab({
                     <span style={progressBadgeStyle}>{getSubtaskProgress(subtask)}%</span>
                   </div>
                 </button>
+                  {renderSubtaskDetail(subtask)}
+                </div>
               ))}
             </div>
           )}
@@ -1537,11 +1561,13 @@ function KanbanTab({
   people,
   selectedSubtaskId,
   onSelectSubtask,
+  renderSubtaskDetail,
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
+  renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
 }) {
   const subtasks = project.workstreams.flatMap((workstream) =>
     workstream.subtasks.map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
@@ -1559,7 +1585,8 @@ function KanbanTab({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {items.map((subtask) => (
-                <button key={subtask.id} onClick={() => onSelectSubtask(subtask.id)} style={kanbanCard(selectedSubtaskId === subtask.id)}>
+                <div key={subtask.id} style={subtaskInlineItem}>
+                <button onClick={() => onSelectSubtask(subtask.id)} style={kanbanCard(selectedSubtaskId === subtask.id)}>
                   <div style={mutedMetaStyle}>{subtask.workstreamTitle}</div>
                   <div style={kanbanTitle}>{subtask.title}</div>
                   <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} /></div>
@@ -1568,6 +1595,8 @@ function KanbanTab({
                     <span>{toShortDate(subtask.dueDate)}</span>
                   </div>
                 </button>
+                  {renderSubtaskDetail(subtask)}
+                </div>
               ))}
             </div>
           </section>
@@ -2401,10 +2430,6 @@ function composerTitle(mode: ComposerMode) {
   return 'Tạo cuộc họp'
 }
 
-function firstSubtaskId(project?: ProjectWorkspace | null) {
-  return project?.workstreams[0]?.subtasks[0]?.id ?? null
-}
-
 function findSubtask(project: ProjectWorkspace, subtaskId: string | null) {
   for (const workstream of project.workstreams) {
     for (const subtask of workstream.subtasks) {
@@ -2859,6 +2884,10 @@ const projectRail: React.CSSProperties = {
   gap: 14,
 }
 
+const workspaceMainLayout: React.CSSProperties = {
+  minWidth: 0,
+}
+
 const railHeader: React.CSSProperties = {
   padding: 16,
   background: 'var(--surface)',
@@ -3011,6 +3040,12 @@ const subtaskTable: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+}
+
+const subtaskInlineItem: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
 }
 
 const subtaskTitleStyle: React.CSSProperties = {
@@ -3286,13 +3321,16 @@ const reminderBox: React.CSSProperties = {
 }
 
 const subtaskPanel: React.CSSProperties = {
-  padding: 18,
-  borderRadius: 16,
+  marginTop: -2,
+  padding: 14,
+  borderRadius: 14,
   background: 'var(--surface)',
-  border: '1px solid var(--line)',
+  border: '1px solid rgba(218,223,33,.28)',
+  boxShadow: '0 16px 34px rgba(0,0,0,.16)',
   display: 'flex',
   flexDirection: 'column',
-  gap: 16,
+  gap: 12,
+  borderLeft: '3px solid var(--color-lime)',
 }
 
 const subtaskPanelHead: React.CSSProperties = {
@@ -3319,7 +3357,7 @@ const compactDetailStack: React.CSSProperties = {
 
 const subtaskMetaGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
   gap: 10,
 }
 
@@ -3361,7 +3399,7 @@ const warningActionButton: React.CSSProperties = {
 
 const summaryCardGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
   gap: 10,
 }
 
