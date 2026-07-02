@@ -82,8 +82,8 @@ export function FileUpload({
   const [mode, setMode] = React.useState<'file' | 'link'>('file')
   const [uploads, setUploads] = React.useState<UploadedFile[]>([])
   const [error, setError] = React.useState('')
-  const [changeNote, setChangeNote] = React.useState('')
-  const [externalUrl, setExternalUrl] = React.useState('')
+  const [changeNote, setChangeNote] = React.useState<string>('')
+  const [externalUrl, setExternalUrl] = React.useState<string>('')
   const [lastStatus, setLastStatus] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
 
@@ -248,8 +248,8 @@ export function FileUpload({
       ) : (
         <div style={linkBoxStyle}>
           <input
-            value={externalUrl}
-            onChange={(event) => setExternalUrl(event.target.value)}
+            value={externalUrl ?? ''}
+            onChange={(event) => setExternalUrl(event.currentTarget.value ?? '')}
             placeholder="Dán link Drive/Figma/Notion/Sheet..."
             style={inputStyle}
             disabled={uploading}
@@ -261,8 +261,8 @@ export function FileUpload({
       )}
 
       <textarea
-        value={changeNote}
-        onChange={(event) => setChangeNote(event.target.value)}
+        value={changeNote ?? ''}
+        onChange={(event) => setChangeNote(event.currentTarget.value ?? '')}
         placeholder="Ghi chú version: đã bổ sung gì, thay đổi gì..."
         style={noteStyle}
         disabled={uploading}
