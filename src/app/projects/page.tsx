@@ -945,10 +945,7 @@ function ProjectsPageContent() {
         title="Dự án"
         desc="Quản lý theo 4 tầng: dự án → đầu việc lớn → đầu việc con → các bước hoàn thành, kèm họp, file và kéo deadline."
         actions={
-          <>
-            <GhostButton icon="ti-calendar-week" onClick={() => setActiveTab('gantt')}>Timeline / Gantt</GhostButton>
-            <PrimaryButton icon="ti-plus" onClick={() => openComposer('project')}>Tạo dự án</PrimaryButton>
-          </>
+          <PrimaryButton icon="ti-plus" onClick={() => openComposer('project')}>Tạo dự án</PrimaryButton>
         }
       />
 
@@ -993,12 +990,12 @@ function ProjectsPageContent() {
                         <div style={projectNameStyle}>{project.name}</div>
                         <div style={mutedMetaStyle}>{project.code} · {project.workstreams.length} đầu việc lớn</div>
                       </div>
-                      <span style={progressBadgeStyle}>{progress}%</span>
+                      <ProgressBadge value={progress} label={projectHealth(project).label} />
                     </div>
                     <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${progress}%` }} /></div>
                     <div style={inlineMetaStyle}>
                       <span>{project.workstreams.flatMap((item) => item.subtasks).length} đầu việc con</span>
-                      <span>{toShortDate(project.dueDate)}</span>
+                      <span title={toFullDate(project.dueDate)}>{formatDeadlineLabel(project.dueDate, projectHealth(project).label === 'Hoàn thành' ? 'COMPLETED' : 'NOT_STARTED')}</span>
                     </div>
                   </button>
                 )
@@ -1016,11 +1013,11 @@ function ProjectsPageContent() {
                     <span style={statusChipStyle(projectHealth(selectedProject).bg, projectHealth(selectedProject).color)}>
                       {projectHealth(selectedProject).label}
                     </span>
-                    <span style={progressBadgeStyle}>{getProjectProgress(selectedProject)}%</span>
+                    <ProgressBadge value={getProjectProgress(selectedProject)} label={projectHealth(selectedProject).label} />
                   </div>
                   <div style={detailMeta}>
                     <span>{people[selectedProject.ownerId ?? '']?.full_name ?? 'Chưa gắn chủ dự án'}</span>
-                    <span>Deadline {toShortDate(selectedProject.dueDate)}</span>
+                    <span title={toFullDate(selectedProject.dueDate)}>Deadline {formatDeadlineLabel(selectedProject.dueDate, projectHealth(selectedProject).label === 'Hoàn thành' ? 'COMPLETED' : 'NOT_STARTED')}</span>
                     <span>{selectedProject.workstreams.length} đầu việc lớn</span>
                   </div>
                 </div>
@@ -1279,7 +1276,7 @@ function SubtaskCompactDetail({
         </div>
         <div style={compactMetaCard}>
           <span style={fieldLabel}>Deadline</span>
-          <strong>{subtask.dueDate ? toShortDate(subtask.dueDate) : 'Chưa có'}</strong>
+          <strong title={subtask.dueDate ? toFullDate(subtask.dueDate) : undefined}>{subtask.dueDate ? formatDeadlineLabel(subtask.dueDate, subtask.status) : 'Chưa có'}</strong>
         </div>
         <div style={compactMetaCard}>
           <span style={fieldLabel}>Progress</span>
@@ -1287,7 +1284,7 @@ function SubtaskCompactDetail({
             <div style={progressTrack}>
               <span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} />
             </div>
-            <span style={progressBadgeStyle}>{getSubtaskProgress(subtask)}%</span>
+            <ProgressBadge value={getSubtaskProgress(subtask)} label={STATUS_META[subtask.status].label} />
           </div>
         </div>
       </div>
@@ -1557,7 +1554,7 @@ function StepWorkflowPanel({
           <div style={fieldLabel}>Quy trình thực hiện đầu việc con</div>
           <div style={mutedMetaStyle}>Các bước giúp theo dõi tiến độ và kiểm tra điều kiện hoàn thành đầu việc.</div>
         </div>
-        <span style={progressBadgeStyle}>{getSubtaskProgress(subtask)}%</span>
+        <ProgressBadge value={getSubtaskProgress(subtask)} label={STATUS_META[subtask.status].label} />
       </div>
 
       <div style={stepTemplateNote}>
@@ -1668,7 +1665,7 @@ function StepCard({
 
         <div style={stepMetaGrid}>
           <span>Người phụ trách: <strong>{people[step.ownerId ?? '']?.full_name ?? 'Chưa gắn'}</strong></span>
-          <span>Deadline: <strong>{step.dueDate ? toShortDate(step.dueDate) : 'Chưa có'}</strong></span>
+        <span title={step.dueDate ? toFullDate(step.dueDate) : undefined}>Deadline: <strong>{step.dueDate ? formatDeadlineLabel(step.dueDate, step.status) : 'Chưa có'}</strong></span>
           <span>Bắt buộc: <strong>{step.isRequired ? 'Có' : 'Không'}</strong></span>
           <span>File/báo cáo: <strong>{deliverableStatusLabel(step)}</strong></span>
         </div>
@@ -1800,6 +1797,12 @@ function OpsStat({ label, value, tone }: { label: string; value: number; tone: B
   )
 }
 
+function ProgressBadge({ value, label }: { value: number; label?: string }) {
+  const zero = value === 0
+  const text = zero && label ? `0% · ${label}` : `${value}%`
+  return <span style={progressBadgeStyle} title={label ? `Tiến độ ${value}% · ${label}` : `Tiến độ ${value}%`}>{text}</span>
+}
+
 function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskItem; compact?: boolean }) {
   const deadline = getDeadlineSignal(subtask)
   const showDeadline = deadline.kind !== 'normal'
@@ -1882,8 +1885,8 @@ function OverviewTab({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={subtaskTitleStyle}>{subtask.title}</div>
-                    <div style={mutedMetaStyle}>
-                      {people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'} · deadline {toShortDate(subtask.dueDate)}
+                    <div style={mutedMetaStyle} title={subtask.dueDate ? toFullDate(subtask.dueDate) : undefined}>
+                      {people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'} · deadline {formatDeadlineLabel(subtask.dueDate, subtask.status)}
                     </div>
                     <SubtaskSignalBadges subtask={subtask} />
                   </div>
@@ -1891,7 +1894,7 @@ function OverviewTab({
                     <span style={statusChipStyle(STATUS_META[subtask.status].bg, STATUS_META[subtask.status].color)}>
                       {STATUS_META[subtask.status].label}
                     </span>
-                    <span style={progressBadgeStyle}>{getSubtaskProgress(subtask)}%</span>
+                    <ProgressBadge value={getSubtaskProgress(subtask)} label={STATUS_META[subtask.status].label} />
                   </div>
                 </button>
                   {renderSubtaskDetail(subtask)}
@@ -2042,7 +2045,7 @@ function KanbanTab({
                   <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} /></div>
                   <div style={inlineMetaStyle}>
                     <span>{people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'}</span>
-                    <span>{toShortDate(subtask.dueDate)}</span>
+                    <span title={subtask.dueDate ? toFullDate(subtask.dueDate) : undefined}>{formatDeadlineLabel(subtask.dueDate, subtask.status)}</span>
                   </div>
                   <select
                     aria-label="Chuyển trạng thái"
@@ -2217,8 +2220,8 @@ function GanttTimelineTab({
             </span>
             <div style={drawerInfoGrid}>
               <div><strong>Cấp:</strong> {ganttLevelLabel(selected.level)}</div>
-              <div><strong>Bắt đầu:</strong> {selected.missingStartDate ? 'Chưa nhập' : toShortDate(selected.startDate)}</div>
-              <div><strong>Deadline:</strong> {selected.missingDueDate ? 'Chưa nhập' : toShortDate(selected.dueDate)}</div>
+              <div title={selected.missingStartDate ? undefined : toFullDate(selected.startDate)}><strong>Bắt đầu:</strong> {selected.missingStartDate ? 'Chưa nhập' : toShortDate(selected.startDate)}</div>
+              <div title={selected.missingDueDate ? undefined : toFullDate(selected.dueDate)}><strong>Deadline:</strong> {selected.missingDueDate ? 'Chưa nhập' : formatDeadlineLabel(selected.dueDate, selected.status)}</div>
               <div><strong>Tiến độ:</strong> {selected.progress}%</div>
             </div>
             <div style={mutedMetaStyle}>{selected.subtitle}</div>
@@ -3469,6 +3472,17 @@ function toShortDate(value: string) {
 
 function toFullDate(value: string) {
   return new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function formatDeadlineLabel(value: string, status: TaskStatus) {
+  if (!value) return 'Chưa có deadline'
+  if (status === 'COMPLETED') return `Đã xong · ${toShortDate(value)}`
+  if (status === 'CANCELLED') return `Đã hủy · ${toShortDate(value)}`
+  const days = dayDiff(getVietnamDateKey(), value)
+  if (days < 0) return `Trễ ${Math.abs(days)} ngày`
+  if (days === 0) return 'Hôm nay'
+  if (days <= 14) return `Còn ${days} ngày`
+  return toShortDate(value)
 }
 
 function makeId(prefix: string) {
