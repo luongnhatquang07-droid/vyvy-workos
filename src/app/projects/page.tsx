@@ -386,6 +386,15 @@ function ProjectsPageContent() {
     )
   }
 
+  async function saveSubtaskReport(subtask: SubtaskItem, value: string) {
+    updateSubtaskField('reportText', value)
+    await commitWorkspaceMutation('PATCH', {
+      type: 'task',
+      id: subtask.sourceTaskId ?? subtask.id,
+      patch: { expectedResult: value },
+    })
+  }
+
   function updateStep(subtaskId: string, stepId: string, patch: Partial<StepItem>) {
     if (!selectedProject) return
     updateWorkspace((current) =>
@@ -708,6 +717,7 @@ function ProjectsPageContent() {
           onToggleSection={toggleSubtaskSection}
           onOpenBlockedSection={() => openBlockedSection(subtask)}
           onUpdateReport={(value) => updateSubtaskField('reportText', value)}
+          onSaveReport={(value) => void saveSubtaskReport(subtask, value)}
           onUpdateAttachments={(attachments) => updateSubtaskField('attachments', attachments)}
           onFilesChanged={() => {
             setFileRefreshKey((value) => value + 1)
@@ -987,6 +997,7 @@ function SubtaskCompactDetail({
   onToggleSection,
   onOpenBlockedSection,
   onUpdateReport,
+  onSaveReport,
   onUpdateAttachments,
   onFilesChanged,
   onUpdateStep,
@@ -1004,6 +1015,7 @@ function SubtaskCompactDetail({
   onToggleSection: (section: DetailSection) => void
   onOpenBlockedSection: () => void
   onUpdateReport: (value: string) => void
+  onSaveReport: (value: string) => void
   onUpdateAttachments: (attachments: AttachmentItem[]) => void
   onFilesChanged: () => void
   onUpdateStep: (stepId: string, patch: Partial<StepItem>) => void
@@ -1099,7 +1111,7 @@ function SubtaskCompactDetail({
             style={textareaStyle}
           />
           <div style={accordionActionRow}>
-            <button type="button" onClick={() => onUpdateReport(subtask.reportText)} style={smallPrimaryButton}>
+            <button type="button" onClick={() => onSaveReport(subtask.reportText)} style={smallPrimaryButton}>
               Lưu cập nhật
             </button>
           </div>
@@ -2794,6 +2806,7 @@ function getBlockedSection(subtask: SubtaskItem): DetailSection {
     getPendingApprovalDeliverableSteps(subtask).length
   ) return 'files'
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
+  if (!subtask.reportText.trim()) return 'report'
   return 'workflow'
 }
 
@@ -2807,11 +2820,16 @@ function getCompactBlockerText(subtask: SubtaskItem) {
     return 'thiếu file/báo cáo.'
   }
   if (subtask.steps.some((step) => step.isRequired && step.status !== 'COMPLETED')) return 'còn bước bắt buộc chưa hoàn thành.'
+  if (!subtask.reportText.trim()) return 'thiếu báo cáo/kết quả đầu việc.'
   return getCompletionBlockers(subtask).join('; ') || 'còn điều kiện chưa đạt.'
 }
 
 function getCompletionBlockers(subtask: SubtaskItem) {
   const blockers: string[] = []
+  if (!subtask.reportText.trim()) {
+    blockers.push('nhập báo cáo/kết quả đầu việc')
+  }
+
   const requiredSteps = subtask.steps.filter((step) => step.isRequired)
   const incompleteRequired = requiredSteps.filter((step) => step.status !== 'COMPLETED')
   if (incompleteRequired.length) {
