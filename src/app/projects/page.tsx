@@ -28,8 +28,10 @@ import type {
 
 type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
 type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
-type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings'
+type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings' | 'flowchart'
 type ProjectWorkFilter = 'all' | 'unassigned'
+type FlowchartFilter = 'all' | 'overdue' | 'today' | 'unassigned' | 'blocked'
+type FlowchartNodeKind = 'project' | 'workstream' | 'subtask' | 'step'
 type DeadlineSignalKind = 'overdue' | 'today' | 'upcoming' | 'normal' | 'none'
 type BadgeTone = 'neutral' | 'warning' | 'danger' | 'success'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -159,6 +161,14 @@ interface DeleteDraft {
   subtaskId?: string
   stepId?: string
   sourceId?: string
+}
+
+interface FlowchartNode {
+  kind: FlowchartNodeKind
+  project: ProjectWorkspace
+  workstream?: WorkstreamItem
+  subtask?: SubtaskItem
+  step?: StepItem
 }
 
 interface ProjectOpsStats {
@@ -481,6 +491,39 @@ function ProjectsPageContent() {
       return
     }
     showToast('ÄÃ£ lÆ°u bÃ¡o cÃ¡o.')
+  }
+
+  async function saveFlowchartSubtaskReport(subtask: SubtaskItem, value: string) {
+    const previousValue = subtask.reportText
+    updateWorkspace((current) =>
+      current.map((project) => ({
+        ...project,
+        workstreams: project.workstreams.map((workstream) => ({
+          ...workstream,
+          subtasks: workstream.subtasks.map((item) => (item.id === subtask.id ? { ...item, reportText: value } : item)),
+        })),
+      })),
+    )
+    const result = await commitWorkspaceMutation('PATCH', {
+      type: 'task',
+      id: subtask.sourceTaskId ?? subtask.id,
+      patch: { expectedResult: value },
+    }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) {
+      updateWorkspace((current) =>
+        current.map((project) => ({
+          ...project,
+          workstreams: project.workstreams.map((workstream) => ({
+            ...workstream,
+            subtasks: workstream.subtasks.map((item) => (item.id === subtask.id ? { ...item, reportText: previousValue } : item)),
+          })),
+        })),
+      )
+      showToast('Không thể lưu báo cáo. Vui lòng thử lại.', 'danger')
+      return false
+    }
+    showToast('Đã lưu báo cáo.')
+    return true
   }
 
   async function saveSubtaskOwner(subtask: SubtaskItem, ownerId: string | null) {
@@ -1048,6 +1091,7 @@ function ProjectsPageContent() {
                   { key: 'overview', label: 'Tổng quan' },
                   { key: 'kanban', label: 'Kanban' },
                   { key: 'gantt', label: 'Timeline / Gantt' },
+                  { key: 'flowchart', label: 'Flowchart' },
                   { key: 'meetings', label: 'Cuộc họp' },
                 ].map((tab) => (
                   <button key={tab.key} onClick={() => setActiveTab(tab.key as ViewTab)} style={tabStyle(activeTab === tab.key)}>
@@ -1083,6 +1127,14 @@ function ProjectsPageContent() {
 
               {activeTab === 'gantt' ? (
                 <GanttTab project={selectedProject} onShift={handleBarShift} />
+              ) : null}
+
+              {activeTab === 'flowchart' ? (
+                <FlowchartTab
+                  project={selectedProject}
+                  people={people}
+                  onSaveSubtaskReport={saveFlowchartSubtaskReport}
+                />
               ) : null}
 
               {activeTab === 'meetings' ? (
@@ -2073,6 +2125,373 @@ function KanbanTab({
       </div>
     </div>
   )
+}
+
+function FlowchartTab({
+  project,
+  people,
+  onSaveSubtaskReport,
+}: {
+  project: ProjectWorkspace
+  people: Record<string, CommandCenterPersonRow>
+  onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
+}) {
+  const [filter, setFilter] = React.useState<FlowchartFilter>('all')
+  const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set())
+  const [selectedNode, setSelectedNode] = React.useState<FlowchartNode | null>(null)
+  const collapseIds = React.useMemo(
+    () => [
+      ...project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)),
+      ...project.workstreams.flatMap((workstream) => workstream.subtasks.map((subtask) => flowchartNodeId('subtask', subtask.id))),
+    ],
+    [project],
+  )
+  const visibleWorkstreams = React.useMemo(() => {
+    if (filter === 'all') return project.workstreams
+    return project.workstreams
+      .map((workstream) => ({
+        ...workstream,
+        subtasks: workstream.subtasks.filter((subtask) => matchesFlowchartFilter(subtask, filter)),
+      }))
+      .filter((workstream) => workstream.subtasks.length > 0)
+  }, [filter, project])
+
+  function toggleCollapse(id: string) {
+    setCollapsedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <section style={flowchartShell}>
+      <div style={flowchartToolbar}>
+        <div>
+          <div style={sectionTitle}>Flowchart</div>
+          <div style={mutedMetaStyle}>Dự án → Đầu việc lớn → Đầu việc con → Bước thực hiện.</div>
+        </div>
+        <div style={flowchartControls}>
+          {[
+            { value: 'all', label: 'Tất cả' },
+            { value: 'overdue', label: 'Chỉ việc trễ' },
+            { value: 'today', label: 'Chỉ việc hôm nay' },
+            { value: 'unassigned', label: 'Chưa gắn người' },
+            { value: 'blocked', label: 'Bị chặn/cần sửa' },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setFilter(option.value as FlowchartFilter)}
+              style={filterChipStyle(filter === option.value, option.value === 'overdue' ? 'danger' : 'neutral')}
+            >
+              {option.label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setCollapsedIds(new Set(collapseIds))} style={filterChipStyle(false)}>
+            Thu gọn tất cả
+          </button>
+          <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
+            Mở rộng tất cả
+          </button>
+        </div>
+      </div>
+
+      <div style={flowchartStatsRow}>
+        <span>1 dự án</span>
+        <span>{project.workstreams.length} đầu việc lớn</span>
+        <span>{project.workstreams.flatMap((workstream) => workstream.subtasks).length} đầu việc con</span>
+        <span>{project.workstreams.flatMap((workstream) => workstream.subtasks.flatMap((subtask) => subtask.steps)).length} bước</span>
+      </div>
+
+      <div style={flowchartScroll}>
+        <div style={flowchartTree}>
+          <div style={flowchartRoot}>
+            <FlowchartNodeCard
+              node={{ kind: 'project', project }}
+              people={people}
+              onClick={() => setSelectedNode({ kind: 'project', project })}
+              variant="project"
+            />
+          </div>
+
+          {visibleWorkstreams.length === 0 ? (
+            <div style={emptyInline}>Không có nhánh nào khớp bộ lọc hiện tại.</div>
+          ) : (
+            <div style={flowchartBranchList}>
+              {visibleWorkstreams.map((workstream) => {
+                const workstreamId = flowchartNodeId('workstream', workstream.id)
+                const workstreamCollapsed = collapsedIds.has(workstreamId)
+                return (
+                  <div key={workstream.id} style={flowchartBranch}>
+                    <div style={flowchartConnector} />
+                    <div style={flowchartColumn}>
+                      <div style={flowchartNodeWithToggle}>
+                        <button type="button" onClick={() => toggleCollapse(workstreamId)} style={flowchartToggle}>
+                          {workstreamCollapsed ? '+' : '-'}
+                        </button>
+                        <FlowchartNodeCard
+                          node={{ kind: 'workstream', project, workstream }}
+                          people={people}
+                          onClick={() => setSelectedNode({ kind: 'workstream', project, workstream })}
+                        />
+                      </div>
+
+                      {!workstreamCollapsed ? (
+                        <div style={flowchartSubtaskList}>
+                          {workstream.subtasks.map((subtask) => {
+                            const subtaskId = flowchartNodeId('subtask', subtask.id)
+                            const subtaskCollapsed = collapsedIds.has(subtaskId)
+                            const steps = filter === 'all' ? subtask.steps : subtask.steps.filter((step) => matchesStepFlowchartFilter(step, filter))
+                            const visibleSteps = steps.length || matchesSubtaskFlowchartFilter(subtask, filter) ? subtask.steps : steps
+                            return (
+                              <div key={subtask.id} style={flowchartSubtaskBranch}>
+                                <div style={flowchartNodeWithToggle}>
+                                  <button type="button" onClick={() => toggleCollapse(subtaskId)} style={flowchartToggle}>
+                                    {subtaskCollapsed ? '+' : '-'}
+                                  </button>
+                                  <FlowchartNodeCard
+                                    node={{ kind: 'subtask', project, workstream, subtask }}
+                                    people={people}
+                                    onClick={() => setSelectedNode({ kind: 'subtask', project, workstream, subtask })}
+                                  />
+                                </div>
+                                {!subtaskCollapsed ? (
+                                  <div style={flowchartStepList}>
+                                    {visibleSteps.length === 0 ? (
+                                      <div style={flowchartEmptyStep}>Chưa có bước.</div>
+                                    ) : (
+                                      visibleSteps.map((step) => (
+                                        <FlowchartNodeCard
+                                          key={step.id}
+                                          node={{ kind: 'step', project, workstream, subtask, step }}
+                                          people={people}
+                                          onClick={() => setSelectedNode({ kind: 'step', project, workstream, subtask, step })}
+                                          variant="step"
+                                        />
+                                      ))
+                                    )}
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <FlowchartDetailDrawer
+        node={selectedNode}
+        people={people}
+        onClose={() => setSelectedNode(null)}
+        onSaveSubtaskReport={onSaveSubtaskReport}
+      />
+    </section>
+  )
+}
+
+function FlowchartNodeCard({
+  node,
+  people,
+  onClick,
+  variant = 'default',
+}: {
+  node: FlowchartNode
+  people: Record<string, CommandCenterPersonRow>
+  onClick: () => void
+  variant?: 'project' | 'default' | 'step'
+}) {
+  const title = getFlowchartNodeTitle(node)
+  const owner = getFlowchartNodeOwner(node)
+  const deadline = getFlowchartNodeDeadline(node)
+  const status = getFlowchartNodeStatus(node)
+  const progress = getFlowchartNodeProgress(node)
+  const signal = getFlowchartSignal(status, deadline)
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={flowchartNodeStyle(signal.tone, variant)}
+      title={`${title} · ${STATUS_META[status].label} · ${deadline ? toFullDate(deadline) : 'Không deadline'}`}
+    >
+      <div style={flowchartNodeTop}>
+        <span style={flowchartKindBadge(node.kind)}>{getFlowchartKindLabel(node.kind)}</span>
+        {signal.icon ? <span style={flowchartSignalBadge(signal.tone)}>{signal.icon}</span> : null}
+      </div>
+      <strong style={flowchartNodeTitle}>{title}</strong>
+      <div style={flowchartNodeMeta}>
+        <span>{owner ? people[owner]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</span>
+        <span title={deadline ? toFullDate(deadline) : undefined}>{deadline ? formatDeadlineLabel(deadline, status) : 'Không deadline'}</span>
+      </div>
+      <div style={flowchartNodeBottom}>
+        <span style={statusChipStyle(STATUS_META[status].bg, STATUS_META[status].color)}>
+          {signal.label || STATUS_META[status].label}
+        </span>
+        <ProgressBadge value={progress} label={STATUS_META[status].label} />
+      </div>
+    </button>
+  )
+}
+
+function FlowchartDetailDrawer({
+  node,
+  people,
+  onClose,
+  onSaveSubtaskReport,
+}: {
+  node: FlowchartNode | null
+  people: Record<string, CommandCenterPersonRow>
+  onClose: () => void
+  onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
+}) {
+  if (!node) return null
+
+  const title = getFlowchartNodeTitle(node)
+  const owner = getFlowchartNodeOwner(node)
+  const supporterNames = node.subtask?.supporterIds.map((id) => people[id]?.full_name).filter(Boolean).join(', ')
+  const deadline = getFlowchartNodeDeadline(node)
+  const status = getFlowchartNodeStatus(node)
+  const progress = getFlowchartNodeProgress(node)
+  const description = getFlowchartNodeDescription(node)
+  const subtask = node.subtask
+  const fileSummary = subtask ? getFileSummary(subtask) : null
+  const workflowSummary = subtask ? getWorkflowSummary(subtask) : null
+  const blockers = subtask ? getCompletionBlockers(subtask) : []
+
+  return (
+    <Drawer open title={title} onClose={onClose} width={520}>
+      <div style={flowchartDrawerStack}>
+        <section style={flowchartDrawerCard}>
+          <div style={flowchartDrawerHeader}>
+            <span style={flowchartKindBadge(node.kind)}>{getFlowchartKindLabel(node.kind)}</span>
+            <span style={statusChipStyle(STATUS_META[status].bg, STATUS_META[status].color)}>{STATUS_META[status].label}</span>
+          </div>
+          <div style={drawerInfoGrid}>
+            <div><strong>Owner:</strong> {owner ? people[owner]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</div>
+            <div><strong>Người phối hợp:</strong> {supporterNames || 'Chưa có'}</div>
+            <div title={deadline ? toFullDate(deadline) : undefined}><strong>Deadline:</strong> {deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}</div>
+            <div><strong>Tiến độ:</strong> {progress}%</div>
+            <div><strong>Ưu tiên:</strong> Bình thường</div>
+          </div>
+        </section>
+
+        <section style={flowchartDrawerCard}>
+          <div style={sectionTitle}>Mô tả chi tiết công việc</div>
+          <div style={mutedMetaStyle}>{description || 'Chưa có mô tả chi tiết.'}</div>
+        </section>
+
+        <section style={flowchartDrawerCard}>
+          <div style={sectionTitle}>Báo cáo / cập nhật kết quả</div>
+          {subtask ? (
+            <FlowchartReportEditor key={subtask.id} subtask={subtask} onSave={onSaveSubtaskReport} />
+          ) : (
+            <div style={mutedMetaStyle}>Chưa có báo cáo riêng cho cấp này.</div>
+          )}
+        </section>
+
+        <section style={flowchartDrawerCard}>
+          <div style={sectionTitle}>Quy trình thực hiện</div>
+          <FlowchartWorkflowSummary node={node} />
+          {workflowSummary ? <div style={mutedMetaStyle}>{workflowSummary.value} · {workflowSummary.hint}</div> : null}
+          {blockers.length ? <div style={warningBanner}>Chưa thể hoàn thành: {getCompactBlockerText(subtask as SubtaskItem)}</div> : null}
+        </section>
+
+        <section style={flowchartDrawerCard}>
+          <div style={sectionTitle}>Bàn giao</div>
+          {fileSummary ? (
+            <>
+              <div style={mutedMetaStyle}>{fileSummary.value} · {fileSummary.hint}</div>
+              {subtask?.attachments.length ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {subtask.attachments.map((file) => (
+                    <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
+                      <i className="ti ti-paperclip" /> {file.name}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : node.step ? (
+            <div style={mutedMetaStyle}>
+              {node.step.requiresDeliverable ? deliverableStatusLabel(node.step) : 'Bước này không yêu cầu bàn giao.'}
+            </div>
+          ) : (
+            <div style={mutedMetaStyle}>Bàn giao được tổng hợp ở các đầu việc con và bước bên dưới.</div>
+          )}
+        </section>
+
+        <section style={flowchartDrawerCard}>
+          <div style={sectionTitle}>Deadline</div>
+          <div style={mutedMetaStyle}>{deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}</div>
+        </section>
+      </div>
+    </Drawer>
+  )
+}
+
+function FlowchartReportEditor({
+  subtask,
+  onSave,
+}: {
+  subtask: SubtaskItem
+  onSave: (subtask: SubtaskItem, value: string) => Promise<boolean>
+}) {
+  const [reportDraft, setReportDraft] = React.useState(subtask.reportText)
+  const [savingReport, setSavingReport] = React.useState(false)
+
+  async function saveReport() {
+    if (savingReport) return
+    setSavingReport(true)
+    const ok = await onSave(subtask, reportDraft)
+    setSavingReport(false)
+    if (!ok) setReportDraft(subtask.reportText)
+  }
+
+  return (
+    <>
+      <textarea value={reportDraft} onChange={(event) => setReportDraft(event.target.value)} style={textareaStyle} placeholder="Nhập cập nhật kết quả..." />
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <PrimaryButton icon="ti-device-floppy" onClick={saveReport} disabled={savingReport}>
+          {savingReport ? 'Đang lưu...' : 'Lưu báo cáo'}
+        </PrimaryButton>
+      </div>
+    </>
+  )
+}
+
+function FlowchartWorkflowSummary({ node }: { node: FlowchartNode }) {
+  if (node.kind === 'project') {
+    return <div style={mutedMetaStyle}>{node.project.workstreams.length} đầu việc lớn · {node.project.workstreams.flatMap((workstream) => workstream.subtasks).length} đầu việc con</div>
+  }
+  if (node.kind === 'workstream' && node.workstream) {
+    return <div style={mutedMetaStyle}>{node.workstream.subtasks.length} đầu việc con trong đầu việc lớn này.</div>
+  }
+  if (node.kind === 'subtask' && node.subtask) {
+    return (
+      <div style={flowchartStepMiniList}>
+        {node.subtask.steps.length === 0 ? <div style={mutedMetaStyle}>Chưa có bước.</div> : null}
+        {node.subtask.steps.map((step) => (
+          <div key={step.id} style={flowchartStepMiniItem}>
+            <span style={statusChipStyle(STATUS_META[step.status].bg, STATUS_META[step.status].color)}>{STATUS_META[step.status].label}</span>
+            <span>{step.title}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (node.step) {
+    return <div style={mutedMetaStyle}>{node.step.description || node.step.note || 'Chưa có mô tả cho bước này.'}</div>
+  }
+  return null
 }
 
 type GanttLevel = 'project' | 'workstream' | 'subtask' | 'step'
@@ -3439,6 +3858,91 @@ function getSubtaskOperationScore(subtask: SubtaskItem) {
   return 8
 }
 
+function flowchartNodeId(kind: FlowchartNodeKind, id: string) {
+  return `${kind}-${id}`
+}
+
+function matchesFlowchartFilter(subtask: SubtaskItem, filter: FlowchartFilter) {
+  return matchesSubtaskFlowchartFilter(subtask, filter) || subtask.steps.some((step) => matchesStepFlowchartFilter(step, filter))
+}
+
+function matchesSubtaskFlowchartFilter(subtask: SubtaskItem, filter: FlowchartFilter) {
+  if (filter === 'all') return true
+  const deadline = getDeadlineSignal(subtask).kind
+  if (filter === 'overdue') return deadline === 'overdue'
+  if (filter === 'today') return deadline === 'today'
+  if (filter === 'unassigned') return isUnassignedSubtask(subtask)
+  if (filter === 'blocked') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(subtask.status)
+  return true
+}
+
+function matchesStepFlowchartFilter(step: StepItem, filter: FlowchartFilter) {
+  if (filter === 'all') return true
+  if (filter === 'overdue') return isOverdue(step.dueDate, step.status)
+  if (filter === 'today') return step.dueDate === getVietnamDateKey() && step.status !== 'COMPLETED'
+  if (filter === 'unassigned') return !step.ownerId
+  if (filter === 'blocked') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(step.status)
+  return true
+}
+
+function getFlowchartNodeTitle(node: FlowchartNode) {
+  if (node.kind === 'project') return node.project.name
+  if (node.kind === 'workstream') return node.workstream?.title ?? 'Đầu việc lớn'
+  if (node.kind === 'subtask') return node.subtask?.title ?? 'Đầu việc con'
+  return node.step?.title ?? 'Bước'
+}
+
+function getFlowchartNodeOwner(node: FlowchartNode) {
+  if (node.kind === 'project') return node.project.ownerId
+  if (node.kind === 'workstream') return node.workstream?.ownerId ?? null
+  if (node.kind === 'subtask') return node.subtask?.ownerId ?? null
+  return node.step?.ownerId ?? node.subtask?.ownerId ?? null
+}
+
+function getFlowchartNodeDeadline(node: FlowchartNode) {
+  if (node.kind === 'project') return node.project.dueDate
+  if (node.kind === 'workstream') return node.workstream?.dueDate ?? ''
+  if (node.kind === 'subtask') return node.subtask?.dueDate ?? ''
+  return node.step?.dueDate ?? ''
+}
+
+function getFlowchartNodeStatus(node: FlowchartNode): TaskStatus {
+  if (node.kind === 'project') return progressStatus(getProjectProgress(node.project), node.project.dueDate)
+  if (node.kind === 'workstream' && node.workstream) return progressStatus(getWorkstreamProgress(node.workstream), node.workstream.dueDate, node.workstream.status)
+  if (node.kind === 'subtask') return node.subtask?.status ?? 'NOT_STARTED'
+  return node.step?.status ?? 'NOT_STARTED'
+}
+
+function getFlowchartNodeProgress(node: FlowchartNode) {
+  if (node.kind === 'project') return getProjectProgress(node.project)
+  if (node.kind === 'workstream' && node.workstream) return getWorkstreamProgress(node.workstream)
+  if (node.kind === 'subtask' && node.subtask) return getSubtaskProgress(node.subtask)
+  return node.step?.status === 'COMPLETED' ? 100 : 0
+}
+
+function getFlowchartNodeDescription(node: FlowchartNode) {
+  if (node.kind === 'project') return node.project.description
+  if (node.kind === 'workstream') return ''
+  if (node.kind === 'subtask') return node.subtask?.reportText ? '' : ''
+  return node.step?.description || node.step?.note || ''
+}
+
+function getFlowchartKindLabel(kind: FlowchartNodeKind) {
+  if (kind === 'project') return 'Dự án'
+  if (kind === 'workstream') return 'Đầu việc lớn'
+  if (kind === 'subtask') return 'Đầu việc con'
+  return 'Bước'
+}
+
+function getFlowchartSignal(status: TaskStatus, deadline: string): { icon: string | null; label: string | null; tone: BadgeTone } {
+  if (deadline && isOverdue(deadline, status)) return { icon: '!', label: 'Trễ hạn', tone: 'danger' }
+  if (status === 'COMPLETED') return { icon: '✓', label: 'Hoàn thành', tone: 'success' }
+  if (['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(status)) {
+    return { icon: '!', label: STATUS_META[status].label, tone: 'warning' }
+  }
+  return { icon: null, label: null, tone: 'neutral' }
+}
+
 function hasEvidence(subtask: SubtaskItem) {
   return Boolean(
     subtask.reportText.trim()
@@ -4022,6 +4526,262 @@ const kanbanEmptyState: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   background: 'rgba(255,255,255,.02)',
+}
+
+const flowchartShell: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  padding: 16,
+  borderRadius: 18,
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+}
+
+const flowchartToolbar: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 14,
+  alignItems: 'flex-start',
+  flexWrap: 'wrap',
+}
+
+const flowchartControls: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+}
+
+const flowchartStatsRow: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const flowchartScroll: React.CSSProperties = {
+  overflowX: 'auto',
+  maxWidth: '100%',
+  paddingBottom: 8,
+}
+
+const flowchartTree: React.CSSProperties = {
+  minWidth: 960,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 18,
+}
+
+const flowchartRoot: React.CSSProperties = {
+  maxWidth: 520,
+}
+
+const flowchartBranchList: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+  gap: 14,
+  alignItems: 'start',
+}
+
+const flowchartBranch: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  gap: 12,
+}
+
+const flowchartConnector: React.CSSProperties = {
+  width: 18,
+  minHeight: 42,
+  borderLeft: '2px solid rgba(218,223,33,.28)',
+  borderTop: '2px solid rgba(218,223,33,.28)',
+  borderTopLeftRadius: 12,
+  marginTop: 24,
+}
+
+const flowchartColumn: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  minWidth: 0,
+  flex: 1,
+}
+
+const flowchartNodeWithToggle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '28px minmax(0, 1fr)',
+  gap: 8,
+  alignItems: 'start',
+}
+
+const flowchartToggle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: 999,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt)',
+  fontWeight: 900,
+  cursor: 'pointer',
+}
+
+const flowchartSubtaskList: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  marginLeft: 14,
+  paddingLeft: 14,
+  borderLeft: '1px solid rgba(255,255,255,.10)',
+}
+
+const flowchartSubtaskBranch: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const flowchartStepList: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  marginLeft: 36,
+  paddingLeft: 12,
+  borderLeft: '1px dashed rgba(255,255,255,.12)',
+}
+
+const flowchartEmptyStep: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 10,
+  border: '1px dashed var(--line)',
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+function flowchartNodeStyle(tone: BadgeTone, variant: 'project' | 'default' | 'step'): React.CSSProperties {
+  const danger = tone === 'danger'
+  const warning = tone === 'warning'
+  const success = tone === 'success'
+  return {
+    width: '100%',
+    minHeight: variant === 'project' ? 142 : variant === 'step' ? 104 : 120,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 9,
+    padding: variant === 'project' ? 16 : 13,
+    borderRadius: 16,
+    border: `1px solid ${danger ? 'rgba(184,64,64,.48)' : warning ? 'rgba(184,139,62,.44)' : success ? 'rgba(96,145,92,.42)' : 'var(--line)'}`,
+    background: danger ? 'rgba(184,64,64,.12)' : warning ? 'rgba(184,139,62,.10)' : success ? 'rgba(96,145,92,.10)' : 'var(--surface-2)',
+    color: 'var(--txt)',
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxShadow: variant === 'project' ? '0 18px 50px rgba(0,0,0,.24)' : 'none',
+  }
+}
+
+const flowchartNodeTop: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 8,
+  alignItems: 'center',
+}
+
+function flowchartKindBadge(kind: FlowchartNodeKind): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    width: 'fit-content',
+    padding: '3px 8px',
+    borderRadius: 999,
+    background: kind === 'project' ? 'rgba(218,223,33,.12)' : kind === 'workstream' ? 'rgba(157,184,199,.12)' : 'var(--surface-3)',
+    color: kind === 'project' ? 'var(--color-lime)' : 'var(--txt-3)',
+    fontSize: 10,
+    fontWeight: 900,
+    textTransform: 'uppercase',
+  }
+}
+
+function flowchartSignalBadge(tone: BadgeTone): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    background: tone === 'danger' ? 'rgba(184,64,64,.22)' : tone === 'success' ? 'rgba(96,145,92,.22)' : 'rgba(184,139,62,.18)',
+    color: tone === 'danger' ? 'var(--color-danger)' : tone === 'success' ? 'var(--color-success)' : 'var(--color-warning)',
+    border: `1px solid ${tone === 'danger' ? 'rgba(184,64,64,.45)' : tone === 'success' ? 'rgba(96,145,92,.42)' : 'rgba(184,139,62,.42)'}`,
+    fontSize: 13,
+    fontWeight: 900,
+  }
+}
+
+const flowchartNodeTitle: React.CSSProperties = {
+  display: 'block',
+  color: 'var(--txt)',
+  fontSize: 14,
+  lineHeight: 1.35,
+}
+
+const flowchartNodeMeta: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 700,
+}
+
+const flowchartNodeBottom: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+const flowchartDrawerStack: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
+
+const flowchartDrawerCard: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  padding: 14,
+  borderRadius: 14,
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+}
+
+const flowchartDrawerHeader: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 10,
+}
+
+const flowchartStepMiniList: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const flowchartStepMiniItem: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+  padding: '8px 10px',
+  borderRadius: 10,
+  background: 'var(--surface-2)',
+  border: '1px solid var(--line)',
+  color: 'var(--txt)',
+  fontSize: 12,
+  fontWeight: 700,
 }
 
 function toastStyle(tone: 'success' | 'danger'): React.CSSProperties {
