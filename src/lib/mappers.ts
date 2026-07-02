@@ -247,20 +247,93 @@ function mapCeoRequest(row: CommandCenterCeoDecisionRequestRow): CEODecisionRequ
   }
 }
 
-function mapActivityLog(row: CommandCenterActivityLogRow): ActivityLogEntry {
-  const metadata = row.metadata ? Object.values(row.metadata).filter(Boolean).join(' | ') : ''
+function mapActivityLog(row: CommandCenterActivityLogRow, people: Person[]): ActivityLogEntry {
+  const actorName = people.find((person) => person.id === row.actor_id)?.name
+  const metadata = formatOperationalActivityMetadata(row.metadata)
+  const label = getOperationalActivityLabel(row.action)
   return {
     id: row.id,
     time: row.created_at?.slice(11, 16) ?? '',
-    text: `${row.action ?? ''} - ${row.entity_type ?? ''}${metadata ? ` (${metadata})` : ''}`.trim(),
-    dotColor: row.action?.includes('COMPLETE')
+    text: `${actorName ? `${actorName}: ` : ''}${label}${metadata ? ` · ${metadata}` : ''}`,
+    dotColor: row.action?.includes('approved') || row.action?.includes('approve')
       ? 'green'
-      : row.action?.includes('BLOCK')
+      : row.action?.includes('revision') || row.action?.includes('markMissing')
         ? 'red'
-        : row.action?.includes('APPROVE')
+        : row.action?.includes('escalated')
           ? 'violet'
-          : 'blue',
+          : row.action?.includes('scheduled')
+            ? 'amber'
+            : 'blue',
   }
+}
+
+function getOperationalActivityLabel(action: string | null) {
+  switch (action) {
+    case 'follow_up.reminder.sent':
+      return 'Đã gửi nhắc việc'
+    case 'follow_up.reminder.scheduled':
+      return 'Đã hẹn nhắc lại'
+    case 'follow_up.reminder.escalated':
+      return 'Đã đánh dấu cần escalate'
+    case 'deliverable.reminder.sent':
+      return 'Đã gửi nhắc nộp file/báo cáo'
+    case 'deliverable.approve':
+    case 'approval.approved':
+      return 'Báo cáo đã duyệt'
+    case 'deliverable.requestRevision':
+    case 'approval.revision_required':
+      return 'Báo cáo bị yêu cầu sửa'
+    case 'deliverable.markMissing':
+      return 'Báo cáo thiếu thông tin'
+    case 'approval.requested':
+      return 'Đã gửi yêu cầu duyệt'
+    case 'approval.rejected':
+      return 'Yêu cầu duyệt bị từ chối'
+    case 'escalation.created':
+      return 'Đã tạo escalation'
+    default:
+      return 'Cập nhật theo dõi'
+  }
+}
+
+function formatOperationalActivityMetadata(metadata: Record<string, unknown> | null) {
+  if (!metadata) return ''
+  const parts: string[] = []
+  const reminderLevel = metadata.reminderLevel
+  const channel = metadata.channel
+  const nextFollowUpAt = metadata.nextFollowUpAt
+  const reason = metadata.reason ?? metadata.reviewComment
+
+  if (typeof reminderLevel === 'number' && Number.isFinite(reminderLevel)) {
+    parts.push(`lần ${reminderLevel}`)
+  }
+  if (typeof channel === 'string' && channel.trim()) {
+    parts.push(`qua ${channel.trim()}`)
+  }
+  if (typeof nextFollowUpAt === 'string' && nextFollowUpAt.trim()) {
+    parts.push(`hẹn ${formatActivityDateTime(nextFollowUpAt)}`)
+  }
+  if (typeof reason === 'string' && reason.trim()) {
+    parts.push(`lý do: ${shortenActivityText(reason.trim())}`)
+  }
+
+  return parts.join(' · ')
+}
+
+function formatActivityDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  })
+}
+
+function shortenActivityText(value: string) {
+  return value.length > 72 ? `${value.slice(0, 69)}...` : value
 }
 
 function getDeliverableCheckState(
@@ -302,7 +375,7 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
   const approvals = raw.approvals.map((row) => mapApproval(row, raw.tasks, raw.deliverables, today))
   const reminders = raw.reminders.map((row) => mapReminder(row, raw.tasks, raw.deliverables))
   const ceoRequests = raw.ceoRequests.map(mapCeoRequest)
-  const activityLog = raw.activityLogs.map(mapActivityLog)
+  const activityLog = raw.activityLogs.map((row) => mapActivityLog(row, people))
 
   const chaseItems: ChaseItem[] = raw.reminders.map((row) => {
     const response = mapReminderResponse(row.response_status)

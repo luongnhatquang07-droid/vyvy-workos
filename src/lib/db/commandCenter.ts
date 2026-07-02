@@ -3,6 +3,21 @@ import 'server-only'
 import type { RawCommandCenterData } from '@/lib/database.types'
 import { createClient } from '@/lib/supabase/server'
 
+const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
+  'follow_up.reminder.sent',
+  'follow_up.reminder.scheduled',
+  'follow_up.reminder.escalated',
+  'deliverable.reminder.sent',
+  'deliverable.approve',
+  'deliverable.requestRevision',
+  'deliverable.markMissing',
+  'approval.requested',
+  'approval.approved',
+  'approval.revision_required',
+  'approval.rejected',
+  'escalation.created',
+])
+
 export async function getCommandCenterData(workspaceId: string): Promise<RawCommandCenterData> {
   const sb = await createClient()
 
@@ -66,7 +81,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .eq('workspace_id', workspaceId),
 
     sb.from('reminders')
-      .select('id,person_id,task_id,deliverable_id,reminder_level,response_status,next_follow_up_at,last_reminded_at')
+      .select('id,person_id,task_id,deliverable_id,reminder_level,response_status,next_follow_up_at,last_reminded_at,status')
       .eq('workspace_id', workspaceId),
 
     sb.from('ceo_decision_requests')
@@ -74,10 +89,10 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .eq('workspace_id', workspaceId),
 
     sb.from('activity_logs')
-      .select('id,created_at,action,actor_id,entity_type,metadata')
+      .select('id,created_at,action,actor_id,entity_type,entity_id,metadata')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false })
-      .limit(20),
+      .limit(100),
   ])
 
   const projects = requireRows('dự án', projectsRes) as RawCommandCenterData['projects']
@@ -115,14 +130,32 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       (!approval.step_id || stepIds.has(approval.step_id)) &&
       (!approval.deliverable_id || deliverableIdSet.has(approval.deliverable_id)),
     )
+  const approvalIds = new Set(approvals.map((approval) => approval.id))
   const reminders = (requireRows('nhắc việc', remindersRes) as RawCommandCenterData['reminders'])
     .filter((reminder) =>
+      reminder.status !== 'closed' &&
       reminder.response_status !== 'CLOSED' &&
       (!reminder.task_id || taskIds.has(reminder.task_id)) &&
       (!reminder.deliverable_id || deliverableIdSet.has(reminder.deliverable_id)),
     )
+  const reminderIds = new Set(reminders.map((reminder) => reminder.id))
   const ceoRequests = (requireRows('báo cáo CEO', ceoRes) as RawCommandCenterData['ceoRequests'])
     .filter((request) => !request.project_id || projectIds.has(request.project_id))
+  const activityLogs = (requireRows('nhật ký hoạt động', activityRes) as RawCommandCenterData['activityLogs'])
+    .filter((activity) =>
+      isOperationalActivity(activity.action) &&
+      isActivityEntityActive(activity, {
+        projectIds,
+        workstreamIds,
+        taskIds,
+        stepIds,
+        deliverableIds: deliverableIdSet,
+        reminderIds,
+        approvalIds,
+        meetingIds,
+      }),
+    )
+    .slice(0, 20)
   let deliverableVersions: RawCommandCenterData['deliverableVersions'] = []
   let attachments: RawCommandCenterData['attachments'] = []
 
@@ -162,7 +195,50 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     approvals,
     reminders,
     ceoRequests,
-    activityLogs: requireRows('nhật ký hoạt động', activityRes) as RawCommandCenterData['activityLogs'],
+    activityLogs,
+  }
+}
+
+function isOperationalActivity(action: string | null) {
+  return Boolean(action && OPERATIONAL_ACTIVITY_ACTIONS.has(action))
+}
+
+function isActivityEntityActive(
+  activity: RawCommandCenterData['activityLogs'][number],
+  graph: {
+    projectIds: Set<string>
+    workstreamIds: Set<string>
+    taskIds: Set<string>
+    stepIds: Set<string>
+    deliverableIds: Set<string>
+    reminderIds: Set<string>
+    approvalIds: Set<string>
+    meetingIds: Set<string>
+  },
+) {
+  const entityId = activity.entity_id
+  if (!entityId) return false
+
+  switch ((activity.entity_type ?? '').toLowerCase()) {
+    case 'project':
+      return graph.projectIds.has(entityId)
+    case 'workstream':
+      return graph.workstreamIds.has(entityId)
+    case 'task':
+      return graph.taskIds.has(entityId)
+    case 'task_step':
+    case 'step':
+      return graph.stepIds.has(entityId)
+    case 'deliverable':
+      return graph.deliverableIds.has(entityId)
+    case 'reminder':
+      return graph.reminderIds.has(entityId)
+    case 'approval':
+      return graph.approvalIds.has(entityId)
+    case 'meeting':
+      return graph.meetingIds.has(entityId)
+    default:
+      return false
   }
 }
 

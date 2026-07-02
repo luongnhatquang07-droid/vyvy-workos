@@ -128,6 +128,7 @@ export interface ReminderRow {
   task_id: string | null
   deliverable_id: string | null
   reminder_level: number
+  status: string | null
   response_status:
     | 'NOT_REMINDERED'
     | 'REMINDERED'
@@ -163,6 +164,7 @@ export interface ActivityLogRow {
   action: string | null
   actor_id: string | null
   entity_type: string | null
+  entity_id: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -332,6 +334,7 @@ export interface CommandCenterReminderRow {
   task_id: string | null
   deliverable_id: string | null
   reminder_level: number
+  status: string | null
   response_status:
     | 'NOT_REMINDERED'
     | 'REMINDERED'
@@ -365,6 +368,7 @@ export interface CommandCenterActivityLogRow {
   action: string | null
   actor_id: string | null
   entity_type: string | null
+  entity_id: string | null
   metadata: Record<string, unknown> | null
 }
 

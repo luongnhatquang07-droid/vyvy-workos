@@ -32,10 +32,13 @@ export function ActivityLog({ entries }: ActivityLogProps) {
             width: 19, height: 19, borderRadius: 6,
             background: 'var(--color-surface-2)', color: 'var(--color-text-muted)',
             fontSize: 11, fontWeight: 700, marginRight: 4,
-          }}>7</span>
+          }}>{entries.length}</span>
           <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 'var(--text-sm)', fontWeight: 700, margin: 0 }}>
-            Nhật ký theo dõi — ai hứa gì, nhắc khi nào, phản hồi ra sao
+            Nhật ký theo dõi
           </h2>
+          <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>
+            Chỉ hiển thị nhắc việc, phản hồi và cam kết đang còn hiệu lực.
+          </span>
         </div>
         <span style={{
           fontSize: 10, color: 'var(--color-text-muted)', background: 'var(--color-surface-2)',
@@ -46,7 +49,7 @@ export function ActivityLog({ entries }: ActivityLogProps) {
       <div style={{ padding: '4px 20px' }}>
         {entries.length === 0 ? (
           <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
-            Chưa có hoạt động nào được ghi nhận.
+            Chưa có nhật ký theo dõi đang hiệu lực.
           </div>
         ) : entries.map((entry, i) => (
           <div key={entry.id} style={{
