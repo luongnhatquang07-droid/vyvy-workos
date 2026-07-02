@@ -150,6 +150,17 @@ interface DragDraft {
   newDate: string
 }
 
+interface DeleteDraft {
+  kind: 'project' | 'workstream' | 'subtask' | 'step'
+  title: string
+  description: string
+  projectId?: string
+  workstreamId?: string
+  subtaskId?: string
+  stepId?: string
+  sourceId?: string
+}
+
 interface ProjectOpsStats {
   today: number
   overdue: number
@@ -208,6 +219,8 @@ function ProjectsPageContent() {
   const [composerDraft, setComposerDraft] = React.useState<ComposerDraft>(createDraft())
   const [deadlineDraft, setDeadlineDraft] = React.useState<DragDraft | null>(null)
   const [deadlineReason, setDeadlineReason] = React.useState('')
+  const [deleteDraft, setDeleteDraft] = React.useState<DeleteDraft | null>(null)
+  const [deleteLoading, setDeleteLoading] = React.useState(false)
   const [activeUploadStepId, setActiveUploadStepId] = React.useState<string | null>(null)
   const [openDetailSections, setOpenDetailSections] = React.useState<DetailSection[]>([])
   const [fileRefreshKey, setFileRefreshKey] = React.useState(0)
@@ -350,7 +363,7 @@ function ProjectsPageContent() {
       return payload
     } catch (err) {
       if (options.alertOnError !== false) {
-        window.alert(err instanceof Error ? err.message : 'Không cập nhật được database.')
+        showToast(err instanceof Error ? err.message : 'Không cập nhật được database.', 'danger')
       }
       return null
     }
@@ -580,77 +593,153 @@ function ProjectsPageContent() {
 
   async function deleteProject(projectId: string) {
     const project = workspace.find((item) => item.id === projectId)
-    if (!project || !window.confirm(`Xoa du an "${project.name}" va toan bo dau viec ben trong?`)) return
-    const result = await commitWorkspaceMutation('DELETE', { type: 'project', id: project.sourceProjectId ?? project.id }, { refreshMode: 'background' })
-    if (result) updateWorkspace((current) => current.filter((item) => item.id !== projectId))
+    if (!project) return
+    setDeleteDraft({
+      kind: 'project',
+      projectId,
+      sourceId: project.sourceProjectId ?? project.id,
+      title: `Xóa dự án "${project.name}"`,
+      description: 'Dự án, đầu việc lớn, đầu việc con, bước và bàn giao liên quan sẽ được ẩn khỏi các view vận hành. Hành động này không hard-delete dữ liệu.',
+    })
+  }
+
+  async function performDeleteProject(draft: DeleteDraft) {
+    if (!draft.projectId || !draft.sourceId) return false
+    const result = await commitWorkspaceMutation('DELETE', { type: 'project', id: draft.sourceId }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) return false
+    updateWorkspace((current) => current.filter((item) => item.id !== draft.projectId))
+    return true
   }
 
   async function deleteWorkstream(projectId: string, workstreamId: string) {
     const project = workspace.find((item) => item.id === projectId)
     const workstream = project?.workstreams.find((item) => item.id === workstreamId)
-    if (!workstream || !window.confirm(`Xoa dau viec lon "${workstream.title}" va cac dau viec con ben trong?`)) return
+    if (!workstream) return
     if (workstream.id.startsWith('ungrouped-')) {
-      window.alert('Nhóm này được tạo tự động vì task chưa gắn đầu việc lớn. Hãy xóa hoặc chuyển từng đầu việc con.')
+      showToast('Nhóm này được tạo tự động. Hãy xóa hoặc chuyển từng đầu việc con.', 'danger')
       return
     }
-    await commitWorkspaceMutation('DELETE', { type: 'workstream', id: workstreamId }, { refreshMode: 'background' })
+    setDeleteDraft({
+      kind: 'workstream',
+      projectId,
+      workstreamId,
+      sourceId: workstreamId,
+      title: `Xóa đầu việc lớn "${workstream.title}"`,
+      description: 'Các đầu việc con bên trong đầu việc lớn này sẽ không còn hiển thị trong workspace và các view vận hành.',
+    })
+  }
+
+  async function performDeleteWorkstream(draft: DeleteDraft) {
+    if (!draft.projectId || !draft.workstreamId || !draft.sourceId) return false
+    const result = await commitWorkspaceMutation('DELETE', { type: 'workstream', id: draft.sourceId }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) return false
     updateWorkspace((current) =>
       current.map((item) =>
-        item.id !== projectId
+        item.id !== draft.projectId
           ? item
           : {
               ...item,
-              workstreams: item.workstreams.filter((stream) => stream.id !== workstreamId),
+              workstreams: item.workstreams.filter((stream) => stream.id !== draft.workstreamId),
             },
       ),
     )
+    return true
   }
 
   async function deleteSubtask(projectId: string, subtaskId: string) {
     const project = workspace.find((item) => item.id === projectId)
     const subtask = project?.workstreams.flatMap((stream) => stream.subtasks).find((item) => item.id === subtaskId)
-    if (!subtask || !window.confirm(`Xoa dau viec con "${subtask.title}"?`)) return
-    await commitWorkspaceMutation('DELETE', { type: 'task', id: subtask.sourceTaskId ?? subtask.id }, { refreshMode: 'background' })
+    if (!subtask) return
+    setDeleteDraft({
+      kind: 'subtask',
+      projectId,
+      subtaskId,
+      sourceId: subtask.sourceTaskId ?? subtask.id,
+      title: `Xóa đầu việc con "${subtask.title}"`,
+      description: 'Đầu việc con này, các bước và bàn giao liên quan sẽ được ẩn khỏi workspace vận hành.',
+    })
+  }
+
+  async function performDeleteSubtask(draft: DeleteDraft) {
+    if (!draft.projectId || !draft.subtaskId || !draft.sourceId) return false
+    const result = await commitWorkspaceMutation('DELETE', { type: 'task', id: draft.sourceId }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) return false
     updateWorkspace((current) =>
       current.map((item) =>
-        item.id !== projectId
+        item.id !== draft.projectId
           ? item
           : {
               ...item,
               workstreams: item.workstreams.map((stream) => ({
                 ...stream,
-                subtasks: stream.subtasks.filter((task) => task.id !== subtaskId),
+                subtasks: stream.subtasks.filter((task) => task.id !== draft.subtaskId),
               })),
             },
       ),
     )
+    return true
   }
 
   async function deleteStep(subtaskId: string, stepId: string) {
     if (!selectedProject) return
     const step = selectedSubtask?.steps.find((item) => item.id === stepId)
-    if (!step || !window.confirm(`Xoa buoc "${step.title}"?`)) return
-    await commitWorkspaceMutation('DELETE', { type: 'step', id: stepId }, { refreshMode: 'background' })
+    if (!step) return
+    setDeleteDraft({
+      kind: 'step',
+      projectId: selectedProject.id,
+      subtaskId,
+      stepId,
+      sourceId: stepId,
+      title: `Xóa bước "${step.title}"`,
+      description: 'Bước này sẽ không còn được tính trong quy trình thực hiện và tiến độ đầu việc con.',
+    })
+  }
+
+  async function performDeleteStep(draft: DeleteDraft) {
+    if (!draft.projectId || !draft.subtaskId || !draft.stepId || !draft.sourceId) return false
+    const result = await commitWorkspaceMutation('DELETE', { type: 'step', id: draft.sourceId }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) return false
     updateWorkspace((current) =>
       current.map((project) =>
-        project.id !== selectedProject.id
+        project.id !== draft.projectId
           ? project
           : {
               ...project,
               workstreams: project.workstreams.map((workstream) => ({
                 ...workstream,
                 subtasks: workstream.subtasks.map((subtask) =>
-                  subtask.id !== subtaskId
+                  subtask.id !== draft.subtaskId
                     ? subtask
                     : {
                         ...subtask,
-                        steps: subtask.steps.filter((item) => item.id !== stepId),
+                        steps: subtask.steps.filter((item) => item.id !== draft.stepId),
                       },
                 ),
               })),
             },
       ),
     )
+    return true
+  }
+
+  async function confirmDeleteDraft() {
+    if (!deleteDraft || deleteLoading) return
+    setDeleteLoading(true)
+    const success =
+      deleteDraft.kind === 'project'
+        ? await performDeleteProject(deleteDraft)
+        : deleteDraft.kind === 'workstream'
+          ? await performDeleteWorkstream(deleteDraft)
+          : deleteDraft.kind === 'subtask'
+            ? await performDeleteSubtask(deleteDraft)
+            : await performDeleteStep(deleteDraft)
+    setDeleteLoading(false)
+    if (!success) {
+      showToast('Không thể xóa. Vui lòng thử lại.', 'danger')
+      return
+    }
+    showToast('Đã xóa và cập nhật workspace.')
+    setDeleteDraft(null)
   }
 
   async function updateKanbanSubtaskStatus(subtask: SubtaskItem, nextStatus: TaskStatus) {
@@ -696,26 +785,7 @@ function ProjectsPageContent() {
   function requestStatusChange(nextStatus: TaskStatus) {
     const targetSubtask = selectedSubtask as SubtaskItem
     if (!targetSubtask) return
-    return void updateKanbanSubtaskStatus(targetSubtask, nextStatus)
-    if (nextStatus === 'COMPLETED') {
-      const blockers = getCompletionBlockers(targetSubtask)
-      if (blockers.length) {
-        const hasSpecificFileBlocker = blockers.some((blocker) => blocker.startsWith('file đã nộp') || blocker.startsWith('file đang chờ') || blocker.startsWith('file/báo cáo'))
-        window.alert(hasSpecificFileBlocker ? `Chưa thể hoàn thành vì ${blockers.join('; ')}.` : `Chưa thể hoàn thành vì còn thiếu: ${blockers.join('; ')}.`)
-        openBlockedSection(targetSubtask)
-        return
-      }
-    }
-    if (requiresEvidence(nextStatus) && !hasEvidence(targetSubtask)) {
-      setActiveTab('overview')
-      openSubtaskSection('files')
-    }
-    updateSubtaskField('status', nextStatus)
-    void commitWorkspaceMutation('PATCH', {
-      type: 'task',
-      id: targetSubtask.sourceTaskId ?? targetSubtask.id,
-      patch: { status: nextStatus },
-    })
+    void updateKanbanSubtaskStatus(targetSubtask, nextStatus)
   }
 
   function handleBarShift(
@@ -1130,6 +1200,24 @@ function ProjectsPageContent() {
           <Field label="Lý do của người phụ trách">
             <textarea value={deadlineReason} onChange={(e) => setDeadlineReason(e.target.value)} placeholder="Ghi rõ lý do dời deadline, vướng mắc và cam kết mới..." style={textareaStyle} />
           </Field>
+        </ModalShell>
+      ) : null}
+
+      {deleteDraft ? (
+        <ModalShell
+          title={deleteDraft.title}
+          onClose={() => {
+            if (!deleteLoading) setDeleteDraft(null)
+          }}
+          onSubmit={confirmDeleteDraft}
+          submitLabel={deleteLoading ? 'Đang xóa...' : 'Xác nhận xóa'}
+          submitDisabled={deleteLoading}
+          cancelLabel="Hủy"
+        >
+          <div style={mutedMetaStyle}>{deleteDraft.description}</div>
+          <div style={deleteWarningStyle}>
+            Dữ liệu được xử lý theo cơ chế an toàn, không hard-delete. Sau khi xác nhận, các view vận hành sẽ được cập nhật lại.
+          </div>
         </ModalShell>
       ) : null}
     </div>
@@ -2466,6 +2554,7 @@ function ModalShell({
   submitLabel,
   children,
   submitDisabled,
+  cancelLabel = 'Đóng',
 }: {
   title: string
   onClose: () => void
@@ -2473,6 +2562,7 @@ function ModalShell({
   submitLabel: string
   children: React.ReactNode
   submitDisabled?: boolean
+  cancelLabel?: string
 }) {
   return (
     <div style={modalOverlay}>
@@ -2483,7 +2573,7 @@ function ModalShell({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
         <div style={modalFoot}>
-          <GhostButton icon="ti-x" onClick={onClose}>Đóng</GhostButton>
+          <GhostButton icon="ti-x" onClick={onClose}>{cancelLabel}</GhostButton>
           <PrimaryButton icon="ti-check" onClick={onSubmit} disabled={submitDisabled}>{submitLabel}</PrimaryButton>
         </div>
       </div>
@@ -4618,6 +4708,16 @@ const modalFoot: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'flex-end',
   gap: 8,
+}
+
+const deleteWarningStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  borderRadius: 12,
+  border: '1px solid rgba(184,64,64,.38)',
+  background: 'rgba(184,64,64,.12)',
+  color: 'var(--color-danger)',
+  fontSize: 13,
+  fontWeight: 700,
 }
 
 const formGrid: React.CSSProperties = {
