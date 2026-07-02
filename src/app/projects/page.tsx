@@ -29,6 +29,9 @@ import type {
 type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
 type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
 type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings'
+type ProjectWorkFilter = 'all' | 'unassigned'
+type DeadlineSignalKind = 'overdue' | 'today' | 'upcoming' | 'normal' | 'none'
+type BadgeTone = 'neutral' | 'warning' | 'danger' | 'success'
 type StepTemplate = 'none' | 'basic' | 'approval'
 type DetailSection = 'report' | 'files' | 'workflow' | 'deadline'
 
@@ -147,6 +150,16 @@ interface DragDraft {
   newDate: string
 }
 
+interface ProjectOpsStats {
+  today: number
+  overdue: number
+  upcoming: number
+  unassigned: number
+  missingEvidence: number
+  pendingApproval: number
+  blocked: number
+}
+
 const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string }> = {
   NOT_STARTED: { label: 'Chưa bắt đầu', bg: 'var(--surface-3)', color: 'var(--txt-2)' },
   IN_PROGRESS: { label: 'Đang làm', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' },
@@ -188,6 +201,7 @@ function ProjectsPageContent() {
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null)
   const [selectedSubtaskId, setSelectedSubtaskId] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<ViewTab>('overview')
+  const [projectWorkFilter, setProjectWorkFilter] = React.useState<ProjectWorkFilter>('all')
   const [composerMode, setComposerMode] = React.useState<ComposerMode>(null)
   const [composerParentId, setComposerParentId] = React.useState<string | null>(null)
   const [composerDraft, setComposerDraft] = React.useState<ComposerDraft>(createDraft())
@@ -272,6 +286,7 @@ function ProjectsPageContent() {
       overdue: allSubtasks.filter((item) => isOverdue(item.dueDate, item.status)).length,
     }
   }, [workspace])
+  const selectedProjectOps = selectedProject ? getProjectOpsStats(selectedProject) : null
 
   function ensureSelection(nextWorkspace: ProjectWorkspace[]) {
     const nextProject = nextWorkspace.find((project) => project.id === selectedProjectId) ?? nextWorkspace[0] ?? null
@@ -952,6 +967,14 @@ function ProjectsPageContent() {
                 </div>
               </div>
 
+              {selectedProjectOps ? (
+                <ProjectOpsStrip
+                  stats={selectedProjectOps}
+                  activeFilter={projectWorkFilter}
+                  onChangeFilter={setProjectWorkFilter}
+                />
+              ) : null}
+
               <div style={tabRow}>
                 {[
                   { key: 'overview', label: 'Tổng quan' },
@@ -969,6 +992,7 @@ function ProjectsPageContent() {
                 <OverviewTab
                   project={selectedProject}
                   people={people}
+                  activeFilter={projectWorkFilter}
                   selectedSubtaskId={selectedSubtaskId}
                   onSelectSubtask={selectSubtask}
                   renderSubtaskDetail={renderInlineSubtaskDetail}
@@ -981,6 +1005,7 @@ function ProjectsPageContent() {
                 <KanbanTab
                   project={selectedProject}
                   people={people}
+                  activeFilter={projectWorkFilter}
                   onSelectSubtask={selectSubtask}
                   onChangeStatus={updateKanbanSubtaskStatus}
                   selectedSubtaskId={selectedSubtaskId}
@@ -1646,9 +1671,74 @@ function StepDraftForm({
   )
 }
 
+function ProjectOpsStrip({
+  stats,
+  activeFilter,
+  onChangeFilter,
+}: {
+  stats: ProjectOpsStats
+  activeFilter: ProjectWorkFilter
+  onChangeFilter: (filter: ProjectWorkFilter) => void
+}) {
+  return (
+    <section style={opsStripStyle} aria-label="Cảnh báo vận hành dự án">
+      <div style={opsStatGrid}>
+        <OpsStat label="Đến hạn hôm nay" value={stats.today} tone={stats.today ? 'warning' : 'neutral'} />
+        <OpsStat label="Quá hạn" value={stats.overdue} tone={stats.overdue ? 'danger' : 'neutral'} />
+        <OpsStat label="Chưa gắn người" value={stats.unassigned} tone={stats.unassigned ? 'warning' : 'neutral'} />
+        <OpsStat label="Thiếu file/báo cáo" value={stats.missingEvidence} tone={stats.missingEvidence ? 'danger' : 'neutral'} />
+        <OpsStat label="Cần duyệt" value={stats.pendingApproval} tone={stats.pendingApproval ? 'warning' : 'neutral'} />
+        <OpsStat label="Bị chặn" value={stats.blocked} tone={stats.blocked ? 'danger' : 'neutral'} />
+      </div>
+      <div style={projectFilterRow}>
+        <button type="button" onClick={() => onChangeFilter('all')} style={filterChipStyle(activeFilter === 'all')}>
+          Tất cả
+        </button>
+        <button type="button" onClick={() => onChangeFilter('unassigned')} style={filterChipStyle(activeFilter === 'unassigned', stats.unassigned > 0 ? 'warning' : 'neutral')}>
+          Chưa gắn người · {stats.unassigned}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function OpsStat({ label, value, tone }: { label: string; value: number; tone: BadgeTone }) {
+  return (
+    <div style={opsStatCardStyle(tone)}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskItem; compact?: boolean }) {
+  const deadline = getDeadlineSignal(subtask)
+  const showDeadline = deadline.kind !== 'normal'
+  const unassigned = isUnassignedSubtask(subtask)
+  const urgentUnassigned = unassigned && (deadline.kind === 'overdue' || deadline.kind === 'today')
+
+  if (!showDeadline && !unassigned) return null
+
+  return (
+    <div style={signalBadgeRowStyle(compact)}>
+      {showDeadline ? (
+        <span title={deadline.hint} style={alertBadgeStyle(deadline.tone)}>
+          {deadline.label}
+        </span>
+      ) : null}
+      {unassigned ? (
+        <span style={alertBadgeStyle(urgentUnassigned ? 'danger' : 'warning')}>
+          Chưa gắn người
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 function OverviewTab({
   project,
   people,
+  activeFilter,
   selectedSubtaskId,
   onSelectSubtask,
   renderSubtaskDetail,
@@ -1657,6 +1747,7 @@ function OverviewTab({
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
+  activeFilter: ProjectWorkFilter
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
   renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
@@ -1665,7 +1756,9 @@ function OverviewTab({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {project.workstreams.map((workstream) => (
+      {project.workstreams.map((workstream) => {
+        const visibleSubtasks = sortSubtasksForOperations(workstream.subtasks).filter((subtask) => matchesProjectWorkFilter(subtask, activeFilter))
+        return (
         <section key={workstream.id} style={workstreamCard}>
           <div style={workstreamHead}>
             <div>
@@ -1686,23 +1779,24 @@ function OverviewTab({
             </div>
           </div>
 
-          {workstream.subtasks.length === 0 ? (
+          {visibleSubtasks.length === 0 ? (
             <div style={emptyInline}>Đầu việc lớn này chưa có đầu việc con.</div>
           ) : (
             <div style={subtaskTable}>
-              {workstream.subtasks.map((subtask) => (
+              {visibleSubtasks.map((subtask) => (
                 <div key={subtask.id} style={subtaskInlineItem}>
                 <button
                   key={subtask.id}
                   data-vyvy-row="true"
                   onClick={() => onSelectSubtask(subtask.id)}
-                  style={subtaskRowStyle(selectedSubtaskId === subtask.id)}
+                  style={subtaskRowStyle(selectedSubtaskId === subtask.id, subtask)}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={subtaskTitleStyle}>{subtask.title}</div>
                     <div style={mutedMetaStyle}>
                       {people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'} · deadline {toShortDate(subtask.dueDate)}
                     </div>
+                    <SubtaskSignalBadges subtask={subtask} />
                   </div>
                   <div style={rowRightMeta}>
                     <span style={statusChipStyle(STATUS_META[subtask.status].bg, STATUS_META[subtask.status].color)}>
@@ -1717,7 +1811,8 @@ function OverviewTab({
             </div>
           )}
         </section>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -1725,6 +1820,7 @@ function OverviewTab({
 function KanbanTab({
   project,
   people,
+  activeFilter,
   selectedSubtaskId,
   onSelectSubtask,
   onChangeStatus,
@@ -1732,6 +1828,7 @@ function KanbanTab({
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
+  activeFilter: ProjectWorkFilter
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
   onChangeStatus: (subtask: SubtaskItem, nextStatus: TaskStatus) => Promise<boolean>
@@ -1743,7 +1840,7 @@ function KanbanTab({
   const [dragOverStatus, setDragOverStatus] = React.useState<TaskStatus | null>(null)
   const subtasks = project.workstreams.flatMap((workstream) =>
     workstream.subtasks.map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
-  )
+  ).filter((subtask) => matchesProjectWorkFilter(subtask, activeFilter))
   const activeDragSubtaskId = draggingSubtaskId ?? mouseDragSubtaskId
 
   async function handleDrop(event: React.DragEvent<HTMLElement>, status: TaskStatus) {
@@ -1780,7 +1877,7 @@ function KanbanTab({
       <div style={kanbanHintStyle}>Kéo thả card để đổi trạng thái, hoặc bấm Chuyển trạng thái.</div>
       <div style={kanbanGrid}>
       {KANBAN_COLUMNS.map((status) => {
-        const items = subtasks.filter((subtask) => subtask.status === status)
+        const items = sortSubtasksForOperations(subtasks.filter((subtask) => subtask.status === status))
         return (
           <section
             key={status}
@@ -1802,6 +1899,7 @@ function KanbanTab({
               <span style={progressBadgeStyle}>{items.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 80 }}>
+              {!items.length ? <div style={kanbanEmptyState}>Chưa có việc</div> : null}
               {items.map((subtask) => (
                 <div key={subtask.id} style={subtaskInlineItem}>
                 <div
@@ -1825,10 +1923,11 @@ function KanbanTab({
                     setMouseDragSourceStatus(null)
                     setDragOverStatus(null)
                   }}
-                  style={kanbanCard(selectedSubtaskId === subtask.id, activeDragSubtaskId === subtask.id)}
+                  style={kanbanCard(selectedSubtaskId === subtask.id, activeDragSubtaskId === subtask.id, subtask)}
                 >
                   <div style={mutedMetaStyle}>{subtask.workstreamTitle}</div>
                   <div style={kanbanTitle}>{subtask.title}</div>
+                  <SubtaskSignalBadges subtask={subtask} compact />
                   <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} /></div>
                   <div style={inlineMetaStyle}>
                     <span>{people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'}</span>
@@ -3109,6 +3208,79 @@ function projectHealth(project: ProjectWorkspace) {
   return { label: 'Đúng tiến độ', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
 }
 
+function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
+  const subtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
+  return {
+    today: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'today').length,
+    overdue: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'overdue').length,
+    upcoming: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'upcoming').length,
+    unassigned: subtasks.filter(isUnassignedSubtask).length,
+    missingEvidence: subtasks.filter(subtaskNeedsEvidence).length,
+    pendingApproval: subtasks.filter(subtaskNeedsApproval).length,
+    blocked: subtasks.filter((subtask) => subtask.status === 'BLOCKED').length,
+  }
+}
+
+function getDeadlineSignal(subtask: SubtaskItem): { kind: DeadlineSignalKind; label: string; hint: string; tone: BadgeTone; days: number | null } {
+  if (!subtask.dueDate || subtask.missingDueDate) {
+    return { kind: 'none', label: 'Không deadline', hint: 'Đầu việc con chưa có deadline.', tone: 'neutral', days: null }
+  }
+
+  if (subtask.status === 'COMPLETED' || subtask.status === 'CANCELLED') {
+    return { kind: 'normal', label: toShortDate(subtask.dueDate), hint: `Deadline: ${toShortDate(subtask.dueDate)}`, tone: 'neutral', days: null }
+  }
+
+  const days = dayDiff(getVietnamDateKey(), subtask.dueDate)
+  if (days < 0) return { kind: 'overdue', label: `Quá hạn ${Math.abs(days)} ngày`, hint: `Deadline đã trễ ${Math.abs(days)} ngày.`, tone: 'danger', days }
+  if (days === 0) return { kind: 'today', label: 'Hôm nay', hint: 'Deadline đến hạn hôm nay.', tone: 'warning', days }
+  if (days <= 3) return { kind: 'upcoming', label: `Còn ${days} ngày`, hint: `Deadline còn ${days} ngày.`, tone: 'warning', days }
+  return { kind: 'normal', label: toShortDate(subtask.dueDate), hint: `Deadline: ${toShortDate(subtask.dueDate)}`, tone: 'neutral', days }
+}
+
+function isUnassignedSubtask(subtask: SubtaskItem) {
+  return !subtask.ownerId
+}
+
+function matchesProjectWorkFilter(subtask: SubtaskItem, filter: ProjectWorkFilter) {
+  if (filter === 'unassigned') return isUnassignedSubtask(subtask)
+  return true
+}
+
+function subtaskNeedsEvidence(subtask: SubtaskItem) {
+  if (subtask.fileBlocker === 'MISSING' || subtask.fileBlocker === 'MISTAKE' || subtask.fileBlocker === 'REVISION') return true
+  if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return true
+  return getMissingDeliverableSteps(subtask).length > 0
+}
+
+function subtaskNeedsApproval(subtask: SubtaskItem) {
+  return subtask.status === 'PENDING_APPROVAL' || subtask.fileBlocker === 'PENDING_APPROVAL' || getPendingApprovalDeliverableSteps(subtask).length > 0
+}
+
+function sortSubtasksForOperations<T extends SubtaskItem>(subtasks: T[]): T[] {
+  return [...subtasks].sort(compareSubtasksForOperations)
+}
+
+function compareSubtasksForOperations(a: SubtaskItem, b: SubtaskItem) {
+  const scoreDiff = getSubtaskOperationScore(a) - getSubtaskOperationScore(b)
+  if (scoreDiff) return scoreDiff
+  const dueDiff = (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31')
+  if (dueDiff) return dueDiff
+  return a.title.localeCompare(b.title, 'vi')
+}
+
+function getSubtaskOperationScore(subtask: SubtaskItem) {
+  const deadline = getDeadlineSignal(subtask).kind
+  if (deadline === 'overdue') return 0
+  if (deadline === 'today') return 1
+  if (isUnassignedSubtask(subtask)) return 2
+  if (subtask.status === 'BLOCKED') return 3
+  if (subtask.status === 'REVISION_REQUIRED') return 4
+  if (subtask.status === 'PENDING_APPROVAL') return 5
+  if (deadline === 'upcoming') return 6
+  if (subtask.dueDate && !subtask.missingDueDate) return 7
+  return 8
+}
+
 function hasEvidence(subtask: SubtaskItem) {
   return Boolean(
     subtask.reportText.trim()
@@ -3173,7 +3345,11 @@ function projectCardStyle(active: boolean): React.CSSProperties {
   }
 }
 
-function subtaskRowStyle(active: boolean): React.CSSProperties {
+function subtaskRowStyle(active: boolean, subtask?: SubtaskItem): React.CSSProperties {
+  const deadline = subtask ? getDeadlineSignal(subtask).kind : 'normal'
+  const urgent = deadline === 'overdue' || deadline === 'today'
+  const unassigned = subtask ? isUnassignedSubtask(subtask) : false
+  const alert = urgent && unassigned
   return {
     width: '100%',
     display: 'flex',
@@ -3182,13 +3358,17 @@ function subtaskRowStyle(active: boolean): React.CSSProperties {
     gap: 12,
     padding: '12px 14px',
     borderRadius: 12,
-    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : 'var(--line)'}`,
-    background: active ? 'rgba(218,223,33,.06)' : 'var(--surface-2)',
+    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : alert ? 'rgba(184,64,64,.42)' : urgent ? 'rgba(184,139,62,.42)' : 'var(--line)'}`,
+    background: active ? 'rgba(218,223,33,.06)' : alert ? 'rgba(184,64,64,.12)' : urgent ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
     textAlign: 'left',
   }
 }
 
-function kanbanCard(active: boolean, dragging = false): React.CSSProperties {
+function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): React.CSSProperties {
+  const deadline = subtask ? getDeadlineSignal(subtask).kind : 'normal'
+  const urgent = deadline === 'overdue' || deadline === 'today'
+  const unassigned = subtask ? isUnassignedSubtask(subtask) : false
+  const alert = urgent && unassigned
   return {
     width: '100%',
     display: 'flex',
@@ -3196,8 +3376,8 @@ function kanbanCard(active: boolean, dragging = false): React.CSSProperties {
     gap: 10,
     padding: 14,
     borderRadius: 14,
-    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : 'var(--line)'}`,
-    background: active ? 'rgba(218,223,33,.06)' : 'var(--surface-2)',
+    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : alert ? 'rgba(184,64,64,.42)' : urgent ? 'rgba(184,139,62,.42)' : 'var(--line)'}`,
+    background: active ? 'rgba(218,223,33,.06)' : alert ? 'rgba(184,64,64,.12)' : urgent ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
     textAlign: 'left',
     cursor: dragging ? 'grabbing' : 'grab',
     opacity: dragging ? 0.62 : 1,
@@ -3273,6 +3453,61 @@ const metricLabel: React.CSSProperties = {
   marginTop: 4,
   fontSize: 12,
   color: 'var(--txt-3)',
+}
+
+const opsStripStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  padding: 14,
+  borderRadius: 16,
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+}
+
+const opsStatGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+  gap: 8,
+}
+
+function opsStatCardStyle(tone: BadgeTone): React.CSSProperties {
+  const danger = tone === 'danger'
+  const warning = tone === 'warning'
+  return {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    minHeight: 58,
+    padding: '10px 12px',
+    borderRadius: 12,
+    border: `1px solid ${danger ? 'rgba(184,64,64,.38)' : warning ? 'rgba(184,139,62,.38)' : 'var(--line)'}`,
+    background: danger ? 'rgba(184,64,64,.12)' : warning ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
+    color: danger ? 'var(--color-danger)' : warning ? 'var(--color-warning)' : 'var(--txt)',
+    fontSize: 12,
+    fontWeight: 700,
+  }
+}
+
+const projectFilterRow: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+function filterChipStyle(active: boolean, tone: BadgeTone = 'neutral'): React.CSSProperties {
+  const warning = tone === 'warning'
+  return {
+    minHeight: 30,
+    padding: '0 12px',
+    borderRadius: 999,
+    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : warning ? 'rgba(184,139,62,.38)' : 'var(--line)'}`,
+    background: active ? 'rgba(218,223,33,.10)' : warning ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
+    color: active ? 'var(--txt)' : warning ? 'var(--color-warning)' : 'var(--txt-3)',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+  }
 }
 
 const sectionCard: React.CSSProperties = {
@@ -3481,6 +3716,34 @@ const rowRightMeta: React.CSSProperties = {
   justifyContent: 'flex-end',
 }
 
+function signalBadgeRowStyle(compact: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+    marginTop: compact ? 0 : 8,
+  }
+}
+
+function alertBadgeStyle(tone: BadgeTone): React.CSSProperties {
+  const danger = tone === 'danger'
+  const warning = tone === 'warning'
+  const success = tone === 'success'
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    minHeight: 22,
+    padding: '0 8px',
+    borderRadius: 999,
+    border: `1px solid ${danger ? 'rgba(184,64,64,.42)' : warning ? 'rgba(184,139,62,.42)' : success ? 'rgba(96,145,92,.36)' : 'var(--line)'}`,
+    background: danger ? 'rgba(184,64,64,.16)' : warning ? 'rgba(184,139,62,.14)' : success ? 'rgba(96,145,92,.14)' : 'var(--surface-3)',
+    color: danger ? 'var(--color-danger)' : warning ? 'var(--color-warning)' : success ? 'var(--color-success)' : 'var(--txt-3)',
+    fontSize: 11,
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  }
+}
+
 const kanbanGrid: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(8, minmax(180px, 1fr))',
@@ -3540,6 +3803,19 @@ const kanbanStatusSelect: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   cursor: 'pointer',
+}
+
+const kanbanEmptyState: React.CSSProperties = {
+  minHeight: 54,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 12,
+  border: '1px dashed var(--line)',
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 700,
+  background: 'rgba(255,255,255,.02)',
 }
 
 function toastStyle(tone: 'success' | 'danger'): React.CSSProperties {
