@@ -185,8 +185,10 @@ function ProjectsPageContent() {
   const [activeUploadStepId, setActiveUploadStepId] = React.useState<string | null>(null)
   const [openDetailSections, setOpenDetailSections] = React.useState<DetailSection[]>([])
   const [fileRefreshKey, setFileRefreshKey] = React.useState(0)
+  const [toast, setToast] = React.useState<{ message: string; tone: 'success' | 'danger' } | null>(null)
   const selectedProjectIdRef = React.useRef<string | null>(null)
   const selectedSubtaskIdRef = React.useRef<string | null>(null)
+  const toastTimerRef = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     selectedProjectIdRef.current = selectedProjectId
@@ -229,6 +231,12 @@ function ProjectsPageContent() {
     })
   }, [selectedSubtaskId])
 
+  React.useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    }
+  }, [])
+
   function selectSubtask(subtaskId: string) {
     setSelectedSubtaskId((current) => (current === subtaskId ? null : subtaskId))
   }
@@ -267,9 +275,30 @@ function ProjectsPageContent() {
     })
   }
 
+  function showToast(message: string, tone: 'success' | 'danger' = 'success') {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    setToast({ message, tone })
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3200)
+  }
+
+  function updateSubtaskStatusLocal(subtaskId: string, status: TaskStatus) {
+    updateWorkspace((current) =>
+      current.map((project) => ({
+        ...project,
+        workstreams: project.workstreams.map((workstream) => ({
+          ...workstream,
+          subtasks: workstream.subtasks.map((subtask) =>
+            subtask.id === subtaskId ? { ...subtask, status } : subtask,
+          ),
+        })),
+      })),
+    )
+  }
+
   async function commitWorkspaceMutation(
     method: 'POST' | 'PATCH' | 'DELETE',
     body: Record<string, unknown>,
+    options: { alertOnError?: boolean } = {},
   ): Promise<{ id?: string; ok?: boolean } | null> {
     try {
       const response = await fetch('/api/workspace-items', {
@@ -282,7 +311,9 @@ function ProjectsPageContent() {
       await refresh()
       return payload
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Không cập nhật được database.')
+      if (options.alertOnError !== false) {
+        window.alert(err instanceof Error ? err.message : 'Không cập nhật được database.')
+      }
       await refresh()
       return null
     }
@@ -560,6 +591,46 @@ function ProjectsPageContent() {
             },
       ),
     )
+  }
+
+  async function updateKanbanSubtaskStatus(subtask: SubtaskItem, nextStatus: TaskStatus) {
+    if (subtask.status === nextStatus) return true
+
+    if (nextStatus === 'COMPLETED') {
+      const blockers = getCompletionBlockers(subtask)
+      if (blockers.length) {
+        setSelectedSubtaskId(subtask.id)
+        openBlockedSection(subtask)
+        showToast(`Chưa thể hoàn thành: ${getCompactBlockerText(subtask)}`, 'danger')
+        return false
+      }
+    }
+
+    if (requiresEvidence(nextStatus) && !hasEvidence(subtask)) {
+      setSelectedSubtaskId(subtask.id)
+      openSubtaskSection('files')
+    }
+
+    const previousStatus = subtask.status
+    updateSubtaskStatusLocal(subtask.id, nextStatus)
+    const result = await commitWorkspaceMutation(
+      'PATCH',
+      {
+        type: 'task',
+        id: subtask.sourceTaskId ?? subtask.id,
+        patch: { status: nextStatus },
+      },
+      { alertOnError: false },
+    )
+
+    if (!result) {
+      updateSubtaskStatusLocal(subtask.id, previousStatus)
+      showToast('Không thể chuyển trạng thái. Vui lòng thử lại.', 'danger')
+      return false
+    }
+
+    showToast(`Đã chuyển trạng thái sang ${STATUS_META[nextStatus].label}`)
+    return true
   }
 
   function requestStatusChange(nextStatus: TaskStatus) {
@@ -865,6 +936,7 @@ function ProjectsPageContent() {
                   project={selectedProject}
                   people={people}
                   onSelectSubtask={selectSubtask}
+                  onChangeStatus={updateKanbanSubtaskStatus}
                   selectedSubtaskId={selectedSubtaskId}
                   renderSubtaskDetail={renderInlineSubtaskDetail}
                 />
@@ -884,6 +956,12 @@ function ProjectsPageContent() {
           ) : null}
         </div>
       )}
+
+      {toast ? (
+        <div style={toastStyle(toast.tone)} role="status">
+          {toast.message}
+        </div>
+      ) : null}
 
       {composerMode ? (
         <ModalShell
@@ -1603,32 +1681,106 @@ function KanbanTab({
   people,
   selectedSubtaskId,
   onSelectSubtask,
+  onChangeStatus,
   renderSubtaskDetail,
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
+  onChangeStatus: (subtask: SubtaskItem, nextStatus: TaskStatus) => Promise<boolean>
   renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
 }) {
+  const [draggingSubtaskId, setDraggingSubtaskId] = React.useState<string | null>(null)
+  const [mouseDragSubtaskId, setMouseDragSubtaskId] = React.useState<string | null>(null)
+  const [mouseDragSourceStatus, setMouseDragSourceStatus] = React.useState<TaskStatus | null>(null)
+  const [dragOverStatus, setDragOverStatus] = React.useState<TaskStatus | null>(null)
   const subtasks = project.workstreams.flatMap((workstream) =>
     workstream.subtasks.map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
   )
+  const activeDragSubtaskId = draggingSubtaskId ?? mouseDragSubtaskId
+
+  async function handleDrop(event: React.DragEvent<HTMLElement>, status: TaskStatus) {
+    event.preventDefault()
+    const subtaskId = event.dataTransfer.getData('text/plain') || draggingSubtaskId
+    setDraggingSubtaskId(null)
+    setMouseDragSubtaskId(null)
+    setMouseDragSourceStatus(null)
+    setDragOverStatus(null)
+    const subtask = subtasks.find((item) => item.id === subtaskId)
+    if (!subtask || subtask.status === status) return
+    await onChangeStatus(subtask, status)
+  }
+
+  function beginMouseDrag(event: React.MouseEvent<HTMLElement>, subtask: SubtaskItem) {
+    if (event.button !== 0) return
+    setMouseDragSubtaskId(subtask.id)
+    setMouseDragSourceStatus(subtask.status)
+  }
+
+  async function handleMouseDrop(status: TaskStatus) {
+    if (!mouseDragSubtaskId) return
+    const subtask = subtasks.find((item) => item.id === mouseDragSubtaskId)
+    const sourceStatus = mouseDragSourceStatus
+    setMouseDragSubtaskId(null)
+    setMouseDragSourceStatus(null)
+    setDragOverStatus(null)
+    if (!subtask || sourceStatus === status || subtask.status === status) return
+    await onChangeStatus(subtask, status)
+  }
 
   return (
-    <div style={kanbanGrid}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={kanbanHintStyle}>Kéo thả card để đổi trạng thái, hoặc bấm Chuyển trạng thái.</div>
+      <div style={kanbanGrid}>
       {KANBAN_COLUMNS.map((status) => {
         const items = subtasks.filter((subtask) => subtask.status === status)
         return (
-          <section key={status} style={kanbanColumn}>
+          <section
+            key={status}
+            style={{ ...kanbanColumn, ...(dragOverStatus === status ? kanbanColumnDropActive : {}) }}
+            onDragOver={(event) => {
+              event.preventDefault()
+              event.dataTransfer.dropEffect = 'move'
+              setDragOverStatus(status)
+            }}
+            onMouseEnter={() => {
+              if (mouseDragSubtaskId) setDragOverStatus(status)
+            }}
+            onDragLeave={() => setDragOverStatus((current) => (current === status ? null : current))}
+            onDrop={(event) => void handleDrop(event, status)}
+            onMouseUp={() => void handleMouseDrop(status)}
+          >
             <div style={kanbanHead}>
               <span>{STATUS_META[status].label}</span>
               <span style={progressBadgeStyle}>{items.length}</span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 80 }}>
               {items.map((subtask) => (
                 <div key={subtask.id} style={subtaskInlineItem}>
-                <button onClick={() => onSelectSubtask(subtask.id)} style={kanbanCard(selectedSubtaskId === subtask.id)}>
+                <div
+                  draggable
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Mở ${subtask.title}`}
+                  onClick={() => onSelectSubtask(subtask.id)}
+                  onMouseDown={(event) => beginMouseDrag(event, subtask)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') onSelectSubtask(subtask.id)
+                  }}
+                  onDragStart={(event) => {
+                    setDraggingSubtaskId(subtask.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', subtask.id)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingSubtaskId(null)
+                    setMouseDragSubtaskId(null)
+                    setMouseDragSourceStatus(null)
+                    setDragOverStatus(null)
+                  }}
+                  style={kanbanCard(selectedSubtaskId === subtask.id, activeDragSubtaskId === subtask.id)}
+                >
                   <div style={mutedMetaStyle}>{subtask.workstreamTitle}</div>
                   <div style={kanbanTitle}>{subtask.title}</div>
                   <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getSubtaskProgress(subtask)}%` }} /></div>
@@ -1636,7 +1788,22 @@ function KanbanTab({
                     <span>{people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'}</span>
                     <span>{toShortDate(subtask.dueDate)}</span>
                   </div>
-                </button>
+                  <select
+                    aria-label="Chuyển trạng thái"
+                    value={subtask.status}
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onChange={(event) => {
+                      event.stopPropagation()
+                      void onChangeStatus(subtask, event.target.value as TaskStatus)
+                    }}
+                    style={kanbanStatusSelect}
+                  >
+                    {KANBAN_COLUMNS.map((option) => (
+                      <option key={option} value={option}>{STATUS_META[option].label}</option>
+                    ))}
+                  </select>
+                </div>
                   {renderSubtaskDetail(subtask)}
                 </div>
               ))}
@@ -1644,6 +1811,7 @@ function KanbanTab({
           </section>
         )
       })}
+      </div>
     </div>
   )
 }
@@ -2458,13 +2626,14 @@ function getDeliverableEvidenceState(
 }
 
 function normalizeStatus(value: string): TaskStatus {
-  if (value === 'COMPLETED') return 'COMPLETED'
-  if (value === 'PENDING_APPROVAL') return 'PENDING_APPROVAL'
+  if (value === 'COMPLETED' || value === 'DONE') return 'COMPLETED'
+  if (value === 'PENDING_APPROVAL' || value === 'WAITING_APPROVAL') return 'PENDING_APPROVAL'
   if (value === 'BLOCKED') return 'BLOCKED'
   if (value === 'WAITING') return 'WAITING'
   if (value === 'REVISION_REQUIRED') return 'REVISION_REQUIRED'
   if (value === 'CANCELLED') return 'CANCELLED'
   if (value === 'IN_PROGRESS') return 'IN_PROGRESS'
+  if (value === 'TODO') return 'NOT_STARTED'
   return 'NOT_STARTED'
 }
 
@@ -2605,10 +2774,11 @@ function normalizeSubtaskState(subtask: SubtaskItem): SubtaskItem {
   const latestStepDate = subtask.steps.reduce((max, step) => (step.dueDate > max ? step.dueDate : max), subtask.steps[0].dueDate)
   let nextStatus = subtask.status
 
-  if (subtask.status !== 'BLOCKED' && subtask.status !== 'COMPLETED') {
-    if (completedCount === 0) nextStatus = 'NOT_STARTED'
-    else if (completedCount === progressSteps.length) nextStatus = 'PENDING_APPROVAL'
-    else nextStatus = 'IN_PROGRESS'
+  if (subtask.status === 'NOT_STARTED') {
+    if (completedCount === progressSteps.length && completedCount > 0) nextStatus = 'PENDING_APPROVAL'
+    else if (completedCount > 0) nextStatus = 'IN_PROGRESS'
+  } else if (subtask.status === 'IN_PROGRESS' && completedCount === progressSteps.length && completedCount > 0) {
+    nextStatus = 'PENDING_APPROVAL'
   }
 
   return {
@@ -2972,7 +3142,7 @@ function subtaskRowStyle(active: boolean): React.CSSProperties {
   }
 }
 
-function kanbanCard(active: boolean): React.CSSProperties {
+function kanbanCard(active: boolean, dragging = false): React.CSSProperties {
   return {
     width: '100%',
     display: 'flex',
@@ -2983,6 +3153,10 @@ function kanbanCard(active: boolean): React.CSSProperties {
     border: `1px solid ${active ? 'rgba(218,223,33,.45)' : 'var(--line)'}`,
     background: active ? 'rgba(218,223,33,.06)' : 'var(--surface-2)',
     textAlign: 'left',
+    cursor: dragging ? 'grabbing' : 'grab',
+    opacity: dragging ? 0.62 : 1,
+    boxShadow: dragging ? '0 18px 36px rgba(0,0,0,.28)' : 'none',
+    transition: 'border-color .16s ease, background .16s ease, opacity .16s ease, box-shadow .16s ease',
   }
 }
 
@@ -3274,6 +3448,22 @@ const kanbanColumn: React.CSSProperties = {
   border: '1px solid var(--line)',
 }
 
+const kanbanColumnDropActive: React.CSSProperties = {
+  borderColor: 'rgba(218,223,33,.5)',
+  background: 'rgba(218,223,33,.06)',
+  boxShadow: 'inset 0 0 0 1px rgba(218,223,33,.18)',
+}
+
+const kanbanHintStyle: React.CSSProperties = {
+  padding: '9px 12px',
+  borderRadius: 12,
+  background: 'var(--surface-2)',
+  border: '1px solid var(--line)',
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 600,
+}
+
 const kanbanHead: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
@@ -3289,6 +3479,37 @@ const kanbanTitle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 700,
   color: 'var(--txt)',
+}
+
+const kanbanStatusSelect: React.CSSProperties = {
+  width: '100%',
+  minHeight: 34,
+  borderRadius: 10,
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+  color: 'var(--txt)',
+  padding: '0 10px',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+}
+
+function toastStyle(tone: 'success' | 'danger'): React.CSSProperties {
+  return {
+    position: 'fixed',
+    right: 24,
+    bottom: 24,
+    zIndex: 80,
+    maxWidth: 380,
+    padding: '12px 14px',
+    borderRadius: 14,
+    border: tone === 'danger' ? '1px solid rgba(184,64,64,.45)' : '1px solid rgba(218,223,33,.42)',
+    background: tone === 'danger' ? 'rgba(60,20,20,.96)' : 'rgba(18,22,29,.96)',
+    color: 'var(--txt)',
+    fontSize: 13,
+    fontWeight: 700,
+    boxShadow: '0 22px 60px rgba(0,0,0,.38)',
+  }
 }
 
 const ganttShell: React.CSSProperties = {
