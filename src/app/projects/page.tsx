@@ -2153,8 +2153,12 @@ function GanttTimelineTab({
 
       <div style={ganttLegend}>
         <span><span style={legendDot('var(--color-lime)')} /> Hôm nay</span>
+        <span><span style={legendDot('#6B7280')} /> Chưa bắt đầu</span>
+        <span><span style={legendDot('#3B82F6')} /> Đang làm</span>
+        <span><span style={legendDot('#F2C94C')} /> Đang chờ</span>
+        <span><span style={legendDot('#A78BFA')} /> Chờ duyệt</span>
+        <span><span style={legendDot('#F59E0B')} /> Cần sửa</span>
         <span><span style={legendDot('var(--color-success)')} /> Hoàn thành</span>
-        <span><span style={legendDot('var(--color-warning)')} /> Chờ duyệt</span>
         <span><span style={legendDot('var(--color-danger)')} /> Quá hạn / bị chặn</span>
       </div>
 
@@ -2168,6 +2172,7 @@ function GanttTimelineTab({
               </span>
             ))}
             {todayLeft >= 0 && todayLeft <= timelineWidth ? <span style={{ ...ganttTodayLine, left: todayLeft }} /> : null}
+            {todayLeft >= 0 && todayLeft <= timelineWidth ? <span style={{ ...ganttTodayLabel, left: todayLeft }}>Hôm nay</span> : null}
           </div>
 
           {rows.length === 0 ? (
@@ -2184,6 +2189,7 @@ function GanttTimelineTab({
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={ganttItemTitle}>{row.title}</span>
                     <span style={mutedMetaStyle}>{row.subtitle}</span>
+                    {isOverdue(row.dueDate, row.status) ? <span style={ganttOverdueBadge}>Quá hạn</span> : null}
                   </span>
                 </button>
                 <div style={{ ...ganttTrack, width: timelineWidth }}>
@@ -2305,11 +2311,12 @@ function TimelineBar({
   const dragStart = React.useRef<number | null>(null)
   const deltaRef = React.useRef(0)
   const tone = ganttBarTone(item)
+  const tooltip = `${item.title} · ${STATUS_META[item.status].label} · Deadline ${toFullDate(item.dueDate)} · ${getGanttUrgencyLabel(item)}`
 
   return (
     <button
       type="button"
-      title={`${item.title} · ${toShortDate(item.startDate)} - ${toShortDate(item.dueDate)}`}
+      title={tooltip}
       onPointerDown={(event) => {
         dragStart.current = event.clientX
         deltaRef.current = 0
@@ -2448,11 +2455,26 @@ function ganttLevelLabel(level: GanttLevel) {
 }
 
 function ganttBarTone(item: GanttItem) {
-  if (isOverdue(item.dueDate, item.status)) return { bg: 'rgba(184,64,64,.2)', fill: 'rgba(184,64,64,.55)', border: 'rgba(184,64,64,.45)', color: 'var(--txt)' }
-  if (item.status === 'COMPLETED') return { bg: 'rgba(96,145,92,.18)', fill: 'rgba(96,145,92,.6)', border: 'rgba(96,145,92,.38)', color: 'var(--txt)' }
-  if (item.status === 'PENDING_APPROVAL' || item.status === 'REVISION_REQUIRED') return { bg: 'rgba(184,139,62,.18)', fill: 'rgba(184,139,62,.55)', border: 'rgba(184,139,62,.38)', color: 'var(--txt)' }
-  if (item.status === 'WAITING' || item.status === 'BLOCKED') return { bg: 'rgba(107,138,153,.16)', fill: 'rgba(107,138,153,.5)', border: 'rgba(107,138,153,.34)', color: 'var(--txt)' }
-  return { bg: 'rgba(157,184,199,.16)', fill: 'rgba(157,184,199,.5)', border: 'rgba(157,184,199,.34)', color: 'var(--txt)' }
+  if (isOverdue(item.dueDate, item.status) || item.status === 'BLOCKED') {
+    return { bg: 'rgba(184,64,64,.2)', fill: 'rgba(184,64,64,.62)', border: 'rgba(184,64,64,.52)', color: 'var(--txt)' }
+  }
+  if (item.status === 'NOT_STARTED') return { bg: 'rgba(107,114,128,.16)', fill: 'rgba(107,114,128,.58)', border: 'rgba(107,114,128,.42)', color: 'var(--txt)' }
+  if (item.status === 'IN_PROGRESS') return { bg: 'rgba(59,130,246,.16)', fill: 'rgba(59,130,246,.62)', border: 'rgba(59,130,246,.42)', color: 'var(--txt)' }
+  if (item.status === 'WAITING') return { bg: 'rgba(242,201,76,.16)', fill: 'rgba(242,201,76,.62)', border: 'rgba(242,201,76,.42)', color: 'var(--txt)' }
+  if (item.status === 'PENDING_APPROVAL') return { bg: 'rgba(167,139,250,.16)', fill: 'rgba(167,139,250,.62)', border: 'rgba(167,139,250,.42)', color: 'var(--txt)' }
+  if (item.status === 'REVISION_REQUIRED') return { bg: 'rgba(245,158,11,.16)', fill: 'rgba(245,158,11,.64)', border: 'rgba(245,158,11,.42)', color: 'var(--txt)' }
+  if (item.status === 'COMPLETED') return { bg: 'rgba(96,145,92,.18)', fill: 'rgba(96,145,92,.64)', border: 'rgba(96,145,92,.38)', color: 'var(--txt)' }
+  return { bg: 'rgba(47,52,63,.2)', fill: 'rgba(75,85,99,.62)', border: 'rgba(75,85,99,.42)', color: 'var(--txt)' }
+}
+
+function getGanttUrgencyLabel(item: GanttItem) {
+  if (item.missingDueDate) return 'Thiếu deadline'
+  if (item.status === 'COMPLETED') return 'Đã hoàn thành'
+  if (item.status === 'CANCELLED') return 'Đã hủy'
+  const days = dayDiff(getVietnamDateKey(), item.dueDate)
+  if (days < 0) return `Trễ ${Math.abs(days)} ngày`
+  if (days === 0) return 'Đến hạn hôm nay'
+  return `Còn ${days} ngày`
 }
 
 function MeetingsTab({ project }: { project: ProjectWorkspace }) {
@@ -3445,6 +3467,10 @@ function toShortDate(value: string) {
   return new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
 }
 
+function toFullDate(value: string) {
+  return new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 function makeId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -4119,6 +4145,21 @@ const ganttTodayLine: React.CSSProperties = {
   boxShadow: '0 0 0 1px rgba(218,223,33,.18)',
 }
 
+const ganttTodayLabel: React.CSSProperties = {
+  position: 'absolute',
+  top: 4,
+  transform: 'translateX(-50%)',
+  zIndex: 4,
+  padding: '2px 7px',
+  borderRadius: 999,
+  background: 'rgba(218,223,33,.16)',
+  border: '1px solid rgba(218,223,33,.45)',
+  color: 'var(--txt)',
+  fontSize: 10,
+  fontWeight: 800,
+  whiteSpace: 'nowrap',
+}
+
 const ganttLabelCell = (indent: number): React.CSSProperties => ({
   position: 'sticky',
   left: 0,
@@ -4154,6 +4195,19 @@ const ganttItemTitle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+}
+
+const ganttOverdueBadge: React.CSSProperties = {
+  display: 'inline-flex',
+  width: 'fit-content',
+  marginTop: 5,
+  padding: '2px 7px',
+  borderRadius: 999,
+  background: 'rgba(184,64,64,.15)',
+  border: '1px solid rgba(184,64,64,.38)',
+  color: 'var(--color-danger)',
+  fontSize: 10,
+  fontWeight: 800,
 }
 
 const ganttBarButton: React.CSSProperties = {
