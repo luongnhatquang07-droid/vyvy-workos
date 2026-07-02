@@ -111,7 +111,12 @@ export default function DeliverablesPage() {
   const projectsById = React.useMemo(() => Object.fromEntries(projects.map((project) => [project.id, project])), [projects])
   const stepsById = React.useMemo(() => Object.fromEntries(steps.map((step) => [step.id, step])), [steps])
 
-  const selected = selectedId ? deliverables.find((item) => item.id === selectedId) ?? null : null
+  const selected = React.useMemo(() => {
+    if (!selectedId) return null
+    const fromList = deliverables.find((item) => item.id === selectedId)
+    if (fromList) return fromList
+    return detail?.deliverable?.id === selectedId ? detail.deliverable : null
+  }, [deliverables, detail?.deliverable, selectedId])
 
   const filtered = React.useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -158,6 +163,12 @@ export default function DeliverablesPage() {
     } finally {
       setDetailLoading(false)
     }
+  }
+
+  function openDeliverable(id: string) {
+    setDetail(null)
+    setDetailError('')
+    setSelectedId(id)
   }
 
   async function reloadAll(id = selectedId) {
@@ -363,7 +374,7 @@ export default function DeliverablesPage() {
                 people={peopleById}
                 tasks={tasksById}
                 projects={projectsById}
-                onOpen={() => setSelectedId(item.id)}
+                onOpen={() => openDeliverable(item.id)}
                 onRemind={() => void prepareReminder(item)}
               />
             ))}
@@ -373,7 +384,7 @@ export default function DeliverablesPage() {
 
       <Drawer open={Boolean(selectedId)} onClose={() => { setSelectedId(null); setDetail(null); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
         {!selected ? (
-          <div style={emptyState}>Không tìm thấy bàn giao.</div>
+          <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : 'Không tìm thấy bàn giao.'}</div>
         ) : (
           <DeliverableDetail
             item={selected}
