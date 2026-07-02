@@ -3224,11 +3224,31 @@ function getProjectProgress(project: ProjectWorkspace) {
 }
 
 function projectHealth(project: ProjectWorkspace) {
-  const overdue = project.workstreams.flatMap((item) => item.subtasks).filter((subtask) => isOverdue(subtask.dueDate, subtask.status)).length
-  if (overdue >= 3) return { label: 'Có rủi ro', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
-  if (overdue > 0) return { label: 'Cần chú ý', bg: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
-  if (getProjectProgress(project) === 0) return { label: 'Chưa khởi tạo', bg: 'var(--surface-3)', color: 'var(--txt-2)' }
-  return { label: 'Đúng tiến độ', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
+  const subtasks = project.workstreams.flatMap((item) => item.subtasks)
+  const progress = getProjectProgress(project)
+  const overdue = subtasks.filter((subtask) => isOverdue(subtask.dueDate, subtask.status)).length
+  const blocked = subtasks.filter((subtask) => subtask.status === 'BLOCKED').length
+  const pending = subtasks.filter((subtask) => subtask.status === 'PENDING_APPROVAL').length
+  const active = subtasks.filter((subtask) =>
+    !['NOT_STARTED', 'CANCELLED'].includes(subtask.status),
+  ).length
+
+  if (!project.workstreams.length && !subtasks.length) {
+    return { label: 'Chưa khởi tạo', bg: 'var(--surface-3)', color: 'var(--txt-2)' }
+  }
+  if (progress === 100 && subtasks.length > 0) {
+    return { label: 'Hoàn thành', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
+  }
+  if (overdue > 0 || blocked > 0) {
+    return { label: 'Có rủi ro', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
+  }
+  if (pending >= Math.max(2, Math.ceil(subtasks.length * 0.25))) {
+    return { label: 'Chờ duyệt', bg: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
+  }
+  if (active > 0 || progress > 0) {
+    return { label: 'Đang triển khai', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' }
+  }
+  return { label: 'Đã lên kế hoạch', bg: 'rgba(107,138,153,0.16)', color: '#8AA4B2' }
 }
 
 function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
