@@ -157,7 +157,18 @@ const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string
   BLOCKED: { label: 'Bị chặn', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' },
   CANCELLED: { label: 'Đã hủy', bg: 'var(--surface-3)', color: 'var(--txt-3)' },
 }
-const KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'PENDING_APPROVAL', 'COMPLETED']
+const TASK_STATUS_ORDER: TaskStatus[] = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'WAITING',
+  'PENDING_APPROVAL',
+  'REVISION_REQUIRED',
+  'COMPLETED',
+  'BLOCKED',
+  'CANCELLED',
+]
+const TASK_STATUS_OPTIONS = TASK_STATUS_ORDER.map((value) => ({ value, ...STATUS_META[value] }))
+const KANBAN_COLUMNS = TASK_STATUS_ORDER
 const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'PENDING_APPROVAL', 'REVISION_REQUIRED', 'COMPLETED']
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -795,8 +806,8 @@ function ProjectsPageContent() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>Xóa đầu việc con</DangerButton>
             <select value={subtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
-              {Object.entries(STATUS_META).map(([value, meta]) => (
-                <option key={value} value={value}>{meta.label}</option>
+              {TASK_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
             <select
@@ -1834,8 +1845,8 @@ function KanbanTab({
                     }}
                     style={kanbanStatusSelect}
                   >
-                    {KANBAN_COLUMNS.map((option) => (
-                      <option key={option} value={option}>{STATUS_META[option].label}</option>
+                    {TASK_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
                 </div>
@@ -3472,8 +3483,10 @@ const rowRightMeta: React.CSSProperties = {
 
 const kanbanGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(8, minmax(180px, 1fr))',
   gap: 14,
+  overflowX: 'auto',
+  paddingBottom: 8,
 }
 
 const kanbanColumn: React.CSSProperties = {
