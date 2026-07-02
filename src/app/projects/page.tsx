@@ -182,6 +182,7 @@ const TASK_STATUS_ORDER: TaskStatus[] = [
 ]
 const TASK_STATUS_OPTIONS = TASK_STATUS_ORDER.map((value) => ({ value, ...STATUS_META[value] }))
 const KANBAN_COLUMNS = TASK_STATUS_ORDER
+const CORE_KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
 const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'PENDING_APPROVAL', 'REVISION_REQUIRED', 'COMPLETED']
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -1838,10 +1839,19 @@ function KanbanTab({
   const [mouseDragSubtaskId, setMouseDragSubtaskId] = React.useState<string | null>(null)
   const [mouseDragSourceStatus, setMouseDragSourceStatus] = React.useState<TaskStatus | null>(null)
   const [dragOverStatus, setDragOverStatus] = React.useState<TaskStatus | null>(null)
+  const [showAllColumns, setShowAllColumns] = React.useState(false)
   const subtasks = project.workstreams.flatMap((workstream) =>
     workstream.subtasks.map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
   ).filter((subtask) => matchesProjectWorkFilter(subtask, activeFilter))
   const activeDragSubtaskId = draggingSubtaskId ?? mouseDragSubtaskId
+  const columnItems = KANBAN_COLUMNS.reduce((map, status) => {
+    map[status] = sortSubtasksForOperations(subtasks.filter((subtask) => subtask.status === status))
+    return map
+  }, {} as Record<TaskStatus, Array<SubtaskItem & { workstreamTitle: string }>>)
+  const visibleColumns = KANBAN_COLUMNS.filter((status) =>
+    showAllColumns || CORE_KANBAN_COLUMNS.includes(status) || columnItems[status].length > 0,
+  )
+  const hiddenEmptyCount = KANBAN_COLUMNS.length - visibleColumns.length
 
   async function handleDrop(event: React.DragEvent<HTMLElement>, status: TaskStatus) {
     event.preventDefault()
@@ -1874,10 +1884,23 @@ function KanbanTab({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={kanbanHintStyle}>Kéo thả card để đổi trạng thái, hoặc bấm Chuyển trạng thái.</div>
-      <div style={kanbanGrid}>
-      {KANBAN_COLUMNS.map((status) => {
-        const items = sortSubtasksForOperations(subtasks.filter((subtask) => subtask.status === status))
+      <div style={kanbanControlBar}>
+        <div style={kanbanHintStyle}>
+          Kéo thả card để đổi trạng thái, hoặc bấm Chuyển trạng thái.
+          {!showAllColumns && hiddenEmptyCount > 0 ? <span> Đang ẩn {hiddenEmptyCount} cột trống.</span> : null}
+        </div>
+        <div style={kanbanToggleGroup}>
+          <button type="button" onClick={() => setShowAllColumns(false)} style={kanbanToggleButtonStyle(!showAllColumns)}>
+            Ẩn cột trống
+          </button>
+          <button type="button" onClick={() => setShowAllColumns(true)} style={kanbanToggleButtonStyle(showAllColumns)}>
+            Hiện tất cả trạng thái
+          </button>
+        </div>
+      </div>
+      <div style={kanbanGridStyle(visibleColumns.length, showAllColumns)}>
+      {visibleColumns.map((status) => {
+        const items = columnItems[status]
         return (
           <section
             key={status}
@@ -3744,12 +3767,45 @@ function alertBadgeStyle(tone: BadgeTone): React.CSSProperties {
   }
 }
 
-const kanbanGrid: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(8, minmax(180px, 1fr))',
-  gap: 14,
-  overflowX: 'auto',
-  paddingBottom: 8,
+function kanbanGridStyle(columnCount: number, showAllColumns: boolean): React.CSSProperties {
+  return {
+    display: 'grid',
+    gridTemplateColumns: showAllColumns
+      ? 'repeat(8, minmax(180px, 1fr))'
+      : `repeat(${Math.max(columnCount, 1)}, minmax(220px, 1fr))`,
+    gap: 14,
+    overflowX: 'auto',
+    maxWidth: '100%',
+    paddingBottom: 8,
+  }
+}
+
+const kanbanControlBar: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  flexWrap: 'wrap',
+}
+
+const kanbanToggleGroup: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+function kanbanToggleButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    minHeight: 34,
+    padding: '0 12px',
+    borderRadius: 999,
+    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : 'var(--line)'}`,
+    background: active ? 'rgba(218,223,33,.12)' : 'var(--surface-2)',
+    color: active ? 'var(--txt)' : 'var(--txt-3)',
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: 'pointer',
+  }
 }
 
 const kanbanColumn: React.CSSProperties = {
