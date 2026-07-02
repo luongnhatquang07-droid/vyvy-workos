@@ -11,7 +11,7 @@ interface UseCommandDataResult {
   data: CommandCenterApiData | null
   loading: boolean
   error: string
-  refresh: () => Promise<void>
+  refresh: (options?: { silent?: boolean }) => Promise<void>
 }
 
 const CommandDataContext = React.createContext<UseCommandDataResult | null>(null)
@@ -38,9 +38,10 @@ function useCommandDataState(): UseCommandDataResult {
   const [loading, setLoading] = React.useState(() => !commandDataCache.data)
   const [error, setError] = React.useState(() => commandDataCache.error)
 
-  const load = React.useCallback(async (force = false) => {
+  const load = React.useCallback(async (force = false, options: { silent?: boolean } = {}) => {
+    const showLoading = !options.silent || !commandDataCache.data
     if (commandDataCache.promise && !force) {
-      setLoading(true)
+      if (showLoading) setLoading(true)
       try {
         const payload = await commandDataCache.promise
         commandDataCache.data = payload
@@ -49,12 +50,12 @@ function useCommandDataState(): UseCommandDataResult {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu')
       } finally {
-        setLoading(false)
+        if (showLoading) setLoading(false)
       }
       return
     }
 
-    setLoading(true)
+    if (showLoading) setLoading(true)
     setError('')
 
     const promise = fetch('/api/command-center', { cache: 'no-store' }).then(async (response) => {
@@ -79,7 +80,7 @@ function useCommandDataState(): UseCommandDataResult {
       setError(message)
     } finally {
       commandDataCache.promise = null
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [])
 
@@ -90,10 +91,9 @@ function useCommandDataState(): UseCommandDataResult {
     })
   }, [load])
 
-  const refresh = React.useCallback(async () => {
-    commandDataCache.data = null
+  const refresh = React.useCallback(async (options: { silent?: boolean } = {}) => {
     commandDataCache.error = ''
-    await load(true)
+    await load(true, { silent: options.silent ?? Boolean(commandDataCache.data) })
   }, [load])
 
   return { data, loading, error, refresh }

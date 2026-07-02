@@ -189,6 +189,7 @@ function ProjectsPageContent() {
   const selectedProjectIdRef = React.useRef<string | null>(null)
   const selectedSubtaskIdRef = React.useRef<string | null>(null)
   const toastTimerRef = React.useRef<number | null>(null)
+  const backgroundRefreshTimerRef = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     selectedProjectIdRef.current = selectedProjectId
@@ -234,6 +235,7 @@ function ProjectsPageContent() {
   React.useEffect(() => {
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+      if (backgroundRefreshTimerRef.current) window.clearTimeout(backgroundRefreshTimerRef.current)
     }
   }, [])
 
@@ -295,10 +297,18 @@ function ProjectsPageContent() {
     )
   }
 
+  function scheduleBackgroundRefresh(delay = 700) {
+    if (backgroundRefreshTimerRef.current) window.clearTimeout(backgroundRefreshTimerRef.current)
+    backgroundRefreshTimerRef.current = window.setTimeout(() => {
+      void refresh({ silent: true })
+      backgroundRefreshTimerRef.current = null
+    }, delay)
+  }
+
   async function commitWorkspaceMutation(
     method: 'POST' | 'PATCH' | 'DELETE',
     body: Record<string, unknown>,
-    options: { alertOnError?: boolean } = {},
+    options: { alertOnError?: boolean; refreshMode?: 'none' | 'background' | 'await' } = {},
   ): Promise<{ id?: string; ok?: boolean } | null> {
     try {
       const response = await fetch('/api/workspace-items', {
@@ -308,13 +318,13 @@ function ProjectsPageContent() {
       })
       const payload = (await response.json()) as { id?: string; ok?: boolean; error?: string }
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không cập nhật được database.')
-      await refresh()
+      if (options.refreshMode === 'await') await refresh({ silent: true })
+      if (options.refreshMode === 'background') scheduleBackgroundRefresh()
       return payload
     } catch (err) {
       if (options.alertOnError !== false) {
         window.alert(err instanceof Error ? err.message : 'Không cập nhật được database.')
       }
-      await refresh()
       return null
     }
   }
@@ -351,7 +361,7 @@ function ProjectsPageContent() {
       const result = await commitWorkspaceMutation('POST', {
         type: 'project',
         payload: composerDraft,
-      })
+      }, { refreshMode: 'await' })
       if (result?.id) {
         setSelectedProjectId(result.id)
         setSelectedSubtaskId(null)
@@ -365,7 +375,7 @@ function ProjectsPageContent() {
           ...composerDraft,
           projectId: selectedProject.sourceProjectId ?? selectedProject.id,
         },
-      })
+      }, { refreshMode: 'await' })
     }
 
     if (composerMode === 'subtask' && selectedProject && composerParentId) {
@@ -376,7 +386,7 @@ function ProjectsPageContent() {
           projectId: selectedProject.sourceProjectId ?? selectedProject.id,
           workstreamId: composerParentId,
         },
-      })
+      }, { refreshMode: 'await' })
       if (result?.id) {
         setSelectedSubtaskId(result.id)
       }
@@ -390,7 +400,7 @@ function ProjectsPageContent() {
           projectId: selectedProject.sourceProjectId ?? selectedProject.id,
           schedule: `${composerDraft.startDate} 10:00`,
         },
-      })
+      }, { refreshMode: 'await' })
       setActiveTab('meetings')
     }
 
@@ -418,12 +428,35 @@ function ProjectsPageContent() {
   }
 
   async function saveSubtaskReport(subtask: SubtaskItem, value: string) {
+    const previousValue = subtask.reportText
     updateSubtaskField('reportText', value)
-    await commitWorkspaceMutation('PATCH', {
+    const result = await commitWorkspaceMutation('PATCH', {
       type: 'task',
       id: subtask.sourceTaskId ?? subtask.id,
       patch: { expectedResult: value },
-    })
+    }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) {
+      updateSubtaskField('reportText', previousValue)
+      showToast('KhÃ´ng thá»ƒ lÆ°u bÃ¡o cÃ¡o. Vui lÃ²ng thá»­ láº¡i.', 'danger')
+      return
+    }
+    showToast('ÄÃ£ lÆ°u bÃ¡o cÃ¡o.')
+  }
+
+  async function saveSubtaskOwner(subtask: SubtaskItem, ownerId: string | null) {
+    const previousOwnerId = subtask.ownerId
+    updateSubtaskField('ownerId', ownerId)
+    const result = await commitWorkspaceMutation('PATCH', {
+      type: 'task',
+      id: subtask.sourceTaskId ?? subtask.id,
+      patch: { ownerId },
+    }, { alertOnError: false, refreshMode: 'background' })
+    if (!result) {
+      updateSubtaskField('ownerId', previousOwnerId)
+      showToast('KhÃ´ng thá»ƒ lÆ°u ngÆ°á»i phá»¥ trÃ¡ch. Vui lÃ²ng thá»­ láº¡i.', 'danger')
+      return
+    }
+    showToast('ÄÃ£ lÆ°u ngÆ°á»i phá»¥ trÃ¡ch.')
   }
 
   function updateStep(subtaskId: string, stepId: string, patch: Partial<StepItem>) {
@@ -464,7 +497,7 @@ function ProjectsPageContent() {
         isRequired: patch.isRequired,
         requiresDeliverable: patch.requiresDeliverable,
       },
-    })
+    }, { alertOnError: false, refreshMode: 'background' })
   }
 
   async function addStep(subtaskId: string, draft: StepDraft) {
@@ -483,7 +516,7 @@ function ProjectsPageContent() {
           isRequired: draft.isRequired,
           requiresDeliverable: draft.requiresDeliverable,
         },
-      })
+      }, { refreshMode: 'await' })
       return
     }
     updateWorkspace((current) =>
@@ -521,7 +554,7 @@ function ProjectsPageContent() {
   async function deleteProject(projectId: string) {
     const project = workspace.find((item) => item.id === projectId)
     if (!project || !window.confirm(`Xoa du an "${project.name}" va toan bo dau viec ben trong?`)) return
-    const result = await commitWorkspaceMutation('DELETE', { type: 'project', id: project.sourceProjectId ?? project.id })
+    const result = await commitWorkspaceMutation('DELETE', { type: 'project', id: project.sourceProjectId ?? project.id }, { refreshMode: 'background' })
     if (result) updateWorkspace((current) => current.filter((item) => item.id !== projectId))
   }
 
@@ -533,7 +566,7 @@ function ProjectsPageContent() {
       window.alert('Nhóm này được tạo tự động vì task chưa gắn đầu việc lớn. Hãy xóa hoặc chuyển từng đầu việc con.')
       return
     }
-    await commitWorkspaceMutation('DELETE', { type: 'workstream', id: workstreamId })
+    await commitWorkspaceMutation('DELETE', { type: 'workstream', id: workstreamId }, { refreshMode: 'background' })
     updateWorkspace((current) =>
       current.map((item) =>
         item.id !== projectId
@@ -550,7 +583,7 @@ function ProjectsPageContent() {
     const project = workspace.find((item) => item.id === projectId)
     const subtask = project?.workstreams.flatMap((stream) => stream.subtasks).find((item) => item.id === subtaskId)
     if (!subtask || !window.confirm(`Xoa dau viec con "${subtask.title}"?`)) return
-    await commitWorkspaceMutation('DELETE', { type: 'task', id: subtask.sourceTaskId ?? subtask.id })
+    await commitWorkspaceMutation('DELETE', { type: 'task', id: subtask.sourceTaskId ?? subtask.id }, { refreshMode: 'background' })
     updateWorkspace((current) =>
       current.map((item) =>
         item.id !== projectId
@@ -570,7 +603,7 @@ function ProjectsPageContent() {
     if (!selectedProject) return
     const step = selectedSubtask?.steps.find((item) => item.id === stepId)
     if (!step || !window.confirm(`Xoa buoc "${step.title}"?`)) return
-    await commitWorkspaceMutation('DELETE', { type: 'step', id: stepId })
+    await commitWorkspaceMutation('DELETE', { type: 'step', id: stepId }, { refreshMode: 'background' })
     updateWorkspace((current) =>
       current.map((project) =>
         project.id !== selectedProject.id
@@ -620,7 +653,7 @@ function ProjectsPageContent() {
         id: subtask.sourceTaskId ?? subtask.id,
         patch: { status: nextStatus },
       },
-      { alertOnError: false },
+      { alertOnError: false, refreshMode: 'background' },
     )
 
     if (!result) {
@@ -634,24 +667,26 @@ function ProjectsPageContent() {
   }
 
   function requestStatusChange(nextStatus: TaskStatus) {
-    if (!selectedSubtask) return
+    const targetSubtask = selectedSubtask as SubtaskItem
+    if (!targetSubtask) return
+    return void updateKanbanSubtaskStatus(targetSubtask, nextStatus)
     if (nextStatus === 'COMPLETED') {
-      const blockers = getCompletionBlockers(selectedSubtask)
+      const blockers = getCompletionBlockers(targetSubtask)
       if (blockers.length) {
         const hasSpecificFileBlocker = blockers.some((blocker) => blocker.startsWith('file đã nộp') || blocker.startsWith('file đang chờ') || blocker.startsWith('file/báo cáo'))
         window.alert(hasSpecificFileBlocker ? `Chưa thể hoàn thành vì ${blockers.join('; ')}.` : `Chưa thể hoàn thành vì còn thiếu: ${blockers.join('; ')}.`)
-        openBlockedSection(selectedSubtask)
+        openBlockedSection(targetSubtask)
         return
       }
     }
-    if (requiresEvidence(nextStatus) && !hasEvidence(selectedSubtask)) {
+    if (requiresEvidence(nextStatus) && !hasEvidence(targetSubtask)) {
       setActiveTab('overview')
       openSubtaskSection('files')
     }
     updateSubtaskField('status', nextStatus)
     void commitWorkspaceMutation('PATCH', {
       type: 'task',
-      id: selectedSubtask.sourceTaskId ?? selectedSubtask.id,
+      id: targetSubtask.sourceTaskId ?? targetSubtask.id,
       patch: { status: nextStatus },
     })
   }
@@ -742,7 +777,7 @@ function ProjectsPageContent() {
     void commitWorkspaceMutation('PATCH', {
       ...patchTarget,
       patch: { dueDate: deadlineDraft.newDate, description: deadlineReason.trim() },
-    })
+    }, { alertOnError: false, refreshMode: 'background' })
     setDeadlineDraft(null)
     setDeadlineReason('')
   }
@@ -766,7 +801,7 @@ function ProjectsPageContent() {
             </select>
             <select
               value={subtask.ownerId ?? ''}
-              onChange={(e) => updateSubtaskField('ownerId', e.target.value || null)}
+              onChange={(e) => void saveSubtaskOwner(subtask, e.target.value || null)}
               style={selectStyle}
             >
               <option value="">Chưa gắn người</option>
@@ -792,7 +827,7 @@ function ProjectsPageContent() {
           onUpdateAttachments={(attachments) => updateSubtaskField('attachments', attachments)}
           onFilesChanged={() => {
             setFileRefreshKey((value) => value + 1)
-            void refresh()
+            void refresh({ silent: true })
           }}
           onUpdateStep={(stepId, patch) => updateStep(subtask.id, stepId, patch)}
           onDeleteStep={(stepId) => deleteStep(subtask.id, stepId)}
