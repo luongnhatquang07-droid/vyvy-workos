@@ -828,6 +828,7 @@ function DetailPanel({
             projectId={projectId ?? undefined}
             taskId={selected.task_id ?? undefined}
             deliverableId={selected.id}
+            refreshKey={detail?.versions?.length ?? 0}
             peopleById={peopleById}
             onChanged={onUploaded}
           />

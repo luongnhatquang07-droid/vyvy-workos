@@ -227,7 +227,7 @@ export function FileUpload({
           onClick={() => workspaceId && !uploading && inputRef.current?.click()}
           style={dropZoneStyle(dragging, uploading || !workspaceId, compact)}
         >
-          <input ref={inputRef} type="file" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
+          <input key="file-picker" ref={inputRef} type="file" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
           {uploading ? (
             <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
               <i className="ti ti-loader-2" style={loaderStyle} />
@@ -248,6 +248,7 @@ export function FileUpload({
       ) : (
         <div style={linkBoxStyle}>
           <input
+            key="external-url"
             value={externalUrl ?? ''}
             onChange={(event) => setExternalUrl(event.currentTarget.value ?? '')}
             placeholder="Dán link Drive/Figma/Notion/Sheet..."

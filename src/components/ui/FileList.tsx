@@ -143,10 +143,15 @@ export function FileList({
   }, [loadFiles, refreshKey])
 
   function askVersionReason(actionLabel: string) {
-    return window.prompt(
+    const fallbackReason = 'Up nhầm file'
+    try {
+      return window.prompt(
       `${actionLabel}\n\nChọn/nhập lý do: Up nhầm file, File sai nội dung, File trùng, Khác`,
       'Up nhầm file',
-    )?.trim() ?? ''
+      )?.trim() ?? ''
+    } catch {
+      return fallbackReason
+    }
   }
 
   async function runVersionLifecycleAction(
