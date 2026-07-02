@@ -674,11 +674,11 @@ function ProjectsPageContent() {
       <section data-vyvy-inline-subtask-detail="true" style={subtaskPanel}>
         <div style={subtaskPanelHead}>
           <div>
-            <div style={eyebrow}>Chi tiáº¿t Ä‘áº§u viá»‡c con</div>
+            <div style={eyebrow}>Chi tiết đầu việc con</div>
             <div style={sectionTitle}>{subtask.title}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>XÃ³a Ä‘áº§u viá»‡c con</DangerButton>
+            <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>Xóa đầu việc con</DangerButton>
             <select value={subtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
               {Object.entries(STATUS_META).map(([value, meta]) => (
                 <option key={value} value={value}>{meta.label}</option>
@@ -689,7 +689,7 @@ function ProjectsPageContent() {
               onChange={(e) => updateSubtaskField('ownerId', e.target.value || null)}
               style={selectStyle}
             >
-              <option value="">ChÆ°a gáº¯n ngÆ°á»i</option>
+              <option value="">Chưa gắn người</option>
               {Object.values(people).map((person) => (
                 <option key={person.id} value={person.id}>{person.full_name}</option>
               ))}
