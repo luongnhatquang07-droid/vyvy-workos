@@ -222,7 +222,6 @@ async function ensureApproval({
   approverId: string | null
   dueAt: string | null
 }) {
-  if (!approverId) return
   const client = createServiceClient()
   const existing = await client
     .from('approvals')
@@ -255,7 +254,7 @@ async function ensureApproval({
       approval_id: existing.data.id,
       action: 'REQUESTED',
       actor_id: requesterId,
-      comment: 'Cập nhật người duyệt cho version mới.',
+      comment: 'Cập nhật người xác nhận cho version mới.',
     })
     return existing.data.id as string
   }
@@ -507,9 +506,9 @@ export async function PATCH(req: NextRequest) {
 
     if (action === 'setReviewer') {
       const reviewerId = cleanId(body.reviewerId)
-      if (!reviewerId) return jsonError('Vui lòng chọn người duyệt cho file/báo cáo này.', 400)
+      if (!reviewerId) return jsonError('Vui lòng chọn người xác nhận cho file/báo cáo này.', 400)
       if (!(await ensureEntityInWorkspace('people', reviewerId, context.workspaceId))) {
-        return jsonError('Người duyệt không thuộc workspace hiện tại.', 403)
+        return jsonError('Người xác nhận không thuộc workspace hiện tại.', 403)
       }
 
       const updateRes = await client
@@ -546,11 +545,9 @@ export async function PATCH(req: NextRequest) {
       const supersedesVersionId = cleanId(body.supersedesVersionId)
       const replaceReason = cleanText(body.replaceReason) || cleanText(body.changeNote) || 'Tạo version link thay thế.'
       const requestedApproverId = cleanId(body.approverId)
-      const requiresApproval = true
       const finalApproverId = requestedApproverId ?? deliverable.reviewer_id
-      if (requiresApproval && !finalApproverId) return jsonError('Vui lòng chọn người duyệt cho file/báo cáo này.', 400)
       if (finalApproverId && !(await ensureEntityInWorkspace('people', finalApproverId, context.workspaceId))) {
-        return jsonError('Người duyệt không thuộc workspace hiện tại.', 403)
+        return jsonError('Người xác nhận không thuộc workspace hiện tại.', 403)
       }
       if (finalApproverId && finalApproverId !== deliverable.reviewer_id) {
         const reviewerRes = await client
@@ -598,18 +595,16 @@ export async function PATCH(req: NextRequest) {
       await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
       await closeRelatedReminders(context.workspaceId, deliverableId)
 
-      if (finalApproverId) {
-        await ensureApproval({
-          workspaceId: context.workspaceId,
-          deliverableId,
-          projectId: deliverable.project_id,
-          taskId: deliverable.task_id,
-          stepId: deliverable.step_id,
-          requesterId: context.personId,
-          approverId: finalApproverId,
-          dueAt: deliverable.due_date,
-        })
-      }
+      await ensureApproval({
+        workspaceId: context.workspaceId,
+        deliverableId,
+        projectId: deliverable.project_id,
+        taskId: deliverable.task_id,
+        stepId: deliverable.step_id,
+        requesterId: context.personId,
+        approverId: finalApproverId,
+        dueAt: deliverable.due_date,
+      })
 
       await logActivity(context.workspaceId, context.personId, 'deliverable.version.submitted_link', deliverableId, {
         versionId: versionRes.data.id,
@@ -621,7 +616,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, versionId: versionRes.data.id, versionNumber })
     }
 
-    if (action === 'approve' || action === 'requestRevision' || action === 'markMissing') {
+    if (action === 'approve' || action === 'requestRevision' || action === 'reject' || action === 'markMissing') {
       const versionId = cleanId(body.versionId) ?? (await getLatestVersion(deliverableId))?.id
       if (!versionId) return jsonError('Chưa có version nào để review.', 400)
 
@@ -636,7 +631,12 @@ export async function PATCH(req: NextRequest) {
       const previousReviewStatus = normalizeVersionReviewStatus(currentVersionRes.data.review_status)
       if (isVersionInvalid(previousReviewStatus)) return jsonError('Version này đã bị đánh dấu up nhầm hoặc đã thay thế, không thể review.', 400)
 
-      const reviewStatus: ReviewStatus = action === 'approve' ? 'APPROVED' : 'REVISION_REQUESTED'
+      const reviewStatus: ReviewStatus =
+        action === 'approve'
+          ? 'APPROVED'
+          : action === 'reject'
+            ? 'REJECTED'
+            : 'REVISION_REQUESTED'
       const nextStatus: DeliverableStatus =
         action === 'approve'
           ? 'APPROVED'
@@ -662,6 +662,7 @@ export async function PATCH(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }
       if (action === 'approve') updatePayload.approved_version_id = versionId
+      else updatePayload.approved_version_id = null
       const updateRes = await client
         .from('deliverables')
         .update(updatePayload)
@@ -669,7 +670,7 @@ export async function PATCH(req: NextRequest) {
         .eq('id', deliverableId)
       if (updateRes.error) return jsonError(updateRes.error.message, 500)
 
-      const approvalStatus = action === 'approve' ? 'APPROVED' : 'REVISION_REQUESTED'
+      const approvalStatus = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'REVISION_REQUESTED'
       const approvalsRes = await client
         .from('approvals')
         .update({ status: approvalStatus, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })

@@ -117,7 +117,7 @@ export function FileUpload({
   const [changeNote, setChangeNote] = React.useState<string>('')
   const [externalUrl, setExternalUrl] = React.useState<string>('')
   const [lastStatus, setLastStatus] = React.useState('')
-  const [approverId, setApproverId] = React.useState('')
+  const [approverId, setApproverId] = React.useState<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const activePeople = React.useMemo(
     () => peopleOptions.filter((person) => person.id && person.status !== 'inactive' && person.status !== 'deleted'),
@@ -127,21 +127,13 @@ export function FileUpload({
     () => pickSuggestedApprover(activePeople, defaultApproverId),
     [activePeople, defaultApproverId],
   )
-  const selectedApproverId = approverId || suggestedApproverId || ''
-
-  function validateApprover() {
-    if (!deliverableId || !requiresApproval || selectedApproverId) return true
-    setError('Vui lòng chọn người duyệt cho file/báo cáo này.')
-    return false
-  }
+  const selectedApproverId = approverId ?? suggestedApproverId ?? ''
 
   async function uploadFile(file: File) {
     if (!workspaceId) {
       setError('Chưa xác định được workspace nên chưa thể tải file.')
       return
     }
-
-    if (!validateApprover()) return
 
     const validationError = validateFile(file)
     if (validationError) {
@@ -202,7 +194,6 @@ export function FileUpload({
       setError('Cần có workspace và deliverable trước khi gắn link.')
       return
     }
-    if (!validateApprover()) return
     if (!/^https?:\/\/\S+/i.test(externalUrl.trim())) {
       setError('Link phải bắt đầu bằng http:// hoặc https://.')
       return
@@ -274,7 +265,7 @@ export function FileUpload({
       {deliverableId && requiresApproval ? (
         <div style={approverBoxStyle}>
           <label style={approverLabelStyle} htmlFor={`approver-${deliverableId}`}>
-            Người duyệt <span style={requiredMarkStyle}>*</span>
+            Người xác nhận <span style={optionalMarkStyle}>tùy chọn</span>
           </label>
           <select
             id={`approver-${deliverableId}`}
@@ -283,7 +274,7 @@ export function FileUpload({
             style={approverSelectStyle}
             disabled={uploading}
           >
-            <option value="">Chọn người duyệt file/báo cáo</option>
+            <option value="">Không gắn người xác nhận</option>
             {activePeople.map((person) => (
               <option key={person.id} value={person.id}>
                 {getPersonName(person)}{person.job_title ? ` - ${person.job_title}` : ''}
@@ -433,8 +424,10 @@ const approverLabelStyle: React.CSSProperties = {
   letterSpacing: 0.4,
 }
 
-const requiredMarkStyle: React.CSSProperties = {
-  color: 'var(--color-danger)',
+const optionalMarkStyle: React.CSSProperties = {
+  color: 'var(--color-text-muted)',
+  fontWeight: 600,
+  textTransform: 'none',
 }
 
 const approverSelectStyle: React.CSSProperties = {

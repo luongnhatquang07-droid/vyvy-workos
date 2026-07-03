@@ -43,7 +43,7 @@ export default function ApprovalsPage() {
       <PageHead
         icon="ti-checkup-list"
         title="Phê duyệt"
-        desc="Cụm việc chờ duyệt, quá hạn, đã xử lý và tình trạng bàn giao."
+        desc="Danh sách file/báo cáo đang chờ Quang xác nhận thủ công."
         actions={<GhostButton icon="ti-filter">Lọc</GhostButton>}
       />
 
@@ -61,7 +61,7 @@ export default function ApprovalsPage() {
             <tr>
               <Th>Yêu cầu</Th>
               <Th>Người gửi</Th>
-              <Th>Người duyệt</Th>
+              <Th>Người xác nhận</Th>
               <Th>Chờ</Th>
               <Th>Hạn</Th>
               <Th>Trạng thái</Th>
@@ -89,7 +89,7 @@ export default function ApprovalsPage() {
                   <tr key={approval.id}>
                     <Td>{getTitle(approval)}</Td>
                     <Td>{requester?.full_name ?? '-'}</Td>
-                    <Td>{approver?.full_name ?? '-'}</Td>
+                    <Td>{approver?.full_name ?? 'Quang/Admin'}</Td>
                     <Td>{daysWait} ngày</Td>
                     <Td>{approval.due_at ? toShortDate(approval.due_at) : '-'}</Td>
                     <Td>

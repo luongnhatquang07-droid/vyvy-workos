@@ -65,7 +65,7 @@ interface StepItem {
   deliverableReviewerId: string | null
 }
 
-type DeliverableBlocker = 'MISTAKE' | 'REVISION' | 'MISSING' | 'MISSING_REVIEWER' | 'PENDING_APPROVAL' | null
+type DeliverableBlocker = 'MISTAKE' | 'REVISION' | 'MISSING' | 'PENDING_APPROVAL' | null
 
 interface StepDraft {
   title: string
@@ -3742,7 +3742,6 @@ function getDeliverableEvidenceState(
     return { status: null, reviewStatus: null, valid: false, blocker: null, requiresApproval: false }
   }
 
-  const hasReviewer = Boolean(deliverable.reviewer_id)
   const relatedVersions = versions
     .filter((version) => version.deliverable_id === deliverable.id)
     .sort((a, b) => b.version_number - a.version_number)
@@ -3754,14 +3753,13 @@ function getDeliverableEvidenceState(
       reviewStatus: normalizeVersionReviewStatus(relatedVersions[0].review_status),
       valid: false,
       blocker: 'MISTAKE',
-      requiresApproval: hasReviewer,
+      requiresApproval: true,
     }
   }
 
   if (latestRelevant) {
     const reviewStatus = normalizeVersionReviewStatus(latestRelevant.review_status)
-    const missingReviewer = isVersionPending(reviewStatus) && !hasReviewer
-    const requiresApproval = hasReviewer || missingReviewer
+    const requiresApproval = true
     const valid = isVersionValidForCompletion(reviewStatus, requiresApproval)
     const status: CommandCenterDeliverableRow['status'] =
       reviewStatus === 'APPROVED'
@@ -3772,14 +3770,12 @@ function getDeliverableEvidenceState(
     return {
       status,
       reviewStatus,
-      valid: missingReviewer ? false : valid,
-      blocker: missingReviewer
-        ? 'MISSING_REVIEWER'
-        : valid
+      valid,
+      blocker: valid
           ? null
           : isVersionRevision(reviewStatus)
             ? 'REVISION'
-            : requiresApproval
+            : isVersionPending(reviewStatus)
               ? 'PENDING_APPROVAL'
               : 'MISSING',
       requiresApproval,
@@ -3787,25 +3783,24 @@ function getDeliverableEvidenceState(
   }
 
   if (deliverable.status === 'APPROVED') {
-    return { status: deliverable.status, reviewStatus: 'APPROVED', valid: true, blocker: null, requiresApproval: hasReviewer }
+    return { status: deliverable.status, reviewStatus: 'APPROVED', valid: true, blocker: null, requiresApproval: true }
   }
 
   if (deliverable.status === 'SUBMITTED') {
-    const requiresApproval = true
     return {
       status: deliverable.status,
       reviewStatus: 'PENDING',
       valid: false,
-      blocker: hasReviewer ? 'PENDING_APPROVAL' : 'MISSING_REVIEWER',
-      requiresApproval,
+      blocker: 'PENDING_APPROVAL',
+      requiresApproval: true,
     }
   }
 
   if (deliverable.status === 'REVISION_REQUIRED' || deliverable.status === 'MISSING_INFORMATION') {
-    return { status: deliverable.status, reviewStatus: 'REVISION_REQUESTED', valid: false, blocker: 'REVISION', requiresApproval: hasReviewer }
+    return { status: deliverable.status, reviewStatus: 'REVISION_REQUESTED', valid: false, blocker: 'REVISION', requiresApproval: true }
   }
 
-  return { status: deliverable.status, reviewStatus: null, valid: false, blocker: 'MISSING', requiresApproval: hasReviewer }
+  return { status: deliverable.status, reviewStatus: null, valid: false, blocker: 'MISSING', requiresApproval: true }
 }
 
 function normalizeStatus(value: string): TaskStatus {
@@ -3879,7 +3874,6 @@ function deliverableStatusLabel(step: StepItem) {
   if (!step.requiresDeliverable) return 'Không yêu cầu'
   if (!step.deliverableId) return 'Chưa tạo mục file'
   if (step.deliverableBlocker === 'MISTAKE') return 'File up nhầm - cần nộp lại'
-  if (step.deliverableBlocker === 'MISSING_REVIEWER') return 'Chưa gắn người duyệt'
   if (step.deliverableRequiresApproval && !step.deliverableIsValid && step.deliverableReviewStatus && !isVersionRevision(step.deliverableReviewStatus)) return 'Đang chờ duyệt'
   if (step.deliverableIsValid && step.deliverableReviewStatus === 'APPROVED') return 'File đã duyệt'
   if (step.deliverableIsValid) return 'Đã nộp 1 file'
@@ -4089,16 +4083,6 @@ function getFileSummary(subtask: SubtaskItem): { value: string; hint: string; to
     }
   }
 
-  const missingReviewerSteps = getMissingReviewerDeliverableSteps(subtask)
-  if (subtask.fileBlocker === 'MISSING_REVIEWER' || missingReviewerSteps.length) {
-    return {
-      value: 'Chưa gắn người duyệt',
-      hint: missingReviewerSteps.length ? `${missingReviewerSteps.length} bước đã nộp nhưng chưa có người duyệt` : 'File đã nộp nhưng chưa biết ai cần duyệt.',
-      tone: 'warning',
-      badge: 'Thiếu duyệt',
-    }
-  }
-
   const pendingApprovalSteps = getPendingApprovalDeliverableSteps(subtask)
   if (subtask.fileBlocker === 'PENDING_APPROVAL' || pendingApprovalSteps.length) {
     return {
@@ -4172,7 +4156,6 @@ function getMissingDeliverableSteps(subtask: SubtaskItem) {
       !step.deliverableIsValid &&
       step.deliverableBlocker !== 'REVISION' &&
       step.deliverableBlocker !== 'MISTAKE' &&
-      step.deliverableBlocker !== 'MISSING_REVIEWER' &&
       step.deliverableBlocker !== 'PENDING_APPROVAL',
   )
 }
@@ -4194,15 +4177,6 @@ function getMistakenDeliverableSteps(subtask: SubtaskItem) {
   )
 }
 
-function getMissingReviewerDeliverableSteps(subtask: SubtaskItem) {
-  return subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.isRequired &&
-      step.deliverableBlocker === 'MISSING_REVIEWER',
-  )
-}
-
 function getPendingApprovalDeliverableSteps(subtask: SubtaskItem) {
   return subtask.steps.filter(
     (step) =>
@@ -4217,7 +4191,6 @@ function getBlockedSection(subtask: SubtaskItem): DetailSection {
     getMissingDeliverableSteps(subtask).length ||
     getRevisionDeliverableSteps(subtask).length ||
     getMistakenDeliverableSteps(subtask).length ||
-    getMissingReviewerDeliverableSteps(subtask).length ||
     getPendingApprovalDeliverableSteps(subtask).length
   ) return 'files'
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
@@ -4228,9 +4201,6 @@ function getBlockedSection(subtask: SubtaskItem): DetailSection {
 function getCompactBlockerText(subtask: SubtaskItem) {
   if (subtask.fileBlocker === 'MISTAKE' || getMistakenDeliverableSteps(subtask).length) {
     return 'file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng.'
-  }
-  if (subtask.fileBlocker === 'MISSING_REVIEWER' || getMissingReviewerDeliverableSteps(subtask).length) {
-    return 'file/báo cáo chưa gắn người duyệt.'
   }
   if (subtask.fileBlocker === 'PENDING_APPROVAL' || getPendingApprovalDeliverableSteps(subtask).length) return 'file/báo cáo đang chờ duyệt.'
   if (getRevisionDeliverableSteps(subtask).length) return 'file/báo cáo đang bị yêu cầu sửa.'
@@ -4259,11 +4229,6 @@ function getCompletionBlockers(subtask: SubtaskItem) {
     blockers.push('file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng')
   }
 
-  const missingReviewerDeliverables = getMissingReviewerDeliverableSteps(subtask)
-  if (subtask.fileBlocker === 'MISSING_REVIEWER' || missingReviewerDeliverables.length) {
-    blockers.push(`file chưa gắn người duyệt${missingReviewerDeliverables.length ? ` ở ${missingReviewerDeliverables.map((step) => step.title).join(', ')}` : ''}`)
-  }
-
   const pendingApprovalDeliverables = getPendingApprovalDeliverableSteps(subtask)
   if (subtask.fileBlocker === 'PENDING_APPROVAL' || pendingApprovalDeliverables.length) {
     blockers.push(`file đang chờ duyệt${pendingApprovalDeliverables.length ? ` ở ${pendingApprovalDeliverables.map((step) => step.title).join(', ')}` : ''}`)
@@ -4276,7 +4241,6 @@ function getCompletionBlockers(subtask: SubtaskItem) {
       !step.deliverableIsValid &&
       step.deliverableBlocker !== 'REVISION' &&
       step.deliverableBlocker !== 'MISTAKE' &&
-      step.deliverableBlocker !== 'MISSING_REVIEWER' &&
       step.deliverableBlocker !== 'PENDING_APPROVAL',
   )
   if (missingDeliverables.length) {
@@ -4379,7 +4343,6 @@ function subtaskNeedsEvidence(subtask: SubtaskItem) {
   if (
     subtask.fileBlocker === 'MISSING' ||
     subtask.fileBlocker === 'MISTAKE' ||
-    subtask.fileBlocker === 'MISSING_REVIEWER' ||
     subtask.fileBlocker === 'REVISION'
   ) return true
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return true
@@ -4390,9 +4353,7 @@ function subtaskNeedsApproval(subtask: SubtaskItem) {
   return (
     subtask.status === 'PENDING_APPROVAL' ||
     subtask.fileBlocker === 'PENDING_APPROVAL' ||
-    subtask.fileBlocker === 'MISSING_REVIEWER' ||
-    getPendingApprovalDeliverableSteps(subtask).length > 0 ||
-    getMissingReviewerDeliverableSteps(subtask).length > 0
+    getPendingApprovalDeliverableSteps(subtask).length > 0
   )
 }
 
@@ -4501,12 +4462,10 @@ function getFlowchartNodeWarnings(node: FlowchartNode) {
   if (deadline && isOverdue(deadline, status)) warnings.push('Quá hạn')
   if (node.subtask) {
     if (node.subtask.needsFile && !hasEvidence(node.subtask)) warnings.push('Thiếu file')
-    if (node.subtask.fileBlocker === 'MISSING_REVIEWER') warnings.push('Thiếu người duyệt')
     if (node.subtask.status === 'PENDING_APPROVAL') warnings.push('Chờ duyệt')
     if (['BLOCKED', 'REVISION_REQUIRED', 'WAITING'].includes(node.subtask.status)) warnings.push('Cần xử lý')
   }
-  if (node.step?.deliverableBlocker === 'MISSING_REVIEWER') warnings.push('Thiếu người duyệt')
-  else if (node.step?.requiresDeliverable && !node.step.deliverableIsValid) warnings.push('Thiếu bàn giao')
+  if (node.step?.requiresDeliverable && !node.step.deliverableIsValid) warnings.push('Thiếu bàn giao')
   return warnings
 }
 

@@ -349,7 +349,7 @@ function getDeliverableCheckState(
   row: CommandCenterDeliverableRow,
   versions: CommandCenterDeliverableVersionRow[],
 ) {
-  const requiresApproval = Boolean(row.reviewer_id)
+  const requiresApproval = true
   const relatedVersions = versions
     .filter((version) => version.deliverable_id === row.id)
     .sort((a, b) => b.version_number - a.version_number)
@@ -368,8 +368,8 @@ function getDeliverableCheckState(
   }
 
   return {
-    present: row.status === 'APPROVED' || (row.status === 'SUBMITTED' && !requiresApproval),
-    gateOpen: row.status === 'APPROVED' || (row.status === 'SUBMITTED' && !requiresApproval),
+    present: row.status === 'APPROVED' || row.status === 'SUBMITTED',
+    gateOpen: row.status === 'APPROVED',
   }
 }
 

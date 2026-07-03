@@ -29,10 +29,6 @@ function cleanText(value: FormDataEntryValue | null) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function cleanBool(value: FormDataEntryValue | null) {
-  return typeof value === 'string' && ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase())
-}
-
 function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
@@ -203,7 +199,7 @@ async function ensureApproval({
   taskId: string | null
   stepId: string | null
   requesterId: string | null
-  approverId: string
+  approverId: string | null
   dueAt: string | null
 }) {
   const client = createServiceClient()
@@ -396,7 +392,6 @@ export async function POST(req: NextRequest) {
     const changeNote = cleanText(form.get('changeNote'))
     const replaceReason = cleanText(form.get('replaceReason')) || changeNote || 'Thay file bằng version mới.'
     const requestedApproverId = cleanId(form.get('approverId'))
-    const requiresApproval = Boolean(deliverableId) || cleanBool(form.get('requiresApproval')) || Boolean(requestedApproverId)
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'Thiếu file hoặc workspaceId.' }, { status: 400 })
@@ -420,9 +415,6 @@ export async function POST(req: NextRequest) {
     const client = createServiceClient()
     const deliverable = await loadDeliverableForUpload(workspaceId, deliverableId)
     const finalApproverId = requestedApproverId ?? deliverable?.reviewer_id ?? null
-    if (deliverableId && requiresApproval && !finalApproverId) {
-      return NextResponse.json({ error: 'Vui lòng chọn người duyệt cho file/báo cáo này.' }, { status: 400 })
-    }
     if (finalApproverId && !(await belongsToWorkspace('people', finalApproverId, workspaceId))) {
       return NextResponse.json({ error: 'Người duyệt không thuộc workspace hiện tại.' }, { status: 403 })
     }
@@ -493,31 +485,29 @@ export async function POST(req: NextRequest) {
         })
       }
 
-      if (finalApproverId) {
-        if (deliverable?.reviewer_id !== finalApproverId) {
-          const reviewerRes = await client
-            .from('deliverables')
-            .update({
-              reviewer_id: finalApproverId,
-              updated_by: context.uploaderId,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', deliverableId)
-            .eq('workspace_id', workspaceId)
-          if (reviewerRes.error) throw reviewerRes.error
-        }
-
-        await ensureApproval({
-          workspaceId,
-          deliverableId,
-          projectId: deliverable?.project_id ?? projectId,
-          taskId: deliverable?.task_id ?? taskId,
-          stepId: deliverable?.step_id ?? null,
-          requesterId: context.uploaderId,
-          approverId: finalApproverId,
-          dueAt: deliverable?.due_date ?? null,
-        })
+      if (finalApproverId && deliverable?.reviewer_id !== finalApproverId) {
+        const reviewerRes = await client
+          .from('deliverables')
+          .update({
+            reviewer_id: finalApproverId,
+            updated_by: context.uploaderId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', deliverableId)
+          .eq('workspace_id', workspaceId)
+        if (reviewerRes.error) throw reviewerRes.error
       }
+
+      await ensureApproval({
+        workspaceId,
+        deliverableId,
+        projectId: deliverable?.project_id ?? projectId,
+        taskId: deliverable?.task_id ?? taskId,
+        stepId: deliverable?.step_id ?? null,
+        requesterId: context.uploaderId,
+        approverId: finalApproverId,
+        dueAt: deliverable?.due_date ?? null,
+      })
 
       await recomputeDeliverableStatus(client, workspaceId, context.uploaderId, deliverableId)
 
