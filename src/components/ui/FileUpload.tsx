@@ -3,7 +3,7 @@
 import React from 'react'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
-const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'])
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
 
 export interface UploadedFile {
   attachmentId?: string
@@ -45,8 +45,14 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function fileIcon(mime: string) {
+function getExtension(name: string) {
+  return name.split('.').pop()?.toLowerCase() ?? ''
+}
+
+function fileIcon(name: string, mime: string) {
+  const ext = getExtension(name)
   if (mime.startsWith('image/')) return 'ti-photo'
+  if (['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')) return 'ti-file-code'
   if (mime.includes('pdf')) return 'ti-file-type-pdf'
   if (mime.includes('word') || mime.includes('doc')) return 'ti-file-type-doc'
   if (mime.includes('excel') || mime.includes('sheet') || mime.includes('xls')) return 'ti-file-type-xls'
@@ -55,13 +61,25 @@ function fileIcon(mime: string) {
   return 'ti-file'
 }
 
+function fileTypeLabel(name: string, mime: string) {
+  const ext = getExtension(name)
+  if (mime === 'external_url') return 'Link ngoài'
+  if (['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')) return 'HTML'
+  if (mime.startsWith('image/')) return 'Ảnh'
+  if (ext === 'pdf' || mime.includes('pdf')) return 'PDF'
+  if (['doc', 'docx'].includes(ext) || mime.includes('word') || mime.includes('doc')) return 'Word'
+  if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('excel') || mime.includes('sheet') || mime.includes('xls')) return 'Excel/CSV'
+  if (['zip', 'rar', '7z'].includes(ext) || mime.includes('zip') || mime.includes('rar')) return 'Nén'
+  return ext ? ext.toUpperCase() : 'File'
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Lỗi upload'
 }
 
 function validateFile(file: File) {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh và ZIP.'
+  if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh, ZIP và HTML.'
   if (file.size <= 0) return 'File đang rỗng, chưa thể tải lên.'
   if (file.size > MAX_FILE_SIZE) return 'File vượt quá giới hạn 25MB.'
   return ''
@@ -227,7 +245,15 @@ export function FileUpload({
           onClick={() => workspaceId && !uploading && inputRef.current?.click()}
           style={dropZoneStyle(dragging, uploading || !workspaceId, compact)}
         >
-          <input key="file-picker" ref={inputRef} type="file" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
+          <input
+            key="file-picker"
+            ref={inputRef}
+            type="file"
+            multiple
+            hidden
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip,.html,.htm"
+            onChange={(event) => handleFiles(event.target.files)}
+          />
           {uploading ? (
             <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
               <i className="ti ti-loader-2" style={loaderStyle} />
@@ -240,7 +266,7 @@ export function FileUpload({
                 {workspaceId ? label ?? 'Kéo thả file hoặc bấm để chọn' : 'Chưa xác định workspace'}
               </div>
               <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 3 }}>
-                {workspaceId ? 'PDF, Word, Excel, ảnh, ZIP. Tối đa 25 MB/file' : 'Hãy đăng nhập lại hoặc kiểm tra quyền workspace.'}
+                {workspaceId ? 'PDF, Word, Excel, ảnh, ZIP, HTML. Tối đa 25 MB/file' : 'Hãy đăng nhập lại hoặc kiểm tra quyền workspace.'}
               </div>
             </div>
           )}
@@ -276,11 +302,11 @@ export function FileUpload({
         <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {uploads.map((file) => (
             <div key={`${file.versionId ?? file.attachmentId ?? file.fileName}-${file.versionNumber ?? 'link'}`} style={uploadedRowStyle}>
-              <i className={`ti ${fileIcon(file.mimeType)}`} style={uploadedIconStyle} />
+              <i className={`ti ${fileIcon(file.fileName, file.mimeType)}`} style={uploadedIconStyle} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={uploadedNameStyle}>{file.fileName}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
-                  {file.storageMode === 'external_url' ? 'Link ngoài' : formatBytes(file.fileSize)}
+                  {file.storageMode === 'external_url' ? 'Link ngoài' : `${fileTypeLabel(file.fileName, file.mimeType)} · ${formatBytes(file.fileSize)}`}
                   {file.versionNumber ? ` · Version ${file.versionNumber}` : ''}
                 </div>
               </div>

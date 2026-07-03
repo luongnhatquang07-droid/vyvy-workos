@@ -10,7 +10,7 @@ import {
 } from '@/lib/deliverableVersionStatus'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
-const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'])
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
 
 interface StorageFile {
   name: string
@@ -59,6 +59,7 @@ function formatBytes(bytes: number | null | undefined) {
 function fileIcon(name: string, mime = '') {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
   if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'ti-photo'
+  if (['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')) return 'ti-file-code'
   if (ext === 'pdf' || mime.includes('pdf')) return 'ti-file-type-pdf'
   if (['doc', 'docx'].includes(ext) || mime.includes('word')) return 'ti-file-type-doc'
   if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('excel')) return 'ti-file-type-xls'
@@ -67,9 +68,21 @@ function fileIcon(name: string, mime = '') {
   return 'ti-file'
 }
 
+function fileTypeLabel(name: string, mime = '') {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (mime === 'external_url') return 'Link ngoài'
+  if (['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')) return 'HTML'
+  if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'Ảnh'
+  if (ext === 'pdf' || mime.includes('pdf')) return 'PDF'
+  if (['doc', 'docx'].includes(ext) || mime.includes('word')) return 'Word'
+  if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('excel')) return 'Excel/CSV'
+  if (['zip', 'rar', '7z'].includes(ext)) return 'Nén'
+  return ext ? ext.toUpperCase() : 'File'
+}
+
 function validateReplacementFile(file: File) {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
-  if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh và ZIP.'
+  if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh, ZIP và HTML.'
   if (file.size <= 0) return 'File đang rỗng, chưa thể tải lên.'
   if (file.size > MAX_FILE_SIZE) return 'File vượt quá giới hạn 25MB.'
   return ''
@@ -280,6 +293,7 @@ export function FileList({
           ref={replaceInputRef}
           type="file"
           hidden
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip,.html,.htm"
           onChange={(event) => {
             const file = event.target.files?.[0]
             if (file) void uploadReplacement(file)
@@ -307,6 +321,7 @@ export function FileList({
                     Version {version.version_number} — {fileName}
                   </div>
                   <div style={fileMetaStyle}>
+                    {fileTypeLabel(fileName, mime)} ·{' '}
                     {version.submitted_at ? `Nộp lúc ${new Date(version.submitted_at).toLocaleString('vi-VN')}` : 'Chưa có thời gian nộp'}
                     {submitter ? ` · bởi ${submitter.full_name ?? submitter.name}` : ''}
                     {version.attachment?.size_bytes ? ` · ${formatBytes(version.attachment.size_bytes)}` : ''}
@@ -392,7 +407,10 @@ export function FileList({
           <i className={`ti ${fileIcon(file.name, file.metadata?.mimetype)}`} style={fileIconStyle} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={fileNameStyle}>{file.name.replace(/^\d+_/, '')}</div>
-            {file.metadata?.size ? <div style={fileMetaStyle}>{formatBytes(file.metadata.size)}</div> : null}
+            <div style={fileMetaStyle}>
+              {fileTypeLabel(file.name, file.metadata?.mimetype)}
+              {file.metadata?.size ? ` · ${formatBytes(file.metadata.size)}` : ''}
+            </div>
           </div>
           {file.url ? (
             <a href={file.url} target="_blank" rel="noopener noreferrer" style={actionLinkStyle}>

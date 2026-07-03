@@ -664,6 +664,7 @@ function FileRow({
   const submitter = item.submitter_id ? peopleById[item.submitter_id] : null
   const status = STATUS_META[isOverdue(item, today) ? 'OVERDUE' : item.status]
   const fileName = getVersionFileName(latestVersion, attachment, item)
+  const fileType = latestVersion?.external_url ? 'Link ngoài' : fileTypeLabel(fileName, attachment?.mime_type)
   const reviewStatus = latestVersion ? normalizeVersionReviewStatus(latestVersion.review_status) : null
   const reviewTone = versionReviewTone(reviewStatus)
 
@@ -688,7 +689,7 @@ function FileRow({
           <i className={`ti ${status.icon}`} /> {status.label}
         </span>
         <span style={rowTinyStyle}>
-          {latestVersion ? `v${latestVersion.version_number}` : 'Chưa có version'}
+          {latestVersion ? `${fileType} · v${latestVersion.version_number}` : 'Chưa có version'}
           {attachment?.size_bytes ? ` · ${formatBytes(attachment.size_bytes)}` : ''}
         </span>
         <span style={{ ...rowTinyStyle, color: latestVersion ? reviewTone.color : 'var(--color-text-muted)' }}>
@@ -750,6 +751,8 @@ function DetailPanel({
   const latestDetailVersion = detail?.versions?.[0] ?? null
   const status = STATUS_META[isOverdue(selected, today) ? 'OVERDUE' : selected.status]
   const latestName = getVersionFileName(latestDetailVersion ?? fallbackVersion, latestDetailVersion?.attachment ?? fallbackAttachment, selected)
+  const latestMime = latestDetailVersion?.attachment?.mime_type ?? fallbackAttachment?.mime_type
+  const latestTypeLabel = (latestDetailVersion ?? fallbackVersion)?.external_url ? 'Link ngoài' : fileTypeLabel(latestName, latestMime)
 
   return (
     <div style={detailWrapStyle}>
@@ -766,6 +769,7 @@ function DetailPanel({
 
       <div style={detailBadgeRowStyle}>
         <span style={{ ...statusBadgeStyle, color: status.color, background: status.bg }}><i className={`ti ${status.icon}`} /> {status.label}</span>
+        <span style={softBadgeStyle}>{latestTypeLabel}</span>
         {latestDetailVersion ?? fallbackVersion ? <span style={softBadgeStyle}>Version {(latestDetailVersion ?? fallbackVersion)?.version_number}</span> : null}
         {selected.is_required ? <span style={softBadgeStyle}>Bắt buộc</span> : null}
       </div>
@@ -786,7 +790,7 @@ function DetailPanel({
         <InfoLine icon="ti-user" label="Người nộp" value={submitter?.full_name ?? 'Chưa gắn'} />
         <InfoLine icon="ti-user-check" label="Người duyệt" value={reviewer?.full_name ?? 'Chưa gắn'} />
         <InfoLine icon="ti-calendar-due" label="Deadline" value={selected.due_date ? formatDate(selected.due_date) : 'Chưa có'} />
-        <InfoLine icon="ti-file-type-pdf" label="Định dạng" value={selected.required_format ?? selected.type ?? 'Chưa ghi'} />
+        <InfoLine icon="ti-file-code" label="Định dạng" value={latestTypeLabel || selected.required_format || selected.type || 'Chưa ghi'} />
       </section>
 
       {selected.description ? (
@@ -923,11 +927,23 @@ function getVersionFileName(
 function fileIcon(name: string, mime?: string | null) {
   const ext = name.split('.').pop()?.toLowerCase()
   if (mime?.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext ?? '')) return 'ti-photo'
+  if (['html', 'htm'].includes(ext ?? '') || mime?.includes('html') || mime?.includes('xhtml')) return 'ti-file-code'
   if (ext === 'pdf' || mime?.includes('pdf')) return 'ti-file-type-pdf'
   if (['doc', 'docx'].includes(ext ?? '') || mime?.includes('word')) return 'ti-file-type-doc'
   if (['xls', 'xlsx', 'csv'].includes(ext ?? '') || mime?.includes('excel') || mime?.includes('sheet')) return 'ti-file-type-xls'
   if (['zip', 'rar', '7z'].includes(ext ?? '')) return 'ti-file-zip'
   return 'ti-file'
+}
+
+function fileTypeLabel(name: string, mime?: string | null) {
+  const ext = name.split('.').pop()?.toLowerCase()
+  if (['html', 'htm'].includes(ext ?? '') || mime?.includes('html') || mime?.includes('xhtml')) return 'HTML'
+  if (mime?.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext ?? '')) return 'Ảnh'
+  if (ext === 'pdf' || mime?.includes('pdf')) return 'PDF'
+  if (['doc', 'docx'].includes(ext ?? '') || mime?.includes('word')) return 'Word'
+  if (['xls', 'xlsx', 'csv'].includes(ext ?? '') || mime?.includes('excel') || mime?.includes('sheet')) return 'Excel/CSV'
+  if (['zip', 'rar', '7z'].includes(ext ?? '')) return 'Nén'
+  return ext ? ext.toUpperCase() : 'File'
 }
 
 function formatBytes(bytes: number) {

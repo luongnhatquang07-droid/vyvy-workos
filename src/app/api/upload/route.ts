@@ -11,7 +11,7 @@ import {
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
-const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip'])
+const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
 
 type UploadContext =
   | { ok: true; workspaceId: string; uploaderId: string | null }
@@ -33,13 +33,24 @@ function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
+function getExtension(name: string) {
+  return name.split('.').pop()?.toLowerCase() ?? ''
+}
+
+function uploadContentType(file: File) {
+  const extension = getExtension(file.name)
+  if (file.type) return file.type
+  if (extension === 'html' || extension === 'htm') return 'text/html'
+  return 'application/octet-stream'
+}
+
 function validateFile(file: File) {
   if (file.size <= 0) return 'File đang rỗng, chưa thể tải lên.'
   if (file.size > MAX_FILE_SIZE) return 'File vượt quá giới hạn 25MB.'
 
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
+  const extension = getExtension(file.name)
   if (!ALLOWED_EXTENSIONS.has(extension)) {
-    return 'Loại file này không được phép tải lên vì có rủi ro bảo mật.'
+    return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh, ZIP và HTML.'
   }
 
   return ''
@@ -315,9 +326,10 @@ export async function POST(req: NextRequest) {
     const storagePath = `${folder}/${Date.now()}_${crypto.randomUUID()}_${sanitizeFileName(file.name)}`
 
     const bytes = await file.arrayBuffer()
+    const mimeType = uploadContentType(file)
     const { error: uploadError } = await client.storage
       .from(STORAGE_BUCKET)
-      .upload(storagePath, bytes, { contentType: file.type || 'application/octet-stream', upsert: false })
+      .upload(storagePath, bytes, { contentType: mimeType, upsert: false })
 
     if (uploadError) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 })
@@ -329,7 +341,7 @@ export async function POST(req: NextRequest) {
         workspace_id: workspaceId,
         storage_path: storagePath,
         file_name: file.name,
-        mime_type: file.type || 'application/octet-stream',
+        mime_type: mimeType,
         size_bytes: file.size,
         uploaded_by: context.uploaderId,
       })
@@ -408,7 +420,7 @@ export async function POST(req: NextRequest) {
       storagePath,
       fileName: file.name,
       fileSize: file.size,
-      mimeType: file.type || 'application/octet-stream',
+      mimeType,
       url: signedUrl?.signedUrl ?? null,
       versionId,
       versionNumber,
