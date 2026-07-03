@@ -735,6 +735,11 @@ function DetailPanel({
   versionsByDeliverable: Record<string, CommandCenterDeliverableVersionRow[]>
   attachmentsById: Record<string, CommandCenterAttachmentRow>
 }) {
+  const peopleOptions = React.useMemo(
+    () => Object.entries(peopleById).map(([id, person]) => ({ ...person, id })),
+    [peopleById],
+  )
+
   if (!selected) {
     return <EmptyBlock icon="ti-file-search" title="Chưa chọn file" desc="Chọn một mục trong danh sách để xem version, upload hoặc gắn link." compact />
   }
@@ -814,6 +819,9 @@ function DetailPanel({
               deliverableId={selected.id}
               compact
               label="Upload file mới vào kho"
+              peopleOptions={peopleOptions}
+              defaultApproverId={selected.reviewer_id ?? project?.owner_id ?? null}
+              requiresApproval
               onUploaded={onUploaded}
             />
           ) : (
@@ -834,6 +842,8 @@ function DetailPanel({
             deliverableId={selected.id}
             refreshKey={detail?.versions?.length ?? 0}
             peopleById={peopleById}
+            reviewerId={selected.reviewer_id}
+            requiresApproval
             onChanged={onUploaded}
           />
         ) : (

@@ -39,11 +39,17 @@ interface VersionItem {
   } | null
 }
 
+interface DeliverableDetail {
+  reviewer_id?: string | null
+}
+
 interface FileListProps {
   workspaceId?: string
   projectId?: string
   taskId?: string
   deliverableId?: string
+  reviewerId?: string | null
+  requiresApproval?: boolean
   refreshKey?: number
   peopleById?: Record<string, { full_name?: string; name?: string }>
   onChanged?: () => void
@@ -112,20 +118,30 @@ export function FileList({
   projectId,
   taskId,
   deliverableId,
+  reviewerId,
+  requiresApproval = Boolean(deliverableId),
   refreshKey,
   peopleById = {},
   onChanged,
 }: FileListProps) {
   const [files, setFiles] = React.useState<StorageFile[]>([])
   const [versions, setVersions] = React.useState<VersionItem[]>([])
+  const [detailDeliverable, setDetailDeliverable] = React.useState<DeliverableDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
   const [replacingId, setReplacingId] = React.useState<string | null>(null)
   const [replaceDraft, setReplaceDraft] = React.useState<{ versionId: string; reason: string } | null>(null)
+  const [reviewerDraft, setReviewerDraft] = React.useState('')
   const [notice, setNotice] = React.useState('')
   const [error, setError] = React.useState('')
   const replaceInputRef = React.useRef<HTMLInputElement>(null)
+  const effectiveReviewerId = reviewerId ?? detailDeliverable?.reviewer_id ?? null
+  const selectedReviewerId = reviewerDraft || effectiveReviewerId || ''
+  const reviewerOptions = React.useMemo(
+    () => Object.entries(peopleById).map(([id, person]) => ({ id, name: person.full_name ?? person.name ?? 'Chưa đặt tên' })),
+    [peopleById],
+  )
 
   const loadFiles = React.useCallback(async () => {
     setLoading(true)
@@ -143,8 +159,9 @@ export function FileList({
       if (deliverableId) {
         const params = new URLSearchParams({ workspaceId, deliverableId })
         const response = await fetch(`/api/deliverables?${params}`)
-        const payload = (await response.json()) as { versions?: VersionItem[]; error?: string }
+        const payload = (await response.json()) as { deliverable?: DeliverableDetail; versions?: VersionItem[]; error?: string }
         if (!response.ok) throw new Error(payload.error ?? 'Không tải được lịch sử version.')
+        setDetailDeliverable(payload.deliverable ?? null)
         setVersions(payload.versions ?? [])
         setFiles([])
         return
@@ -157,6 +174,7 @@ export function FileList({
       const response = await fetch(`/api/upload?${params}`)
       const payload = (await response.json()) as { files?: StorageFile[]; error?: string }
       if (!response.ok) throw new Error(payload.error ?? 'Không tải được danh sách file.')
+      setDetailDeliverable(null)
       setFiles(payload.files ?? [])
       setVersions([])
     } catch (err) {
@@ -242,6 +260,38 @@ export function FileList({
     setMenuOpenId(null)
   }
 
+  async function setReviewer() {
+    if (!workspaceId || !deliverableId || !selectedReviewerId) {
+      setError('Vui lòng chọn người duyệt cho file/báo cáo này.')
+      return
+    }
+
+    setDeletingId('reviewer')
+    setError('')
+    setNotice('')
+    try {
+      const response = await fetch('/api/deliverables', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          deliverableId,
+          action: 'setReviewer',
+          reviewerId: selectedReviewerId,
+        }),
+      })
+      const payload = (await response.json()) as { error?: string }
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không gắn được người duyệt.')
+      await loadFiles()
+      setNotice('Đã gắn người duyệt cho file/báo cáo.')
+      onChanged?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không gắn được người duyệt.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   function startReplacement(version: VersionItem) {
     const status = normalizeVersionReviewStatus(version.review_status)
     const reason = askVersionReason(status === 'APPROVED' ? 'Tạo version thay thế' : 'Thay file cho version này')
@@ -253,6 +303,10 @@ export function FileList({
 
   async function uploadReplacement(file: File) {
     if (!workspaceId || !deliverableId || !replaceDraft) return
+    if (requiresApproval && !effectiveReviewerId) {
+      setError('Vui lòng gắn người duyệt trước khi thay file/version.')
+      return
+    }
     const validationError = validateReplacementFile(file)
     if (validationError) {
       setError(validationError)
@@ -273,6 +327,8 @@ export function FileList({
       formData.append('supersedesVersionId', replaceDraft.versionId)
       formData.append('replaceReason', replaceDraft.reason)
       formData.append('changeNote', replaceDraft.reason)
+      if (effectiveReviewerId) formData.append('approverId', effectiveReviewerId)
+      if (requiresApproval) formData.append('requiresApproval', 'true')
 
       const response = await fetch('/api/upload', { method: 'POST', body: formData })
       const payload = (await response.json()) as { error?: string; versionNumber?: number }
@@ -319,6 +375,20 @@ export function FileList({
           }}
         />
         {notice ? <div style={noticeText}>{notice}</div> : null}
+        {requiresApproval && !effectiveReviewerId ? (
+          <div style={reviewerWarningStyle}>
+            <span style={reviewerWarningTextStyle}>Chưa gắn người duyệt</span>
+            <select value={selectedReviewerId} onChange={(event) => setReviewerDraft(event.currentTarget.value)} style={reviewerSelectStyle}>
+              <option value="">Chọn người duyệt</option>
+              {reviewerOptions.map((person) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => void setReviewer()} disabled={!selectedReviewerId || deletingId === 'reviewer'} style={reviewerButtonStyle}>
+              Gắn người duyệt
+            </button>
+          </div>
+        ) : null}
         {versions.map((version) => {
           const fileName = version.external_url ?? version.attachment?.file_name ?? `Version ${version.version_number}`
           const mime = version.external_url ? 'external_url' : version.attachment?.mime_type ?? ''
@@ -329,6 +399,7 @@ export function FileList({
           const status = normalizeVersionReviewStatus(version.review_status)
           const tone = versionReviewTone(status)
           const submitter = version.submitted_by ? peopleById[version.submitted_by] : null
+          const reviewer = effectiveReviewerId ? peopleById[effectiveReviewerId] : null
           const invalid = isVersionInvalid(status)
           const approved = status === 'APPROVED'
           const menuOpen = menuOpenId === version.id
@@ -346,6 +417,7 @@ export function FileList({
                     {fileTypeLabel(fileName, mime)} ·{' '}
                     {version.submitted_at ? `Nộp lúc ${new Date(version.submitted_at).toLocaleString('vi-VN')}` : 'Chưa có thời gian nộp'}
                     {submitter ? ` · bởi ${submitter.full_name ?? submitter.name}` : ''}
+                    {` · Người duyệt: ${reviewer ? reviewer.full_name ?? reviewer.name : 'Chưa gắn người duyệt'}`}
                     {version.attachment?.size_bytes ? ` · ${formatBytes(version.attachment.size_bytes)}` : ''}
                   </div>
                   {version.change_note ? <div style={noteTextStyle}>{version.change_note}</div> : null}
@@ -469,6 +541,43 @@ const noticeText: React.CSSProperties = {
   border: '1px solid rgba(56, 142, 60, 0.22)',
   borderRadius: 8,
   padding: '7px 9px',
+}
+
+const reviewerWarningStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'auto minmax(160px, 1fr) auto',
+  alignItems: 'center',
+  gap: 8,
+  padding: 10,
+  borderRadius: 10,
+  border: '1px solid rgba(245, 158, 11, 0.34)',
+  background: 'rgba(245, 158, 11, 0.09)',
+}
+
+const reviewerWarningTextStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  color: 'var(--color-warning)',
+}
+
+const reviewerSelectStyle: React.CSSProperties = {
+  minWidth: 0,
+  padding: '7px 9px',
+  borderRadius: 8,
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+  color: 'var(--color-text)',
+  fontSize: 12,
+}
+
+const reviewerButtonStyle: React.CSSProperties = {
+  border: '1px solid rgba(218,223,33,0.4)',
+  borderRadius: 8,
+  background: 'var(--color-lime)',
+  color: 'var(--color-lime-ink)',
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 800,
 }
 
 const retryButtonStyle: React.CSSProperties = {

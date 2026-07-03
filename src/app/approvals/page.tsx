@@ -28,9 +28,9 @@ export default function ApprovalsPage() {
   const today = getVietnamDateKey()
   const [nowTs] = React.useState(() => Date.now())
 
-  const overdue = approvals.filter((item) => item.status === 'PENDING' && item.due_at && item.due_at < today)
-  const pending = approvals.filter((item) => item.status === 'PENDING' && (!item.due_at || item.due_at >= today))
-  const done = approvals.filter((item) => item.status !== 'PENDING')
+  const overdue = approvals.filter((item) => isPendingApproval(item) && item.due_at && item.due_at < today)
+  const pending = approvals.filter((item) => isPendingApproval(item) && (!item.due_at || item.due_at >= today))
+  const done = approvals.filter((item) => !isPendingApproval(item))
 
   function getTitle(approval: CommandCenterApprovalRow) {
     const task = approval.task_id ? tasks[approval.task_id] : null
@@ -155,6 +155,9 @@ function resolveApprovalState(approval: CommandCenterApprovalRow, today: string)
   if (approval.status === 'APPROVED') {
     return { label: 'Đã duyệt', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
   }
+  if (approval.status === 'REVISION_REQUESTED') {
+    return { label: 'Yêu cầu sửa', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
+  }
   if (approval.status === 'REJECTED') {
     return { label: 'Từ chối', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
   }
@@ -162,6 +165,10 @@ function resolveApprovalState(approval: CommandCenterApprovalRow, today: string)
     return { label: 'Quá hạn', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
   }
   return { label: 'Chờ duyệt', bg: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
+}
+
+function isPendingApproval(approval: CommandCenterApprovalRow) {
+  return approval.status === 'PENDING' || approval.status === 'PENDING_REVIEW'
 }
 
 function GhostButton({ children, icon }: { children: React.ReactNode; icon: string }) {

@@ -28,11 +28,22 @@ interface LinkResponse {
   versionNumber?: number
 }
 
+interface ApproverOption {
+  id: string
+  full_name?: string | null
+  name?: string | null
+  job_title?: string | null
+  status?: string | null
+}
+
 interface FileUploadProps {
   workspaceId?: string
   projectId?: string
   taskId?: string
   deliverableId?: string
+  peopleOptions?: ApproverOption[]
+  defaultApproverId?: string | null
+  requiresApproval?: boolean
   onUploaded?: (file: UploadedFile) => void
   label?: string
   compact?: boolean
@@ -90,6 +101,9 @@ export function FileUpload({
   projectId,
   taskId,
   deliverableId,
+  peopleOptions = [],
+  defaultApproverId,
+  requiresApproval = Boolean(deliverableId),
   onUploaded,
   label,
   compact = false,
@@ -103,13 +117,31 @@ export function FileUpload({
   const [changeNote, setChangeNote] = React.useState<string>('')
   const [externalUrl, setExternalUrl] = React.useState<string>('')
   const [lastStatus, setLastStatus] = React.useState('')
+  const [approverId, setApproverId] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const activePeople = React.useMemo(
+    () => peopleOptions.filter((person) => person.id && person.status !== 'inactive' && person.status !== 'deleted'),
+    [peopleOptions],
+  )
+  const suggestedApproverId = React.useMemo(
+    () => pickSuggestedApprover(activePeople, defaultApproverId),
+    [activePeople, defaultApproverId],
+  )
+  const selectedApproverId = approverId || suggestedApproverId || ''
+
+  function validateApprover() {
+    if (!deliverableId || !requiresApproval || selectedApproverId) return true
+    setError('Vui lòng chọn người duyệt cho file/báo cáo này.')
+    return false
+  }
 
   async function uploadFile(file: File) {
     if (!workspaceId) {
       setError('Chưa xác định được workspace nên chưa thể tải file.')
       return
     }
+
+    if (!validateApprover()) return
 
     const validationError = validateFile(file)
     if (validationError) {
@@ -129,6 +161,8 @@ export function FileUpload({
       if (taskId) formData.append('taskId', taskId)
       if (deliverableId) formData.append('deliverableId', deliverableId)
       if (changeNote.trim()) formData.append('changeNote', changeNote.trim())
+      if (selectedApproverId) formData.append('approverId', selectedApproverId)
+      if (requiresApproval) formData.append('requiresApproval', 'true')
 
       const response = await fetch('/api/upload', { method: 'POST', body: formData })
       const payload = (await response.json()) as UploadResponse
@@ -168,6 +202,7 @@ export function FileUpload({
       setError('Cần có workspace và deliverable trước khi gắn link.')
       return
     }
+    if (!validateApprover()) return
     if (!/^https?:\/\/\S+/i.test(externalUrl.trim())) {
       setError('Link phải bắt đầu bằng http:// hoặc https://.')
       return
@@ -187,6 +222,8 @@ export function FileUpload({
           action: 'submitLink',
           externalUrl: externalUrl.trim(),
           changeNote: changeNote.trim(),
+          approverId: selectedApproverId || null,
+          requiresApproval,
         }),
       })
       const payload = (await response.json()) as LinkResponse
@@ -231,6 +268,28 @@ export function FileUpload({
         <div style={modeSwitchStyle}>
           <button type="button" onClick={() => setMode('file')} style={modeButtonStyle(mode === 'file')}>File</button>
           <button type="button" onClick={() => setMode('link')} style={modeButtonStyle(mode === 'link')}>Link</button>
+        </div>
+      ) : null}
+
+      {deliverableId && requiresApproval ? (
+        <div style={approverBoxStyle}>
+          <label style={approverLabelStyle} htmlFor={`approver-${deliverableId}`}>
+            Người duyệt <span style={requiredMarkStyle}>*</span>
+          </label>
+          <select
+            id={`approver-${deliverableId}`}
+            value={selectedApproverId}
+            onChange={(event) => setApproverId(event.currentTarget.value)}
+            style={approverSelectStyle}
+            disabled={uploading}
+          >
+            <option value="">Chọn người duyệt file/báo cáo</option>
+            {activePeople.map((person) => (
+              <option key={person.id} value={person.id}>
+                {getPersonName(person)}{person.job_title ? ` - ${person.job_title}` : ''}
+              </option>
+            ))}
+          </select>
         </div>
       ) : null}
 
@@ -326,6 +385,19 @@ export function FileUpload({
   )
 }
 
+function getPersonName(person: ApproverOption) {
+  return person.full_name ?? person.name ?? 'Chưa đặt tên'
+}
+
+function pickSuggestedApprover(people: ApproverOption[], explicit?: string | null) {
+  if (explicit && people.some((person) => person.id === explicit)) return explicit
+  const preferred = people.find((person) => {
+    const haystack = `${person.full_name ?? ''} ${person.name ?? ''} ${person.job_title ?? ''}`.toLowerCase()
+    return haystack.includes('quang') || haystack.includes('admin') || haystack.includes('coo') || haystack.includes('ceo')
+  })
+  return preferred?.id ?? ''
+}
+
 const modeSwitchStyle: React.CSSProperties = {
   display: 'inline-flex',
   gap: 4,
@@ -346,6 +418,35 @@ const modeButtonStyle = (active: boolean): React.CSSProperties => ({
   fontWeight: 700,
   cursor: 'pointer',
 })
+
+const approverBoxStyle: React.CSSProperties = {
+  display: 'grid',
+  gap: 6,
+  marginBottom: 8,
+}
+
+const approverLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--color-text-muted)',
+  fontWeight: 800,
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+}
+
+const requiredMarkStyle: React.CSSProperties = {
+  color: 'var(--color-danger)',
+}
+
+const approverSelectStyle: React.CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '9px 11px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text)',
+  fontSize: 12,
+}
 
 const dropZoneStyle = (dragging: boolean, uploading: boolean, compact: boolean): React.CSSProperties => ({
   border: `2px dashed ${dragging ? 'var(--color-lime-d)' : 'var(--color-border)'}`,

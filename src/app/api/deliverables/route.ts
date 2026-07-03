@@ -229,7 +229,7 @@ async function ensureApproval({
     .select('id')
     .eq('workspace_id', workspaceId)
     .eq('deliverable_id', deliverableId)
-    .neq('status', 'APPROVED')
+    .in('status', ['PENDING', 'PENDING_REVIEW', 'REVISION_REQUESTED', 'REJECTED'])
     .limit(1)
     .maybeSingle()
 
@@ -243,6 +243,7 @@ async function ensureApproval({
     approver_id: approverId,
     due_at: dueAt,
     status: 'PENDING',
+    completed_at: null,
     is_required: true,
     updated_at: new Date().toISOString(),
   }
@@ -250,15 +251,28 @@ async function ensureApproval({
   if (existing.data?.id) {
     const updateRes = await client.from('approvals').update(payload).eq('id', existing.data.id)
     if (updateRes.error) throw updateRes.error
-    return
+    await client.from('approval_actions').insert({
+      approval_id: existing.data.id,
+      action: 'REQUESTED',
+      actor_id: requesterId,
+      comment: 'Cập nhật người duyệt cho version mới.',
+    })
+    return existing.data.id as string
   }
 
   const insertRes = await client.from('approvals').insert({
     workspace_id: workspaceId,
     deliverable_id: deliverableId,
     ...payload,
+  }).select('id').single()
+  if (insertRes.error || !insertRes.data) throw insertRes.error ?? new Error('Không tạo được approval.')
+  await client.from('approval_actions').insert({
+    approval_id: insertRes.data.id,
+    action: 'REQUESTED',
+    actor_id: requesterId,
+    comment: 'Tạo yêu cầu duyệt file/báo cáo.',
   })
-  if (insertRes.error) throw insertRes.error
+  return insertRes.data.id as string
 }
 
 async function logActivity(
@@ -491,11 +505,66 @@ export async function PATCH(req: NextRequest) {
       approved_version_id: string | null
     }
 
+    if (action === 'setReviewer') {
+      const reviewerId = cleanId(body.reviewerId)
+      if (!reviewerId) return jsonError('Vui lòng chọn người duyệt cho file/báo cáo này.', 400)
+      if (!(await ensureEntityInWorkspace('people', reviewerId, context.workspaceId))) {
+        return jsonError('Người duyệt không thuộc workspace hiện tại.', 403)
+      }
+
+      const updateRes = await client
+        .from('deliverables')
+        .update({
+          reviewer_id: reviewerId,
+          updated_by: context.personId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('workspace_id', context.workspaceId)
+        .eq('id', deliverableId)
+      if (updateRes.error) return jsonError(updateRes.error.message, 500)
+
+      await ensureApproval({
+        workspaceId: context.workspaceId,
+        deliverableId,
+        projectId: deliverable.project_id,
+        taskId: deliverable.task_id,
+        stepId: deliverable.step_id,
+        requesterId: context.personId,
+        approverId: reviewerId,
+        dueAt: deliverable.due_date,
+      })
+
+      await logActivity(context.workspaceId, context.personId, 'approval.requested', deliverableId, {
+        approverId: reviewerId,
+      })
+      return NextResponse.json({ ok: true })
+    }
+
     if (action === 'submitLink') {
       const externalUrl = cleanText(body.externalUrl)
       if (!/^https?:\/\/\S+/i.test(externalUrl)) return jsonError('Link phải bắt đầu bằng http:// hoặc https://.', 400)
       const supersedesVersionId = cleanId(body.supersedesVersionId)
       const replaceReason = cleanText(body.replaceReason) || cleanText(body.changeNote) || 'Tạo version link thay thế.'
+      const requestedApproverId = cleanId(body.approverId)
+      const requiresApproval = true
+      const finalApproverId = requestedApproverId ?? deliverable.reviewer_id
+      if (requiresApproval && !finalApproverId) return jsonError('Vui lòng chọn người duyệt cho file/báo cáo này.', 400)
+      if (finalApproverId && !(await ensureEntityInWorkspace('people', finalApproverId, context.workspaceId))) {
+        return jsonError('Người duyệt không thuộc workspace hiện tại.', 403)
+      }
+      if (finalApproverId && finalApproverId !== deliverable.reviewer_id) {
+        const reviewerRes = await client
+          .from('deliverables')
+          .update({
+            reviewer_id: finalApproverId,
+            updated_by: context.personId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('workspace_id', context.workspaceId)
+          .eq('id', deliverableId)
+        if (reviewerRes.error) return jsonError(reviewerRes.error.message, 500)
+        deliverable.reviewer_id = finalApproverId
+      }
       const versionNumber = await nextVersionNumber(deliverableId)
       const versionRes = await client
         .from('deliverable_versions')
@@ -529,7 +598,7 @@ export async function PATCH(req: NextRequest) {
       await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
       await closeRelatedReminders(context.workspaceId, deliverableId)
 
-      if (body.requiresApproval === true && deliverable.reviewer_id) {
+      if (finalApproverId) {
         await ensureApproval({
           workspaceId: context.workspaceId,
           deliverableId,
@@ -537,7 +606,7 @@ export async function PATCH(req: NextRequest) {
           taskId: deliverable.task_id,
           stepId: deliverable.step_id,
           requesterId: context.personId,
-          approverId: deliverable.reviewer_id,
+          approverId: finalApproverId,
           dueAt: deliverable.due_date,
         })
       }
@@ -600,12 +669,22 @@ export async function PATCH(req: NextRequest) {
         .eq('id', deliverableId)
       if (updateRes.error) return jsonError(updateRes.error.message, 500)
 
-      if (action === 'approve') {
-        await client
-          .from('approvals')
-          .update({ status: 'APPROVED', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('workspace_id', context.workspaceId)
-          .eq('deliverable_id', deliverableId)
+      const approvalStatus = action === 'approve' ? 'APPROVED' : 'REVISION_REQUESTED'
+      const approvalsRes = await client
+        .from('approvals')
+        .update({ status: approvalStatus, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('workspace_id', context.workspaceId)
+        .eq('deliverable_id', deliverableId)
+        .select('id')
+      if (approvalsRes.error) return jsonError(approvalsRes.error.message, 500)
+
+      if (approvalsRes.data?.length) {
+        await client.from('approval_actions').insert(approvalsRes.data.map((approval) => ({
+          approval_id: approval.id,
+          action: approvalStatus,
+          actor_id: context.personId,
+          comment: cleanText(body.reviewComment) || null,
+        })))
       }
 
       await logActivity(context.workspaceId, context.personId, `deliverable.${action}`, deliverableId, {

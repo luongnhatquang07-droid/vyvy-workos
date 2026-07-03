@@ -29,6 +29,10 @@ function cleanText(value: FormDataEntryValue | null) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function cleanBool(value: FormDataEntryValue | null) {
+  return typeof value === 'string' && ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
 function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
@@ -127,7 +131,7 @@ async function getUploadContext(workspaceId: string): Promise<UploadContext> {
 }
 
 async function belongsToWorkspace(
-  table: 'projects' | 'tasks' | 'deliverables',
+  table: 'projects' | 'tasks' | 'deliverables' | 'people',
   id: string | null,
   workspaceId: string,
 ) {
@@ -166,6 +170,97 @@ async function validateEntityScope({
   if (!taskOk) return 'Đầu việc không thuộc workspace hiện tại.'
   if (!deliverableOk) return 'Hạng mục bàn giao không thuộc workspace hiện tại.'
   return ''
+}
+
+async function loadDeliverableForUpload(workspaceId: string, deliverableId: string | null) {
+  if (!deliverableId) return null
+  const client = createServiceClient()
+  const { data, error } = await client
+    .from('deliverables')
+    .select('id,workspace_id,project_id,task_id,step_id,reviewer_id,due_date')
+    .eq('id', deliverableId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (error) throw error
+  return data
+}
+
+async function ensureApproval({
+  workspaceId,
+  deliverableId,
+  projectId,
+  taskId,
+  stepId,
+  requesterId,
+  approverId,
+  dueAt,
+}: {
+  workspaceId: string
+  deliverableId: string
+  projectId: string | null
+  taskId: string | null
+  stepId: string | null
+  requesterId: string | null
+  approverId: string
+  dueAt: string | null
+}) {
+  const client = createServiceClient()
+  const existing = await client
+    .from('approvals')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('deliverable_id', deliverableId)
+    .in('status', ['PENDING', 'PENDING_REVIEW', 'REVISION_REQUESTED', 'REJECTED'])
+    .limit(1)
+    .maybeSingle()
+
+  if (existing.error) throw existing.error
+
+  const payload = {
+    project_id: projectId,
+    task_id: taskId,
+    step_id: stepId,
+    requested_by: requesterId,
+    approver_id: approverId,
+    due_at: dueAt,
+    status: 'PENDING',
+    completed_at: null,
+    is_required: true,
+    updated_at: new Date().toISOString(),
+  }
+
+  if (existing.data?.id) {
+    const updateRes = await client.from('approvals').update(payload).eq('id', existing.data.id)
+    if (updateRes.error) throw updateRes.error
+    await client.from('approval_actions').insert({
+      approval_id: existing.data.id,
+      action: 'REQUESTED',
+      actor_id: requesterId,
+      comment: 'Cập nhật người duyệt cho version mới.',
+    })
+    return existing.data.id as string
+  }
+
+  const insertRes = await client
+    .from('approvals')
+    .insert({
+      workspace_id: workspaceId,
+      deliverable_id: deliverableId,
+      ...payload,
+    })
+    .select('id')
+    .single()
+
+  if (insertRes.error || !insertRes.data) throw insertRes.error ?? new Error('Không tạo được approval.')
+  await client.from('approval_actions').insert({
+    approval_id: insertRes.data.id,
+    action: 'REQUESTED',
+    actor_id: requesterId,
+    comment: 'Tạo yêu cầu duyệt file/báo cáo.',
+  })
+  return insertRes.data.id as string
 }
 
 async function logActivity(
@@ -300,6 +395,8 @@ export async function POST(req: NextRequest) {
     const supersedesVersionId = cleanId(form.get('supersedesVersionId'))
     const changeNote = cleanText(form.get('changeNote'))
     const replaceReason = cleanText(form.get('replaceReason')) || changeNote || 'Thay file bằng version mới.'
+    const requestedApproverId = cleanId(form.get('approverId'))
+    const requiresApproval = Boolean(deliverableId) || cleanBool(form.get('requiresApproval')) || Boolean(requestedApproverId)
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'Thiếu file hoặc workspaceId.' }, { status: 400 })
@@ -321,6 +418,15 @@ export async function POST(req: NextRequest) {
     }
 
     const client = createServiceClient()
+    const deliverable = await loadDeliverableForUpload(workspaceId, deliverableId)
+    const finalApproverId = requestedApproverId ?? deliverable?.reviewer_id ?? null
+    if (deliverableId && requiresApproval && !finalApproverId) {
+      return NextResponse.json({ error: 'Vui lòng chọn người duyệt cho file/báo cáo này.' }, { status: 400 })
+    }
+    if (finalApproverId && !(await belongsToWorkspace('people', finalApproverId, workspaceId))) {
+      return NextResponse.json({ error: 'Người duyệt không thuộc workspace hiện tại.' }, { status: 403 })
+    }
+
     await ensureStorageBucket()
     const folder = [workspaceId, projectId, taskId].filter(Boolean).join('/')
     const storagePath = `${folder}/${Date.now()}_${crypto.randomUUID()}_${sanitizeFileName(file.name)}`
@@ -384,6 +490,32 @@ export async function POST(req: NextRequest) {
           deliverableId,
           versionId: supersedesVersionId,
           reason: replaceReason,
+        })
+      }
+
+      if (finalApproverId) {
+        if (deliverable?.reviewer_id !== finalApproverId) {
+          const reviewerRes = await client
+            .from('deliverables')
+            .update({
+              reviewer_id: finalApproverId,
+              updated_by: context.uploaderId,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', deliverableId)
+            .eq('workspace_id', workspaceId)
+          if (reviewerRes.error) throw reviewerRes.error
+        }
+
+        await ensureApproval({
+          workspaceId,
+          deliverableId,
+          projectId: deliverable?.project_id ?? projectId,
+          taskId: deliverable?.task_id ?? taskId,
+          stepId: deliverable?.step_id ?? null,
+          requesterId: context.uploaderId,
+          approverId: finalApproverId,
+          dueAt: deliverable?.due_date ?? null,
         })
       }
 

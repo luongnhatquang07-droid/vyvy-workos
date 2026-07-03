@@ -528,6 +528,10 @@ function DeliverableDetail({
   const step = item.step_id ? steps[item.step_id] : null
   const submitter = item.submitter_id ? people[item.submitter_id] : null
   const reviewer = item.reviewer_id ? people[item.reviewer_id] : null
+  const peopleOptions = React.useMemo(
+    () => Object.entries(people).map(([id, person]) => ({ ...person, id })),
+    [people],
+  )
   const status = STATUS_META[item.status] ?? STATUS_META.NOT_SUBMITTED
 
   return (
@@ -569,6 +573,9 @@ function DeliverableDetail({
             deliverableId={item.id}
             compact
             label="Nộp file mới cho bàn giao này"
+            peopleOptions={peopleOptions}
+            defaultApproverId={item.reviewer_id ?? project?.owner_id ?? null}
+            requiresApproval
             onUploaded={onUploaded}
           />
         ) : (
@@ -586,6 +593,8 @@ function DeliverableDetail({
             deliverableId={item.id}
             refreshKey={detail?.versions?.length ?? 0}
             peopleById={people}
+            reviewerId={item.reviewer_id}
+            requiresApproval
             onChanged={onUploaded}
           />
         ) : null}
