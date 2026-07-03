@@ -172,6 +172,11 @@ interface FlowchartNode {
   step?: StepItem
 }
 
+interface FlowchartPan {
+  x: number
+  y: number
+}
+
 interface ProjectsRouteTarget {
   projectId?: string
   taskId?: string
@@ -221,6 +226,9 @@ const KANBAN_COLUMNS = TASK_STATUS_ORDER
 const CORE_KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
 const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'PENDING_APPROVAL', 'REVISION_REQUIRED', 'COMPLETED']
 const DAY_MS = 24 * 60 * 60 * 1000
+const FLOWCHART_MIN_ZOOM = 0.5
+const FLOWCHART_MAX_ZOOM = 1.6
+const FLOWCHART_ZOOM_STEP = 0.1
 
 export default function ProjectsPage() {
   return <ProjectsPageContent />
@@ -2194,9 +2202,13 @@ function FlowchartTab({
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set())
   const [selectedNode, setSelectedNode] = React.useState<FlowchartNode>(() => ({ kind: 'project', project }))
   const [zoom, setZoom] = React.useState(1)
+  const [pan, setPan] = React.useState<FlowchartPan>({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = React.useState(false)
   const [isFullscreen, setIsFullscreen] = React.useState(false)
   const [detailVisible, setDetailVisible] = React.useState(true)
   const flowchartScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const flowchartBoardRef = React.useRef<HTMLDivElement | null>(null)
+  const panSessionRef = React.useRef<{ pointerId: number; startX: number; startY: number; pan: FlowchartPan } | null>(null)
   const previousProjectIdRef = React.useRef(project.id)
 
   React.useEffect(() => {
@@ -2207,9 +2219,40 @@ function FlowchartTab({
       setCollapsedIds(new Set())
       setFilter('all')
       setZoom(1)
+      setPan({ x: 0, y: 0 })
       setDetailVisible(true)
     })
   }, [project])
+
+  React.useEffect(() => {
+    if (!isPanning) return
+
+    function handlePointerMove(event: PointerEvent) {
+      const session = panSessionRef.current
+      if (!session || event.pointerId !== session.pointerId) return
+      event.preventDefault()
+      setPan({
+        x: session.pan.x + event.clientX - session.startX,
+        y: session.pan.y + event.clientY - session.startY,
+      })
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      const session = panSessionRef.current
+      if (!session || event.pointerId !== session.pointerId) return
+      panSessionRef.current = null
+      setIsPanning(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false })
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+  }, [isPanning])
 
   React.useEffect(() => {
     if (!isFullscreen) return
@@ -2268,11 +2311,13 @@ function FlowchartTab({
     ...flowchartScroll,
     maxHeight: isFullscreen ? 'calc(100vh - 150px)' : flowchartScroll.maxHeight,
     minHeight: isFullscreen ? 'calc(100vh - 150px)' : undefined,
+    cursor: isPanning ? 'grabbing' : 'grab',
+    userSelect: isPanning ? 'none' : undefined,
   }
   const zoomLayerStyle: React.CSSProperties = {
     ...flowchartZoomLayer,
-    transform: zoom === 1 ? undefined : `scale(${zoom})`,
-    width: zoom === 1 ? '100%' : `${Math.round(100 / zoom)}%`,
+    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+    transition: isPanning ? 'none' : flowchartZoomLayer.transition,
   }
 
   function toggleCollapse(id: string) {
@@ -2289,11 +2334,64 @@ function FlowchartTab({
     if (isFullscreen && !detailVisible) setDetailVisible(true)
   }
 
+  function setFlowchartZoom(nextZoom: number, origin?: { x: number; y: number }) {
+    const clampedZoom = clampZoom(nextZoom)
+    if (zoom === clampedZoom) return
+    const viewport = flowchartScrollRef.current
+    const defaultOrigin = viewport
+      ? { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 }
+      : { x: 0, y: 0 }
+    const pivot = origin ?? defaultOrigin
+    const ratio = clampedZoom / zoom
+    setPan((currentPan) => ({
+      x: pivot.x - (pivot.x - currentPan.x) * ratio,
+      y: pivot.y - (pivot.y - currentPan.y) * ratio,
+    }))
+    setZoom(clampedZoom)
+  }
+
   function fitFlowchartView() {
-    setZoom(1)
-    requestAnimationFrame(() => {
-      flowchartScrollRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' })
+    const viewport = flowchartScrollRef.current
+    const board = flowchartBoardRef.current
+    if (!viewport || !board) {
+      setZoom(1)
+      setPan({ x: 0, y: 0 })
+      return
+    }
+
+    const safeWidth = Math.max(320, viewport.clientWidth - 64)
+    const safeHeight = Math.max(260, viewport.clientHeight - 64)
+    const boardWidth = Math.max(1, board.offsetWidth)
+    const boardHeight = Math.max(1, board.offsetHeight)
+    const nextZoom = clampZoom(Math.min(1.15, safeWidth / boardWidth, safeHeight / boardHeight))
+    setZoom(nextZoom)
+    setPan({
+      x: Math.max(24, (viewport.clientWidth - boardWidth * nextZoom) / 2),
+      y: Math.max(24, (viewport.clientHeight - boardHeight * nextZoom) / 2),
     })
+  }
+
+  function beginCanvasPan(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    if (isFlowchartPanBlocked(event.target)) return
+    panSessionRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      pan,
+    }
+    setIsPanning(true)
+  }
+
+  function handleCanvasWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey) return
+    event.preventDefault()
+    const viewport = flowchartScrollRef.current
+    const rect = viewport?.getBoundingClientRect()
+    const origin = rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : undefined
+    setFlowchartZoom(zoom + (event.deltaY > 0 ? -FLOWCHART_ZOOM_STEP : FLOWCHART_ZOOM_STEP), origin)
   }
 
   function selectFlowchartNodeByKey(nodeKey: string) {
@@ -2365,9 +2463,9 @@ function FlowchartTab({
             <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
               Mở rộng
             </button>
-            <button type="button" onClick={() => setZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))))} style={flowchartIconButton}>-</button>
+            <button type="button" onClick={() => setFlowchartZoom(zoom - FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>-</button>
             <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
-            <button type="button" onClick={() => setZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))))} style={flowchartIconButton}>+</button>
+            <button type="button" onClick={() => setFlowchartZoom(zoom + FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>+</button>
             <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
             <button type="button" onClick={() => setDetailVisible((value) => !value)} style={filterChipStyle(false)}>
               {detailVisible ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
@@ -2392,9 +2490,9 @@ function FlowchartTab({
               </div>
             </div>
             <div style={flowchartZoomControls}>
-              <button type="button" onClick={() => setZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))))} style={flowchartIconButton}>-</button>
+              <button type="button" onClick={() => setFlowchartZoom(zoom - FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>-</button>
               <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
-              <button type="button" onClick={() => setZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))))} style={flowchartIconButton}>+</button>
+              <button type="button" onClick={() => setFlowchartZoom(zoom + FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>+</button>
               <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
               <button type="button" onClick={() => setIsFullscreen(true)} style={flowchartFullscreenButton}>
                 <i className="ti ti-maximize" />
@@ -2445,9 +2543,14 @@ function FlowchartTab({
             <span>Bước</span>
           </div>
 
-          <div ref={flowchartScrollRef} style={canvasScrollStyle}>
+          <div
+            ref={flowchartScrollRef}
+            style={canvasScrollStyle}
+            onPointerDown={beginCanvasPan}
+            onWheel={handleCanvasWheel}
+          >
             <div style={zoomLayerStyle}>
-              <div style={flowchartBoard} onClickCapture={handleFlowchartBoardSelect} onPointerDownCapture={handleFlowchartBoardSelect}>
+              <div ref={flowchartBoardRef} style={flowchartBoard} onClickCapture={handleFlowchartBoardSelect}>
                 <div style={flowchartProjectRail}>
                   <FlowchartNodeCard
                     node={{ kind: 'project', project }}
@@ -2475,7 +2578,12 @@ function FlowchartTab({
                             <span style={flowchartArrowHeadStyle(workstreamPathActive)} />
                           </div>
                           <div style={flowchartLaneWorkstream}>
-                            <button type="button" onClick={() => toggleCollapse(workstreamId)} style={flowchartToggle}>
+                            <button
+                              type="button"
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={() => toggleCollapse(workstreamId)}
+                              style={flowchartToggle}
+                            >
                               {workstreamCollapsed ? '+' : '-'}
                             </button>
                             <FlowchartNodeCard
@@ -2506,7 +2614,12 @@ function FlowchartTab({
                                       <span style={flowchartArrowHeadStyle(subtaskPathActive)} />
                                     </div>
                                     <div style={flowchartSubtaskCardSlot}>
-                                      <button type="button" onClick={() => toggleCollapse(subtaskId)} style={flowchartToggle}>
+                                      <button
+                                        type="button"
+                                        onPointerDown={(event) => event.stopPropagation()}
+                                        onClick={() => toggleCollapse(subtaskId)}
+                                        style={flowchartToggle}
+                                      >
                                         {subtaskCollapsed ? '+' : '-'}
                                       </button>
                                       <FlowchartNodeCard
@@ -4249,6 +4362,15 @@ function flowchartNodeId(kind: FlowchartNodeKind, id: string) {
   return `${kind}-${id}`
 }
 
+function clampZoom(value: number) {
+  return Math.min(FLOWCHART_MAX_ZOOM, Math.max(FLOWCHART_MIN_ZOOM, Number(value.toFixed(2))))
+}
+
+function isFlowchartPanBlocked(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return true
+  return Boolean(target.closest('[data-flowchart-node-key], button, a, input, select, textarea, [role="button"]'))
+}
+
 function matchesFlowchartFilter(subtask: SubtaskItem, filter: FlowchartFilter) {
   return matchesSubtaskFlowchartFilter(subtask, filter) || subtask.steps.some((step) => matchesStepFlowchartFilter(step, filter))
 }
@@ -5011,9 +5133,9 @@ const flowchartFullscreenShell: React.CSSProperties = {
 const flowchartFullscreenToolbar: React.CSSProperties = {
   minHeight: 56,
   display: 'grid',
-  gridTemplateColumns: 'minmax(260px, .55fr) minmax(0, 1.45fr)',
+  gridTemplateColumns: 'minmax(220px, 360px) minmax(0, 1fr)',
   gap: 10,
-  alignItems: 'center',
+  alignItems: 'start',
   padding: '6px 10px',
   borderRadius: 18,
   border: '1px solid rgba(255,255,255,.10)',
@@ -5065,13 +5187,13 @@ const flowchartFullscreenMeta: React.CSSProperties = {
 
 const flowchartFullscreenToolGroup: React.CSSProperties = {
   display: 'flex',
-  justifyContent: 'flex-start',
+  justifyContent: 'flex-end',
   alignItems: 'center',
   gap: 7,
-  flexWrap: 'nowrap',
+  flexWrap: 'wrap',
   minWidth: 0,
-  overflowX: 'auto',
-  overflowY: 'hidden',
+  maxWidth: '100%',
+  overflow: 'visible',
   paddingBottom: 1,
 }
 
@@ -5199,11 +5321,11 @@ const flowchartCanvasCardFullscreen: React.CSSProperties = {
   height: '100%',
 }
 
-const flowchartTierGap = 6
-const flowchartBranchIndent = 14
+const flowchartTierGap = 116
+const flowchartBranchIndent = 96
 
 const flowchartCanvasHeader: React.CSSProperties = {
-  minWidth: 1180,
+  minWidth: 1540,
   display: 'grid',
   gridTemplateColumns: '280px 260px 300px 280px',
   gap: flowchartTierGap,
@@ -5216,43 +5338,51 @@ const flowchartCanvasHeader: React.CSSProperties = {
 }
 
 const flowchartScroll: React.CSSProperties = {
-  overflowX: 'auto',
-  overflowY: 'auto',
+  position: 'relative',
+  overflow: 'hidden',
   maxWidth: '100%',
   maxHeight: '72vh',
-  padding: 18,
+  minHeight: 560,
+  padding: 24,
+  touchAction: 'none',
+  backgroundImage: 'radial-gradient(circle, rgba(255,255,255,.065) 1px, transparent 1px)',
+  backgroundSize: '28px 28px',
+  backgroundPosition: '0 0',
 }
 
 const flowchartToggle: React.CSSProperties = {
   position: 'absolute',
-  left: -32,
-  top: 8,
-  zIndex: 3,
-  width: 22,
-  height: 22,
+  left: -46,
+  top: 12,
+  zIndex: 8,
+  width: 28,
+  height: 28,
   borderRadius: 999,
-  border: '1px solid rgba(255,255,255,.10)',
-  background: 'rgba(255,255,255,.035)',
-  color: 'var(--txt-3)',
+  border: '1px solid rgba(218,223,33,.34)',
+  background: 'linear-gradient(180deg, rgba(218,223,33,.18), rgba(218,223,33,.08))',
+  color: 'var(--txt)',
   fontWeight: 900,
   cursor: 'pointer',
   flex: '0 0 auto',
-  fontSize: 11,
-  lineHeight: '18px',
-  opacity: 0.72,
+  fontSize: 13,
+  lineHeight: '24px',
+  opacity: 0.98,
+  boxShadow: '0 10px 24px rgba(0,0,0,.26)',
 }
 
 const flowchartZoomLayer: React.CSSProperties = {
-  minWidth: 1180,
+  minWidth: 1540,
   transformOrigin: 'top left',
   transition: 'transform .18s ease',
+  willChange: 'transform',
 }
 
 const flowchartBoard: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '280px minmax(850px, 1fr)',
+  gridTemplateColumns: '280px minmax(1140px, 1fr)',
   gap: flowchartTierGap,
   alignItems: 'stretch',
+  width: 'max-content',
 }
 
 const flowchartProjectRail: React.CSSProperties = {
@@ -5287,13 +5417,13 @@ function flowchartProjectRailLineStyle(active: boolean): React.CSSProperties {
 const flowchartLaneStack: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 18,
+  gap: 28,
 }
 
 const flowchartLane: React.CSSProperties = {
   position: 'relative',
   display: 'grid',
-  gridTemplateColumns: '260px minmax(560px, 1fr)',
+  gridTemplateColumns: '260px minmax(764px, 1fr)',
   gap: flowchartTierGap,
   alignItems: 'start',
 }
@@ -5331,7 +5461,7 @@ const flowchartLaneSubtasks: React.CSSProperties = {
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 26,
   minWidth: 0,
   paddingLeft: flowchartBranchIndent,
   borderLeft: '2px solid rgba(157,184,199,.30)',
@@ -5348,7 +5478,7 @@ function flowchartLaneSubtasksStyle(active: boolean): React.CSSProperties {
 const flowchartSubtaskLane: React.CSSProperties = {
   position: 'relative',
   display: 'grid',
-  gridTemplateColumns: '300px minmax(250px, 1fr)',
+  gridTemplateColumns: '300px minmax(368px, 1fr)',
   gap: flowchartTierGap,
   alignItems: 'start',
 }
@@ -5386,7 +5516,7 @@ const flowchartStepColumn: React.CSSProperties = {
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 24,
   paddingLeft: flowchartBranchIndent,
   borderLeft: '2px solid rgba(157,184,199,.30)',
 }
