@@ -80,6 +80,25 @@ function fileTypeLabel(name: string, mime = '') {
   return ext ? ext.toUpperCase() : 'File'
 }
 
+function isHtmlFile(name: string, mime = '') {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return ['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')
+}
+
+function htmlPreviewUrl({
+  workspaceId,
+  storagePath,
+  fileName,
+}: {
+  workspaceId?: string
+  storagePath?: string | null
+  fileName: string
+}) {
+  if (!workspaceId || !storagePath) return null
+  const params = new URLSearchParams({ workspaceId, path: storagePath, name: fileName })
+  return `/file-preview/html?${params.toString()}`
+}
+
 function validateReplacementFile(file: File) {
   const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
   if (!ALLOWED_EXTENSIONS.has(extension)) return 'Chỉ hỗ trợ PDF, Word, Excel/CSV, ảnh, ZIP và HTML.'
@@ -304,6 +323,9 @@ export function FileList({
           const fileName = version.external_url ?? version.attachment?.file_name ?? `Version ${version.version_number}`
           const mime = version.external_url ? 'external_url' : version.attachment?.mime_type ?? ''
           const url = version.external_url ?? version.attachment?.url ?? null
+          const viewUrl = !version.external_url && isHtmlFile(fileName, mime)
+            ? htmlPreviewUrl({ workspaceId, storagePath: version.attachment?.storage_path, fileName })
+            : url
           const status = normalizeVersionReviewStatus(version.review_status)
           const tone = versionReviewTone(status)
           const submitter = version.submitted_by ? peopleById[version.submitted_by] : null
@@ -345,7 +367,7 @@ export function FileList({
                     <div style={menuPanelStyle}>
                       {url ? (
                         <>
-                          <a href={url} target="_blank" rel="noopener noreferrer" style={menuItemStyle}>
+                          <a href={viewUrl ?? url} target="_blank" rel="noopener noreferrer" style={menuItemStyle}>
                             <i className="ti ti-eye" />
                             Xem file
                           </a>
