@@ -4,7 +4,7 @@ import React from 'react'
 import { usePathname } from 'next/navigation'
 
 const CARD_SELECTOR = 'main section, main article, [data-vyvy-card], [data-vyvy-tilt]'
-const STAGGER_SELECTOR = 'main section, main table tbody tr, main [role="listitem"], main [data-vyvy-card]'
+const STAGGER_SELECTOR = 'main section:not([data-vyvy-no-stagger]), main table tbody tr, main [role="listitem"], main [data-vyvy-card]'
 const RIPPLE_SELECTOR = 'button, a[role="button"]'
 const CONFETTI_COLORS = ['#DADF21', '#4A8C5C', '#6B8A99', '#C47B2B', '#B84040']
 

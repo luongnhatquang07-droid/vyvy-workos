@@ -66,7 +66,7 @@ export function HtmlFilePreviewClient() {
         </button>
       </header>
 
-      <section style={previewFrameWrapStyle}>
+      <section data-vyvy-no-stagger="true" style={previewFrameWrapStyle}>
         {loading ? (
           <div style={stateStyle}>Đang tải preview...</div>
         ) : payload.error ? (
