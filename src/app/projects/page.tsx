@@ -2449,6 +2449,7 @@ function FlowchartTab({
                           </div>
 
                           <div style={flowchartLaneSubtasksStyle(workstreamPathActive)}>
+                            <span style={flowchartParentBridgeStyle(workstreamPathActive, 56)} aria-hidden="true" data-flow-connector="workstream-branch" />
                             {workstreamCollapsed ? (
                               <div style={flowchartCollapsedPill}>{workstream.subtasks.length} đầu việc con đang thu gọn</div>
                             ) : workstream.subtasks.length === 0 ? (
@@ -2478,6 +2479,7 @@ function FlowchartTab({
                                       />
                                     </div>
                                     <div style={flowchartStepColumnStyle(subtaskPathActive)}>
+                                      <span style={flowchartParentBridgeStyle(subtaskPathActive, 42)} aria-hidden="true" data-flow-connector="subtask-branch" />
                                       {subtaskCollapsed ? (
                                         <div style={flowchartCollapsedPill}>{subtask.steps.length} bước đang thu gọn</div>
                                       ) : visibleSteps.length === 0 ? (
@@ -5119,11 +5121,14 @@ const flowchartCanvasCardFullscreen: React.CSSProperties = {
   height: '100%',
 }
 
+const flowchartTierGap = 6
+const flowchartBranchIndent = 14
+
 const flowchartCanvasHeader: React.CSSProperties = {
   minWidth: 1180,
   display: 'grid',
-  gridTemplateColumns: '280px 260px 330px 280px',
-  gap: 24,
+  gridTemplateColumns: '280px 260px 300px 280px',
+  gap: flowchartTierGap,
   padding: '14px 18px 12px',
   borderBottom: '1px solid rgba(255,255,255,.09)',
   color: 'var(--txt-3)',
@@ -5141,6 +5146,10 @@ const flowchartScroll: React.CSSProperties = {
 }
 
 const flowchartToggle: React.CSSProperties = {
+  position: 'absolute',
+  left: -32,
+  top: 8,
+  zIndex: 3,
   width: 22,
   height: 22,
   borderRadius: 999,
@@ -5164,7 +5173,7 @@ const flowchartZoomLayer: React.CSSProperties = {
 const flowchartBoard: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '280px minmax(850px, 1fr)',
-  gap: 24,
+  gap: flowchartTierGap,
   alignItems: 'stretch',
 }
 
@@ -5181,7 +5190,7 @@ const flowchartProjectRailLine: React.CSSProperties = {
   flex: 1,
   minHeight: 220,
   width: 2,
-  marginLeft: 138,
+  marginLeft: 'calc(100% - 2px)',
   background: 'linear-gradient(180deg, rgba(157,184,199,.46), rgba(157,184,199,.05))',
   borderRadius: 999,
 }
@@ -5207,18 +5216,20 @@ const flowchartLane: React.CSSProperties = {
   position: 'relative',
   display: 'grid',
   gridTemplateColumns: '260px minmax(560px, 1fr)',
-  gap: 24,
+  gap: flowchartTierGap,
   alignItems: 'start',
 }
 
 const flowchartLaneConnector: React.CSSProperties = {
   position: 'absolute',
-  left: -24,
+  left: -flowchartTierGap,
   top: 56,
-  width: 24,
+  width: flowchartTierGap,
   height: 3,
   background: 'linear-gradient(90deg, rgba(157,184,199,.44), rgba(157,184,199,.72))',
   borderRadius: 999,
+  pointerEvents: 'none',
+  zIndex: 2,
 }
 
 function flowchartLaneConnectorStyle(active: boolean): React.CSSProperties {
@@ -5233,9 +5244,9 @@ function flowchartLaneConnectorStyle(active: boolean): React.CSSProperties {
 }
 
 const flowchartLaneWorkstream: React.CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  alignItems: 'flex-start',
+  position: 'relative',
+  display: 'block',
+  minWidth: 0,
 }
 
 const flowchartLaneSubtasks: React.CSSProperties = {
@@ -5244,7 +5255,7 @@ const flowchartLaneSubtasks: React.CSSProperties = {
   flexDirection: 'column',
   gap: 12,
   minWidth: 0,
-  paddingLeft: 20,
+  paddingLeft: flowchartBranchIndent,
   borderLeft: '2px solid rgba(157,184,199,.30)',
 }
 
@@ -5260,18 +5271,20 @@ const flowchartSubtaskLane: React.CSSProperties = {
   position: 'relative',
   display: 'grid',
   gridTemplateColumns: '300px minmax(250px, 1fr)',
-  gap: 20,
+  gap: flowchartTierGap,
   alignItems: 'start',
 }
 
 const flowchartSubtaskConnector: React.CSSProperties = {
   position: 'absolute',
-  left: -20,
+  left: -flowchartBranchIndent,
   top: 48,
-  width: 20,
+  width: flowchartBranchIndent,
   height: 3,
   background: 'linear-gradient(90deg, rgba(157,184,199,.44), rgba(157,184,199,.72))',
   borderRadius: 999,
+  pointerEvents: 'none',
+  zIndex: 2,
 }
 
 function flowchartSubtaskConnectorStyle(active: boolean): React.CSSProperties {
@@ -5286,9 +5299,9 @@ function flowchartSubtaskConnectorStyle(active: boolean): React.CSSProperties {
 }
 
 const flowchartSubtaskCardSlot: React.CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  alignItems: 'flex-start',
+  position: 'relative',
+  display: 'block',
+  minWidth: 0,
 }
 
 const flowchartStepColumn: React.CSSProperties = {
@@ -5296,7 +5309,7 @@ const flowchartStepColumn: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
-  paddingLeft: 24,
+  paddingLeft: flowchartBranchIndent,
   borderLeft: '2px solid rgba(157,184,199,.30)',
 }
 
@@ -5316,13 +5329,14 @@ const flowchartStepBranch: React.CSSProperties = {
 
 const flowchartStepConnector: React.CSSProperties = {
   position: 'absolute',
-  left: -24,
+  left: -flowchartBranchIndent,
   top: 42,
-  width: 24,
+  width: flowchartBranchIndent,
   height: 3,
   borderRadius: 999,
   background: 'linear-gradient(90deg, rgba(157,184,199,.38), rgba(157,184,199,.66))',
-  zIndex: 0,
+  pointerEvents: 'none',
+  zIndex: 2,
 }
 
 function flowchartStepConnectorStyle(active: boolean): React.CSSProperties {
@@ -5336,10 +5350,27 @@ function flowchartStepConnectorStyle(active: boolean): React.CSSProperties {
   }
 }
 
+function flowchartParentBridgeStyle(active: boolean, top: number): React.CSSProperties {
+  return {
+    position: 'absolute',
+    left: -flowchartTierGap,
+    top,
+    width: flowchartTierGap,
+    height: active ? 4 : 3,
+    borderRadius: 999,
+    background: active
+      ? 'linear-gradient(90deg, rgba(218,223,33,.95), rgba(218,223,33,.55))'
+      : 'linear-gradient(90deg, rgba(157,184,199,.48), rgba(157,184,199,.68))',
+    boxShadow: active ? '0 0 16px rgba(218,223,33,.18)' : undefined,
+    pointerEvents: 'none',
+    zIndex: 1,
+  }
+}
+
 function flowchartArrowHeadStyle(active: boolean): React.CSSProperties {
   return {
     position: 'absolute',
-    right: -1,
+    right: -6,
     top: '50%',
     width: 0,
     height: 0,
