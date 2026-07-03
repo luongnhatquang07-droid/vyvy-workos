@@ -42,6 +42,7 @@ export function CommandCenterView({
   const [filter, setFilter] = React.useState<FilterView>('all')
   const [drawer, setDrawer] = React.useState<DrawerState>({ open: false, type: null, id: null })
   const [currentTime, setCurrentTime] = React.useState<Date | null>(null)
+  const chasePanelRef = React.useRef<HTMLDivElement>(null)
   const commandData = data
 
   React.useEffect(() => {
@@ -56,16 +57,24 @@ export function CommandCenterView({
     () => filterPriorityItems(commandData.priorityItems, filter),
     [commandData.priorityItems, filter],
   )
+  const todayActionCount = React.useMemo(
+    () => filterPriorityItems(commandData.priorityItems, 'today').length,
+    [commandData.priorityItems],
+  )
 
   function closeDrawer() {
     setDrawer({ open: false, type: null, id: null })
+  }
+
+  function focusChasePanel() {
+    chasePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
     <>
       <div style={pageStyle}>
         <CCHeader
-          totalItems={commandData.priorityItems.length}
+          todayActionCount={todayActionCount}
           todayLabel={todayLabel}
           currentTime={currentTime}
           timezone={timezone}
@@ -78,7 +87,12 @@ export function CommandCenterView({
           userName={userName}
           timezone={timezone}
         />
-        <KPICards kpi={commandData.kpi} />
+        <KPICards
+          kpi={commandData.kpi}
+          activeFilter={filter}
+          onSelectFilter={setFilter}
+          onFocusChase={focusChasePanel}
+        />
         <FilterChips value={filter} onChange={setFilter} />
 
         <div style={mainGridStyle}>
@@ -89,7 +103,9 @@ export function CommandCenterView({
           </div>
 
           <div style={columnStyle}>
-            <ChasePanel items={commandData.chaseItems} people={commandData.people} />
+            <div ref={chasePanelRef}>
+              <ChasePanel items={commandData.chaseItems} people={commandData.people} />
+            </div>
             <EscalationLadder items={commandData.chaseItems} people={commandData.people} />
             <CEOPanel requests={commandData.ceoRequests} projects={commandData.projects} onOpenDrawer={setDrawer} />
           </div>
@@ -132,14 +148,14 @@ export function CommandCenterViewLoading() {
 
 function CCHeader({
   loading,
-  totalItems,
+  todayActionCount,
   todayLabel,
   currentTime,
   timezone = DEFAULT_COMMAND_CENTER_TIMEZONE,
   hasDataIssue,
 }: {
   loading?: boolean
-  totalItems?: number
+  todayActionCount?: number
   todayLabel?: string
   currentTime?: Date | null
   timezone?: string
@@ -153,7 +169,7 @@ function CCHeader({
         <h1 style={headlineStyle} data-vyvy-type="true" suppressHydrationWarning>Trung tâm điều hành</h1>
         <div style={subheadStyle}>
           {displayDateTime}
-          {!loading && typeof totalItems === 'number' ? ` · ${totalItems} việc cần bạn xử lý hôm nay` : ''}
+          {!loading && typeof todayActionCount === 'number' ? ` · Cần xử lý hôm nay: ${todayActionCount} việc` : ''}
         </div>
       </div>
       {hasDataIssue ? <span style={issueBadgeStyle}>Cần kiểm tra dữ liệu</span> : null}

@@ -1,7 +1,7 @@
 'use client'
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import type { KPIData } from '../types'
+import type { FilterView, KPIData } from '../types'
 
 function useCountUp(target: number, duration = 750): { count: number; bump: boolean } {
   const [count, setCount] = React.useState(0)
@@ -37,19 +37,44 @@ function useCountUp(target: number, duration = 750): { count: number; bump: bool
 interface KPICardProps {
   value: number
   label: string
+  unit: string
+  description: string
   icon: string          // tabler icon class
   iconBg: string
   iconColor: string
   accent?: 'danger' | 'warning' | 'default' | 'lime'
   delta?: number        // +/- change indicator
-  route: string
+  route?: string
+  filter?: FilterView
+  focusChase?: boolean
   flashing?: boolean    // periodic "live" pulse driven by the parent
+  active?: boolean
+  onSelectFilter?: (filter: FilterView) => void
+  onFocusChase?: () => void
 }
 
-function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', delta, route, flashing }: KPICardProps) {
+function KPICard({
+  value,
+  label,
+  unit,
+  description,
+  icon,
+  iconBg,
+  iconColor,
+  accent = 'default',
+  delta,
+  route,
+  filter,
+  focusChase,
+  flashing,
+  active,
+  onSelectFilter,
+  onFocusChase,
+}: KPICardProps) {
   const router = useRouter()
   const [hovered, setHovered] = React.useState(false)
   const { count: displayCount, bump } = useCountUp(value)
+  const isInteractive = Boolean(route || filter || focusChase)
 
   const numColor = {
     danger:  'var(--color-danger)',
@@ -60,8 +85,19 @@ function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', de
 
   return (
     <button
-      onClick={() => router.push(route)}
+      onClick={() => {
+        if (filter) {
+          onSelectFilter?.(filter)
+          return
+        }
+        if (focusChase) {
+          onFocusChase?.()
+          return
+        }
+        if (route) router.push(route)
+      }}
       aria-label={`Xem ${label}`}
+      title={description}
       className={bump || flashing ? 'vyvy-flash' : undefined}
       data-vyvy-tilt="true"
       data-vyvy-radar="true"
@@ -80,14 +116,16 @@ function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', de
         borderRadius: 'var(--radius-lg)',
         border: '1px solid var(--color-border)',
         padding: '15px',
-        cursor: 'pointer',
+        cursor: isInteractive ? 'pointer' : 'default',
         textAlign: 'left',
         width: '100%',
         position: 'relative',
         overflow: 'hidden',
         willChange: 'transform',
         borderColor:
-          hovered
+          active
+            ? 'var(--color-lime)'
+            : hovered
             ? accent === 'danger'
               ? 'rgba(184,64,64,0.55)'
               : accent === 'lime'
@@ -96,7 +134,9 @@ function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', de
             : 'var(--color-border)',
         transition: 'transform var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
         boxShadow:
-          hovered
+          active
+            ? '0 0 0 1px rgba(218,223,33,0.16), 0 18px 34px rgba(0,0,0,0.22)'
+            : hovered
             ? accent === 'danger'
               ? '0 0 0 1px rgba(184,64,64,0.14), 0 18px 34px rgba(0,0,0,0.2)'
               : accent === 'lime'
@@ -124,14 +164,20 @@ function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', de
         fontSize: 28, fontWeight: 600, lineHeight: 1,
         color: value > 0 ? numColor : 'var(--color-text-muted)',
         fontFamily: 'var(--font-display)',
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 6,
       }}>
         <span className={bump ? 'vyvy-num-bump' : undefined}>{displayCount}</span>
+        <span style={unitStyle}>{unit}</span>
       </div>
 
       {/* Label */}
-      <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 5 }}>
+      <div style={{ fontSize: 12, color: 'var(--color-text)', marginTop: 5, fontWeight: 700 }}>
         {label}
       </div>
+
+      <div style={descriptionStyle}>{description}</div>
 
       {/* Delta */}
       {delta !== undefined && delta !== 0 && (
@@ -149,9 +195,12 @@ function KPICard({ value, label, icon, iconBg, iconColor, accent = 'default', de
 
 interface KPICardsProps {
   kpi: KPIData
+  activeFilter: FilterView
+  onSelectFilter: (filter: FilterView) => void
+  onFocusChase: () => void
 }
 
-export function KPICards({ kpi }: KPICardsProps) {
+export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KPICardsProps) {
   const [liveIndex, setLiveIndex] = React.useState(-1)
 
   // Nhịp cập nhật trực tiếp: cứ vài giây lóe ngẫu nhiên 1 thẻ KPI cho cảm giác "sống".
@@ -177,6 +226,8 @@ export function KPICards({ kpi }: KPICardsProps) {
       <KPICard
         value={kpi.meetingsToday}
         label="Họp hôm nay"
+        unit="cuộc"
+        description="Cuộc họp có lịch đúng ngày hôm nay."
         icon="ti-calendar-event"
         iconBg="var(--color-waiting-bg)"
         iconColor="var(--color-waiting)"
@@ -187,6 +238,8 @@ export function KPICards({ kpi }: KPICardsProps) {
       <KPICard
         value={kpi.unimportedDrafts}
         label="Đầu việc chưa nhập"
+        unit="việc"
+        description="Draft từ họp hoặc import chưa được đưa vào hệ thống."
         icon="ti-file-import"
         iconBg="var(--color-waiting-bg)"
         iconColor="#6B8A99"
@@ -196,44 +249,73 @@ export function KPICards({ kpi }: KPICardsProps) {
       />
       <KPICard
         value={kpi.pendingDeliverable}
-        label="Người nợ file"
+        label="Người cần nhắc"
+        unit="người"
+        description="Người có ít nhất 1 file/báo cáo cần follow-up."
         icon="ti-file-alert"
         iconBg="var(--color-warning-bg)"
         iconColor="var(--color-warning)"
         accent="warning"
-        route="/follow-ups"
+        focusChase
+        onFocusChase={onFocusChase}
         flashing={liveIndex === 2}
       />
       <KPICard
         value={kpi.overdueItems}
         label="Quá hạn"
+        unit="việc"
+        description="Việc có deadline trước hôm nay và chưa hoàn thành."
         icon="ti-alarm"
         iconBg="var(--color-danger-bg)"
         iconColor="var(--color-danger)"
         accent="danger"
-        route="/follow-ups"
+        filter="overdue"
+        active={activeFilter === 'overdue'}
+        onSelectFilter={onSelectFilter}
         flashing={liveIndex === 3}
       />
       <KPICard
         value={kpi.pendingApprovals}
         label="Chờ duyệt"
+        unit="việc"
+        description="Yêu cầu phê duyệt đang chờ xử lý hoặc đã trễ hạn."
         icon="ti-stamp"
         iconBg="var(--color-success-bg)"
         iconColor="var(--color-success)"
         accent="default"
-        route="/approvals"
+        filter="pending_approval"
+        active={activeFilter === 'pending_approval'}
+        onSelectFilter={onSelectFilter}
         flashing={liveIndex === 4}
       />
       <KPICard
         value={kpi.ceoItems}
         label="Cần báo CEO"
+        unit="mục"
+        description="Vấn đề cần đưa vào báo cáo hoặc xin quyết định CEO."
         icon="ti-crown"
         iconBg="rgba(218,223,33,0.14)"
         iconColor="var(--color-lime-d)"
         accent="lime"
+        filter="ceo_report"
+        active={activeFilter === 'ceo_report'}
+        onSelectFilter={onSelectFilter}
         flashing={liveIndex === 5}
-        route="/ceo-reports"
       />
     </div>
   )
+}
+
+const unitStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--color-text-muted)',
+  fontFamily: 'var(--font-sans)',
+}
+
+const descriptionStyle: React.CSSProperties = {
+  marginTop: 5,
+  fontSize: 10,
+  lineHeight: 1.35,
+  color: 'var(--color-text-muted)',
 }
