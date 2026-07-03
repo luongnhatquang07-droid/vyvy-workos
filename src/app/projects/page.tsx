@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { Drawer } from '@/components/feedback/Drawer'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
@@ -30,7 +31,7 @@ type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDI
 type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
 type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings' | 'flowchart'
 type ProjectWorkFilter = 'all' | 'unassigned'
-type FlowchartFilter = 'all' | 'overdue' | 'today' | 'unassigned' | 'blocked'
+type FlowchartFilter = 'all' | 'active' | 'completed' | 'delayed' | 'overdue' | 'unassigned'
 type FlowchartNodeKind = 'project' | 'workstream' | 'subtask' | 'step'
 type DeadlineSignalKind = 'overdue' | 'today' | 'upcoming' | 'normal' | 'none'
 type BadgeTone = 'neutral' | 'warning' | 'danger' | 'success'
@@ -202,6 +203,14 @@ const TASK_STATUS_ORDER: TaskStatus[] = [
   'CANCELLED',
 ]
 const TASK_STATUS_OPTIONS = TASK_STATUS_ORDER.map((value) => ({ value, ...STATUS_META[value] }))
+const FLOWCHART_FILTER_OPTIONS: Array<{ value: FlowchartFilter; label: string; shortLabel?: string; tone?: BadgeTone }> = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'active', label: 'Đang thực hiện', shortLabel: 'Đang làm' },
+  { value: 'completed', label: 'Đã hoàn thành', shortLabel: 'Xong', tone: 'success' },
+  { value: 'delayed', label: 'Bị trì hoãn / Tạm dừng', shortLabel: 'Tạm dừng', tone: 'warning' },
+  { value: 'overdue', label: 'Quá hạn', tone: 'danger' },
+  { value: 'unassigned', label: 'Chưa gắn người', shortLabel: 'Chưa gắn' },
+]
 const KANBAN_COLUMNS = TASK_STATUS_ORDER
 const CORE_KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
 const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'PENDING_APPROVAL', 'REVISION_REQUIRED', 'COMPLETED']
@@ -1134,6 +1143,10 @@ function ProjectsPageContent() {
                   project={selectedProject}
                   people={people}
                   onSaveSubtaskReport={saveFlowchartSubtaskReport}
+                  onOpenSubtask={(subtaskId) => {
+                    setSelectedSubtaskId(subtaskId)
+                    setActiveTab('overview')
+                  }}
                 />
               ) : null}
 
@@ -2131,14 +2144,49 @@ function FlowchartTab({
   project,
   people,
   onSaveSubtaskReport,
+  onOpenSubtask,
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
+  onOpenSubtask: (subtaskId: string) => void
 }) {
   const [filter, setFilter] = React.useState<FlowchartFilter>('all')
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set())
-  const [selectedNode, setSelectedNode] = React.useState<FlowchartNode | null>(null)
+  const [selectedNode, setSelectedNode] = React.useState<FlowchartNode>(() => ({ kind: 'project', project }))
+  const [zoom, setZoom] = React.useState(1)
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+  const [detailVisible, setDetailVisible] = React.useState(true)
+  const flowchartScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const previousProjectIdRef = React.useRef(project.id)
+
+  React.useEffect(() => {
+    if (previousProjectIdRef.current === project.id) return
+    previousProjectIdRef.current = project.id
+    queueMicrotask(() => {
+      setSelectedNode({ kind: 'project', project })
+      setCollapsedIds(new Set())
+      setFilter('all')
+      setZoom(1)
+      setDetailVisible(true)
+    })
+  }, [project])
+
+  React.useEffect(() => {
+    if (!isFullscreen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsFullscreen(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isFullscreen])
   const collapseIds = React.useMemo(
     () => [
       ...project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)),
@@ -2149,12 +2197,44 @@ function FlowchartTab({
   const visibleWorkstreams = React.useMemo(() => {
     if (filter === 'all') return project.workstreams
     return project.workstreams
-      .map((workstream) => ({
-        ...workstream,
-        subtasks: workstream.subtasks.filter((subtask) => matchesFlowchartFilter(subtask, filter)),
-      }))
-      .filter((workstream) => workstream.subtasks.length > 0)
+      .map((workstream) => {
+        const workstreamMatches = matchesWorkstreamFlowchartFilter(workstream, filter)
+        return {
+          ...workstream,
+          subtasks: workstreamMatches
+            ? workstream.subtasks
+            : workstream.subtasks.filter((subtask) => matchesFlowchartFilter(subtask, filter)),
+        }
+      })
+      .filter((workstream) => matchesWorkstreamFlowchartFilter(workstream, filter) || workstream.subtasks.length > 0)
   }, [filter, project])
+  const selectedNodeKey = getFlowchartNodeKey(selectedNode)
+  const allSubtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
+  const allSteps = allSubtasks.flatMap((subtask) => subtask.steps)
+  const visibleSubtaskCount = visibleWorkstreams.flatMap((workstream) => workstream.subtasks).length
+  const visibleStepCount = visibleWorkstreams.flatMap((workstream) =>
+    workstream.subtasks.flatMap((subtask) => getVisibleFlowchartSteps(subtask, filter)),
+  ).length
+  const projectStatus = getFlowchartNodeStatus({ kind: 'project', project })
+  const projectDeadline = project.dueDate ? `${formatDeadlineLabel(project.dueDate, projectStatus)} · ${toFullDate(project.dueDate)}` : 'Không deadline'
+  const workspaceStyle: React.CSSProperties = isFullscreen
+    ? {
+        ...flowchartWorkspace,
+        gridTemplateColumns: detailVisible ? 'minmax(0, 1fr) minmax(320px, 380px)' : 'minmax(0, 1fr)',
+        flex: 1,
+        minHeight: 0,
+      }
+    : flowchartWorkspace
+  const canvasScrollStyle: React.CSSProperties = {
+    ...flowchartScroll,
+    maxHeight: isFullscreen ? 'calc(100vh - 150px)' : flowchartScroll.maxHeight,
+    minHeight: isFullscreen ? 'calc(100vh - 150px)' : undefined,
+  }
+  const zoomLayerStyle: React.CSSProperties = {
+    ...flowchartZoomLayer,
+    transform: zoom === 1 ? undefined : `scale(${zoom})`,
+    width: zoom === 1 ? '100%' : `${Math.round(100 / zoom)}%`,
+  }
 
   function toggleCollapse(id: string) {
     setCollapsedIds((current) => {
@@ -2165,148 +2245,310 @@ function FlowchartTab({
     })
   }
 
-  return (
-    <section style={flowchartShell}>
-      <div style={flowchartToolbar}>
-        <div>
-          <div style={sectionTitle}>Flowchart</div>
-          <div style={mutedMetaStyle}>Dự án → Đầu việc lớn → Đầu việc con → Bước thực hiện.</div>
-        </div>
-        <div style={flowchartControls}>
-          {[
-            { value: 'all', label: 'Tất cả' },
-            { value: 'overdue', label: 'Chỉ việc trễ' },
-            { value: 'today', label: 'Chỉ việc hôm nay' },
-            { value: 'unassigned', label: 'Chưa gắn người' },
-            { value: 'blocked', label: 'Bị chặn/cần sửa' },
-          ].map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setFilter(option.value as FlowchartFilter)}
-              style={filterChipStyle(filter === option.value, option.value === 'overdue' ? 'danger' : 'neutral')}
-            >
-              {option.label}
+  function selectFlowchartNode(node: FlowchartNode) {
+    setSelectedNode(node)
+    if (isFullscreen && !detailVisible) setDetailVisible(true)
+  }
+
+  function fitFlowchartView() {
+    setZoom(1)
+    requestAnimationFrame(() => {
+      flowchartScrollRef.current?.scrollTo({ left: 0, top: 0, behavior: 'smooth' })
+    })
+  }
+
+  function selectFlowchartNodeByKey(nodeKey: string) {
+    const projectKey = getFlowchartNodeKey({ kind: 'project', project })
+    if (nodeKey === projectKey) {
+      selectFlowchartNode({ kind: 'project', project })
+      return
+    }
+
+    for (const workstream of project.workstreams) {
+      const workstreamNode: FlowchartNode = { kind: 'workstream', project, workstream }
+      if (nodeKey === getFlowchartNodeKey(workstreamNode)) {
+        selectFlowchartNode(workstreamNode)
+        return
+      }
+
+      for (const subtask of workstream.subtasks) {
+        const subtaskNode: FlowchartNode = { kind: 'subtask', project, workstream, subtask }
+        if (nodeKey === getFlowchartNodeKey(subtaskNode)) {
+          selectFlowchartNode(subtaskNode)
+          return
+        }
+
+        for (const step of subtask.steps) {
+          const stepNode: FlowchartNode = { kind: 'step', project, workstream, subtask, step }
+          if (nodeKey === getFlowchartNodeKey(stepNode)) {
+            selectFlowchartNode(stepNode)
+            return
+          }
+        }
+      }
+    }
+  }
+
+  function handleFlowchartBoardSelect(event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) {
+    if (!(event.target instanceof HTMLElement)) return
+    const nodeElement = event.target.closest('[data-flowchart-node-key]') as HTMLElement | null
+    const nodeKey = nodeElement?.dataset.flowchartNodeKey
+    if (!nodeKey) return
+    event.stopPropagation()
+    selectFlowchartNodeByKey(nodeKey)
+  }
+
+  const flowchartContent = (
+    <section style={isFullscreen ? flowchartFullscreenShell : flowchartShell}>
+      {isFullscreen ? (
+        <div style={flowchartFullscreenToolbar}>
+          <div style={flowchartFullscreenTitleBlock}>
+            <span style={flowchartModeBadge}>Flowchart</span>
+            <strong style={flowchartFullscreenTitle}>{project.name}</strong>
+            <span style={flowchartFullscreenMeta}>
+              {project.workstreams.length} đầu việc lớn · {allSubtasks.length} đầu việc con · {allSteps.length} bước
+            </span>
+          </div>
+          <div style={flowchartFullscreenToolGroup}>
+            {FLOWCHART_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setFilter(option.value)}
+                style={filterChipStyle(filter === option.value, option.tone ?? 'neutral')}
+              >
+                {option.shortLabel ?? option.label}
+              </button>
+            ))}
+            <button type="button" onClick={() => setCollapsedIds(new Set(collapseIds))} style={filterChipStyle(false)}>
+              Thu gọn
             </button>
-          ))}
-          <button type="button" onClick={() => setCollapsedIds(new Set(collapseIds))} style={filterChipStyle(false)}>
-            Thu gọn tất cả
-          </button>
-          <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
-            Mở rộng tất cả
-          </button>
+            <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
+              Mở rộng
+            </button>
+            <button type="button" onClick={() => setZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))))} style={flowchartIconButton}>-</button>
+            <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
+            <button type="button" onClick={() => setZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))))} style={flowchartIconButton}>+</button>
+            <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
+            <button type="button" onClick={() => setDetailVisible((value) => !value)} style={filterChipStyle(false)}>
+              {detailVisible ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
+            </button>
+            <button type="button" onClick={() => setIsFullscreen(false)} style={flowchartFullscreenButton}>
+              <i className="ti ti-minimize" />
+              Thoát full màn
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div style={flowchartStatsRow}>
-        <span>1 dự án</span>
-        <span>{project.workstreams.length} đầu việc lớn</span>
-        <span>{project.workstreams.flatMap((workstream) => workstream.subtasks).length} đầu việc con</span>
-        <span>{project.workstreams.flatMap((workstream) => workstream.subtasks.flatMap((subtask) => subtask.steps)).length} bước</span>
-      </div>
-
-      <div style={flowchartScroll}>
-        <div style={flowchartTree}>
-          <div style={flowchartRoot}>
-            <FlowchartNodeCard
-              node={{ kind: 'project', project }}
-              people={people}
-              onClick={() => setSelectedNode({ kind: 'project', project })}
-              variant="project"
-            />
+      ) : (
+        <>
+          <div style={flowchartHero}>
+            <div>
+              <div style={flowchartEyebrow}>Luồng vận hành dự án</div>
+              <h3 style={flowchartHeroTitle}>{project.name}</h3>
+              <div style={flowchartHeroMeta}>
+                <span>Owner: {project.ownerId ? people[project.ownerId]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</span>
+                <span>Deadline: {projectDeadline}</span>
+                <span>{project.workstreams.length} đầu việc lớn</span>
+                <span>{allSubtasks.length} đầu việc con</span>
+              </div>
+            </div>
+            <div style={flowchartZoomControls}>
+              <button type="button" onClick={() => setZoom((value) => Math.max(0.75, Number((value - 0.1).toFixed(2))))} style={flowchartIconButton}>-</button>
+              <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
+              <button type="button" onClick={() => setZoom((value) => Math.min(1.25, Number((value + 0.1).toFixed(2))))} style={flowchartIconButton}>+</button>
+              <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
+              <button type="button" onClick={() => setIsFullscreen(true)} style={flowchartFullscreenButton}>
+                <i className="ti ti-maximize" />
+                Mở full màn
+              </button>
+            </div>
           </div>
 
-          {visibleWorkstreams.length === 0 ? (
-            <div style={emptyInline}>Không có nhánh nào khớp bộ lọc hiện tại.</div>
-          ) : (
-            <div style={flowchartBranchList}>
-              {visibleWorkstreams.map((workstream) => {
-                const workstreamId = flowchartNodeId('workstream', workstream.id)
-                const workstreamCollapsed = collapsedIds.has(workstreamId)
-                return (
-                  <div key={workstream.id} style={flowchartBranch}>
-                    <div style={flowchartConnector} />
-                    <div style={flowchartColumn}>
-                      <div style={flowchartNodeWithToggle}>
-                        <button type="button" onClick={() => toggleCollapse(workstreamId)} style={flowchartToggle}>
-                          {workstreamCollapsed ? '+' : '-'}
-                        </button>
-                        <FlowchartNodeCard
-                          node={{ kind: 'workstream', project, workstream }}
-                          people={people}
-                          onClick={() => setSelectedNode({ kind: 'workstream', project, workstream })}
-                        />
-                      </div>
-
-                      {!workstreamCollapsed ? (
-                        <div style={flowchartSubtaskList}>
-                          {workstream.subtasks.map((subtask) => {
-                            const subtaskId = flowchartNodeId('subtask', subtask.id)
-                            const subtaskCollapsed = collapsedIds.has(subtaskId)
-                            const steps = filter === 'all' ? subtask.steps : subtask.steps.filter((step) => matchesStepFlowchartFilter(step, filter))
-                            const visibleSteps = steps.length || matchesSubtaskFlowchartFilter(subtask, filter) ? subtask.steps : steps
-                            return (
-                              <div key={subtask.id} style={flowchartSubtaskBranch}>
-                                <div style={flowchartNodeWithToggle}>
-                                  <button type="button" onClick={() => toggleCollapse(subtaskId)} style={flowchartToggle}>
-                                    {subtaskCollapsed ? '+' : '-'}
-                                  </button>
-                                  <FlowchartNodeCard
-                                    node={{ kind: 'subtask', project, workstream, subtask }}
-                                    people={people}
-                                    onClick={() => setSelectedNode({ kind: 'subtask', project, workstream, subtask })}
-                                  />
-                                </div>
-                                {!subtaskCollapsed ? (
-                                  <div style={flowchartStepList}>
-                                    {visibleSteps.length === 0 ? (
-                                      <div style={flowchartEmptyStep}>Chưa có bước.</div>
-                                    ) : (
-                                      visibleSteps.map((step) => (
-                                        <FlowchartNodeCard
-                                          key={step.id}
-                                          node={{ kind: 'step', project, workstream, subtask, step }}
-                                          people={people}
-                                          onClick={() => setSelectedNode({ kind: 'step', project, workstream, subtask, step })}
-                                          variant="step"
-                                        />
-                                      ))
-                                    )}
-                                  </div>
-                                ) : null}
-                              </div>
-                            )
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )
-              })}
+          <div style={flowchartToolbar}>
+            <div style={flowchartControls}>
+              {FLOWCHART_FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setFilter(option.value)}
+                  style={filterChipStyle(filter === option.value, option.tone ?? 'neutral')}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-      </div>
+            <div style={flowchartControls}>
+              <button type="button" onClick={() => setCollapsedIds(new Set(collapseIds))} style={filterChipStyle(false)}>
+                Thu gọn tất cả
+              </button>
+              <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
+                Mở rộng tất cả
+              </button>
+            </div>
+          </div>
 
-      <FlowchartDetailDrawer
-        node={selectedNode}
-        people={people}
-        onClose={() => setSelectedNode(null)}
-        onSaveSubtaskReport={onSaveSubtaskReport}
-      />
+          <div style={flowchartStatsRow}>
+            <span>{filter === 'all' ? 'Tất cả dữ liệu' : 'Đang lọc dữ liệu'}</span>
+            <span>1 dự án</span>
+            <span>{visibleWorkstreams.length}/{project.workstreams.length} đầu việc lớn</span>
+            <span>{visibleSubtaskCount}/{allSubtasks.length} đầu việc con</span>
+            <span>{visibleStepCount}/{allSteps.length} bước</span>
+          </div>
+        </>
+      )}
+
+      <div style={workspaceStyle}>
+        <div style={isFullscreen ? { ...flowchartCanvasCard, ...flowchartCanvasCardFullscreen } : flowchartCanvasCard}>
+          <div style={flowchartCanvasHeader}>
+            <span>Dự án</span>
+            <span>Đầu việc lớn</span>
+            <span>Đầu việc con</span>
+            <span>Bước</span>
+          </div>
+
+          <div ref={flowchartScrollRef} style={canvasScrollStyle}>
+            <div style={zoomLayerStyle}>
+              <div style={flowchartBoard} onClickCapture={handleFlowchartBoardSelect} onPointerDownCapture={handleFlowchartBoardSelect}>
+                <div style={flowchartProjectRail}>
+                  <FlowchartNodeCard
+                    node={{ kind: 'project', project }}
+                    people={people}
+                    onClick={() => selectFlowchartNode({ kind: 'project', project })}
+                    variant="project"
+                    active={selectedNodeKey === getFlowchartNodeKey({ kind: 'project', project })}
+                    pathActive={selectedNode.kind !== 'project'}
+                  />
+                  <div style={flowchartProjectRailLineStyle(selectedNode.project.id === project.id)} aria-hidden="true" />
+                </div>
+
+                <div style={flowchartLaneStack}>
+                  {visibleWorkstreams.length === 0 ? (
+                    <div style={emptyInline}>Không có nhánh nào khớp bộ lọc hiện tại.</div>
+                  ) : (
+                    visibleWorkstreams.map((workstream) => {
+                      const workstreamNode: FlowchartNode = { kind: 'workstream', project, workstream }
+                      const workstreamId = flowchartNodeId('workstream', workstream.id)
+                      const workstreamCollapsed = collapsedIds.has(workstreamId)
+                      const workstreamPathActive = isFlowchartWorkstreamPathActive(workstream, selectedNode)
+                      return (
+                        <div key={workstream.id} style={flowchartLane}>
+                          <div style={flowchartLaneConnectorStyle(workstreamPathActive)} aria-hidden="true" data-flow-connector="project-workstream">
+                            <span style={flowchartArrowHeadStyle(workstreamPathActive)} />
+                          </div>
+                          <div style={flowchartLaneWorkstream}>
+                            <button type="button" onClick={() => toggleCollapse(workstreamId)} style={flowchartToggle}>
+                              {workstreamCollapsed ? '+' : '-'}
+                            </button>
+                            <FlowchartNodeCard
+                              node={workstreamNode}
+                              people={people}
+                              onClick={() => selectFlowchartNode(workstreamNode)}
+                              active={selectedNodeKey === getFlowchartNodeKey(workstreamNode)}
+                              pathActive={workstreamPathActive && selectedNodeKey !== getFlowchartNodeKey(workstreamNode)}
+                            />
+                          </div>
+
+                          <div style={flowchartLaneSubtasksStyle(workstreamPathActive)}>
+                            {workstreamCollapsed ? (
+                              <div style={flowchartCollapsedPill}>{workstream.subtasks.length} đầu việc con đang thu gọn</div>
+                            ) : workstream.subtasks.length === 0 ? (
+                              <div style={flowchartEmptyStep}>Chưa có đầu việc con.</div>
+                            ) : (
+                              workstream.subtasks.map((subtask) => {
+                                const subtaskNode: FlowchartNode = { kind: 'subtask', project, workstream, subtask }
+                                const subtaskId = flowchartNodeId('subtask', subtask.id)
+                                const subtaskCollapsed = collapsedIds.has(subtaskId)
+                                const visibleSteps = getVisibleFlowchartSteps(subtask, filter)
+                                const subtaskPathActive = isFlowchartSubtaskPathActive(subtask, selectedNode)
+                                return (
+                                  <div key={subtask.id} style={flowchartSubtaskLane}>
+                                    <div style={flowchartSubtaskConnectorStyle(subtaskPathActive)} aria-hidden="true" data-flow-connector="workstream-subtask">
+                                      <span style={flowchartArrowHeadStyle(subtaskPathActive)} />
+                                    </div>
+                                    <div style={flowchartSubtaskCardSlot}>
+                                      <button type="button" onClick={() => toggleCollapse(subtaskId)} style={flowchartToggle}>
+                                        {subtaskCollapsed ? '+' : '-'}
+                                      </button>
+                                      <FlowchartNodeCard
+                                        node={subtaskNode}
+                                        people={people}
+                                        onClick={() => selectFlowchartNode(subtaskNode)}
+                                        active={selectedNodeKey === getFlowchartNodeKey(subtaskNode)}
+                                        pathActive={subtaskPathActive && selectedNodeKey !== getFlowchartNodeKey(subtaskNode)}
+                                      />
+                                    </div>
+                                    <div style={flowchartStepColumnStyle(subtaskPathActive)}>
+                                      {subtaskCollapsed ? (
+                                        <div style={flowchartCollapsedPill}>{subtask.steps.length} bước đang thu gọn</div>
+                                      ) : visibleSteps.length === 0 ? (
+                                        <div style={flowchartEmptyStep}>Chưa có bước khớp bộ lọc.</div>
+                                      ) : (
+                                        visibleSteps.map((step) => {
+                                          const stepNode: FlowchartNode = { kind: 'step', project, workstream, subtask, step }
+                                          const stepPathActive = isFlowchartStepPathActive(step, selectedNode)
+                                          return (
+                                            <div key={step.id} style={flowchartStepBranch}>
+                                              <span style={flowchartStepConnectorStyle(stepPathActive)} aria-hidden="true" data-flow-connector="subtask-step">
+                                                <span style={flowchartArrowHeadStyle(stepPathActive)} />
+                                              </span>
+                                              <FlowchartNodeCard
+                                                node={stepNode}
+                                                people={people}
+                                                onClick={() => selectFlowchartNode(stepNode)}
+                                                variant="step"
+                                                active={selectedNodeKey === getFlowchartNodeKey(stepNode)}
+                                                pathActive={stepPathActive}
+                                              />
+                                            </div>
+                                          )
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {!isFullscreen || detailVisible ? (
+          <FlowchartDetailDrawer
+            node={selectedNode}
+            people={people}
+            fullscreen={isFullscreen}
+            onClose={isFullscreen ? () => setDetailVisible(false) : () => setSelectedNode({ kind: 'project', project })}
+            onSaveSubtaskReport={onSaveSubtaskReport}
+            onOpenSubtask={onOpenSubtask}
+          />
+        ) : null}
+      </div>
     </section>
   )
+
+  return isFullscreen && typeof document !== 'undefined' ? createPortal(flowchartContent, document.body) : flowchartContent
 }
 
 function FlowchartNodeCard({
   node,
   people,
   onClick,
+  active = false,
+  pathActive = false,
   variant = 'default',
 }: {
   node: FlowchartNode
   people: Record<string, CommandCenterPersonRow>
   onClick: () => void
+  active?: boolean
+  pathActive?: boolean
   variant?: 'project' | 'default' | 'step'
 }) {
   const title = getFlowchartNodeTitle(node)
@@ -2315,43 +2557,77 @@ function FlowchartNodeCard({
   const status = getFlowchartNodeStatus(node)
   const progress = getFlowchartNodeProgress(node)
   const signal = getFlowchartSignal(status, deadline)
+  const warnings = getFlowchartNodeWarnings(node)
+  const handleSelect = React.useCallback(() => {
+    onClick()
+  }, [onClick])
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={flowchartNodeStyle(signal.tone, variant)}
+    <div
+      role="button"
+      tabIndex={0}
+      data-flowchart-node-key={getFlowchartNodeKey(node)}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        handleSelect()
+      }}
+      onMouseDown={(event) => {
+        if (event.button !== 0) return
+        event.stopPropagation()
+        handleSelect()
+      }}
+      onClick={handleSelect}
+      onFocus={handleSelect}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        handleSelect()
+      }}
+      style={flowchartNodeStyle(signal.tone, variant, active, pathActive)}
       title={`${title} · ${STATUS_META[status].label} · ${deadline ? toFullDate(deadline) : 'Không deadline'}`}
     >
       <div style={flowchartNodeTop}>
         <span style={flowchartKindBadge(node.kind)}>{getFlowchartKindLabel(node.kind)}</span>
-        {signal.icon ? <span style={flowchartSignalBadge(signal.tone)}>{signal.icon}</span> : null}
+        <span style={flowchartSignalBadge(signal.tone)}>{signal.icon ?? '•'}</span>
       </div>
       <strong style={flowchartNodeTitle}>{title}</strong>
       <div style={flowchartNodeMeta}>
         <span>{owner ? people[owner]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</span>
         <span title={deadline ? toFullDate(deadline) : undefined}>{deadline ? formatDeadlineLabel(deadline, status) : 'Không deadline'}</span>
       </div>
+      <div style={flowchartProgressArea}>
+        <div style={flowchartProgressTrack}>
+          <div style={{ ...flowchartProgressFill, width: `${progress}%`, background: STATUS_META[status].color }} />
+        </div>
+        <span style={flowchartProgressText}>{progress}%</span>
+      </div>
       <div style={flowchartNodeBottom}>
         <span style={statusChipStyle(STATUS_META[status].bg, STATUS_META[status].color)}>
           {signal.label || STATUS_META[status].label}
         </span>
-        <ProgressBadge value={progress} label={STATUS_META[status].label} />
+        {warnings.slice(0, 2).map((warning) => (
+          <span key={warning} style={flowchartWarningChip}>{warning}</span>
+        ))}
       </div>
-    </button>
+    </div>
   )
 }
 
 function FlowchartDetailDrawer({
   node,
   people,
+  fullscreen,
   onClose,
   onSaveSubtaskReport,
+  onOpenSubtask,
 }: {
   node: FlowchartNode | null
   people: Record<string, CommandCenterPersonRow>
+  fullscreen?: boolean
   onClose: () => void
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
+  onOpenSubtask: (subtaskId: string) => void
 }) {
   if (!node) return null
 
@@ -2366,75 +2642,106 @@ function FlowchartDetailDrawer({
   const fileSummary = subtask ? getFileSummary(subtask) : null
   const workflowSummary = subtask ? getWorkflowSummary(subtask) : null
   const blockers = subtask ? getCompletionBlockers(subtask) : []
+  const path = getFlowchartBreadcrumb(node)
 
   return (
-    <Drawer open title={title} onClose={onClose} width={520}>
-      <div style={flowchartDrawerStack}>
-        <section style={flowchartDrawerCard}>
-          <div style={flowchartDrawerHeader}>
-            <span style={flowchartKindBadge(node.kind)}>{getFlowchartKindLabel(node.kind)}</span>
-            <span style={statusChipStyle(STATUS_META[status].bg, STATUS_META[status].color)}>{STATUS_META[status].label}</span>
-          </div>
-          <div style={drawerInfoGrid}>
-            <div><strong>Owner:</strong> {owner ? people[owner]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</div>
-            <div><strong>Người phối hợp:</strong> {supporterNames || 'Chưa có'}</div>
-            <div title={deadline ? toFullDate(deadline) : undefined}><strong>Deadline:</strong> {deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}</div>
-            <div><strong>Tiến độ:</strong> {progress}%</div>
-            <div><strong>Ưu tiên:</strong> Bình thường</div>
-          </div>
-        </section>
-
-        <section style={flowchartDrawerCard}>
-          <div style={sectionTitle}>Mô tả chi tiết công việc</div>
-          <div style={mutedMetaStyle}>{description || 'Chưa có mô tả chi tiết.'}</div>
-        </section>
-
-        <section style={flowchartDrawerCard}>
-          <div style={sectionTitle}>Báo cáo / cập nhật kết quả</div>
-          {subtask ? (
-            <FlowchartReportEditor key={subtask.id} subtask={subtask} onSave={onSaveSubtaskReport} />
-          ) : (
-            <div style={mutedMetaStyle}>Chưa có báo cáo riêng cho cấp này.</div>
-          )}
-        </section>
-
-        <section style={flowchartDrawerCard}>
-          <div style={sectionTitle}>Quy trình thực hiện</div>
-          <FlowchartWorkflowSummary node={node} />
-          {workflowSummary ? <div style={mutedMetaStyle}>{workflowSummary.value} · {workflowSummary.hint}</div> : null}
-          {blockers.length ? <div style={warningBanner}>Chưa thể hoàn thành: {getCompactBlockerText(subtask as SubtaskItem)}</div> : null}
-        </section>
-
-        <section style={flowchartDrawerCard}>
-          <div style={sectionTitle}>Bàn giao</div>
-          {fileSummary ? (
-            <>
-              <div style={mutedMetaStyle}>{fileSummary.value} · {fileSummary.hint}</div>
-              {subtask?.attachments.length ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {subtask.attachments.map((file) => (
-                    <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
-                      <i className="ti ti-paperclip" /> {file.name}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : node.step ? (
-            <div style={mutedMetaStyle}>
-              {node.step.requiresDeliverable ? deliverableStatusLabel(node.step) : 'Bước này không yêu cầu bàn giao.'}
-            </div>
-          ) : (
-            <div style={mutedMetaStyle}>Bàn giao được tổng hợp ở các đầu việc con và bước bên dưới.</div>
-          )}
-        </section>
-
-        <section style={flowchartDrawerCard}>
-          <div style={sectionTitle}>Deadline</div>
-          <div style={mutedMetaStyle}>{deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}</div>
-        </section>
+    <aside style={fullscreen ? { ...flowchartDetailPanel, ...flowchartDetailPanelFullscreen } : flowchartDetailPanel}>
+      <div style={flowchartPanelHeader}>
+        <div>
+          <div style={flowchartEyebrow}>Chi tiết node</div>
+          <h3 style={flowchartPanelTitle}>{title}</h3>
+        </div>
+        <button type="button" onClick={onClose} style={flowchartIconButton} aria-label="Đóng chi tiết">
+          ×
+        </button>
       </div>
-    </Drawer>
+
+      <div style={flowchartPanelHero}>
+        <span style={flowchartKindBadge(node.kind)}>{getFlowchartKindLabel(node.kind)}</span>
+        <span style={statusChipStyle(STATUS_META[status].bg, STATUS_META[status].color)}>{STATUS_META[status].label}</span>
+        <ProgressBadge value={progress} label={STATUS_META[status].label} />
+      </div>
+
+      <div style={flowchartInfoGrid}>
+        <div style={flowchartInfoItem}><strong>Owner</strong><span>{owner ? people[owner]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'}</span></div>
+        <div style={flowchartInfoItem}><strong>Deadline</strong><span>{deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}</span></div>
+        <div style={flowchartInfoItem}><strong>Người phối hợp</strong><span>{supporterNames || 'Chưa có'}</span></div>
+        <div style={flowchartInfoItem}><strong>Tiến độ</strong><span>{progress}%</span></div>
+      </div>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Vị trí trong luồng</div>
+        <div style={flowchartBreadcrumb}>
+          {path.map((item, index) => (
+            <React.Fragment key={`${item.kind}-${item.title}`}>
+              {index ? <span style={flowchartBreadcrumbArrow}>→</span> : null}
+              <span style={flowchartBreadcrumbItem}>{item.title}</span>
+            </React.Fragment>
+          ))}
+        </div>
+      </section>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Mô tả</div>
+        <div style={mutedMetaStyle}>{description || 'Chưa có mô tả chi tiết.'}</div>
+      </section>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Báo cáo / cập nhật kết quả</div>
+        {subtask ? (
+          <FlowchartReportEditor key={subtask.id} subtask={subtask} onSave={onSaveSubtaskReport} />
+        ) : (
+          <div style={mutedMetaStyle}>Cấp này chưa có báo cáo riêng. Báo cáo được theo dõi ở đầu việc con.</div>
+        )}
+      </section>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Quy trình thực hiện</div>
+        <FlowchartWorkflowSummary node={node} />
+        {workflowSummary ? <div style={mutedMetaStyle}>{workflowSummary.value} · {workflowSummary.hint}</div> : null}
+        {blockers.length ? <div style={warningBanner}>Chưa thể hoàn thành: {getCompactBlockerText(subtask as SubtaskItem)}</div> : null}
+      </section>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Bàn giao / file</div>
+        {fileSummary ? (
+          <>
+            <div style={mutedMetaStyle}>{fileSummary.value} · {fileSummary.hint}</div>
+            {subtask?.attachments.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {subtask.attachments.map((file) => (
+                  <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
+                    <i className="ti ti-paperclip" /> {file.name}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : node.step ? (
+          <div style={mutedMetaStyle}>
+            {node.step.requiresDeliverable ? deliverableStatusLabel(node.step) : 'Bước này không yêu cầu bàn giao.'}
+          </div>
+        ) : (
+          <div style={mutedMetaStyle}>Bàn giao được tổng hợp ở các đầu việc con và bước bên dưới.</div>
+        )}
+      </section>
+
+      <section style={flowchartPanelCard}>
+        <div style={sectionTitle}>Deadline</div>
+        <div style={deadline && isOverdue(deadline, status) ? flowchartDeadlineDanger : mutedMetaStyle}>
+          {deadline ? `${formatDeadlineLabel(deadline, status)} · ${toFullDate(deadline)}` : 'Không deadline'}
+        </div>
+      </section>
+
+      <div style={flowchartPanelActions}>
+        <button type="button" onClick={onClose} style={ghostBtnStyle}>Đóng</button>
+        {subtask ? (
+          <PrimaryButton icon="ti-external-link" onClick={() => onOpenSubtask(subtask.id)}>
+            Mở trong Tổng quan
+          </PrimaryButton>
+        ) : null}
+      </div>
+    </aside>
   )
 }
 
@@ -3866,23 +4173,83 @@ function matchesFlowchartFilter(subtask: SubtaskItem, filter: FlowchartFilter) {
   return matchesSubtaskFlowchartFilter(subtask, filter) || subtask.steps.some((step) => matchesStepFlowchartFilter(step, filter))
 }
 
+function matchesWorkstreamFlowchartFilter(workstream: WorkstreamItem, filter: FlowchartFilter) {
+  if (filter === 'all') return true
+  if (filter === 'active') return workstream.status === 'IN_PROGRESS'
+  if (filter === 'completed') return workstream.status === 'COMPLETED'
+  if (filter === 'delayed') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(workstream.status)
+  if (filter === 'overdue') return isOverdue(workstream.dueDate, workstream.status)
+  if (filter === 'unassigned') return !workstream.ownerId
+  return true
+}
+
 function matchesSubtaskFlowchartFilter(subtask: SubtaskItem, filter: FlowchartFilter) {
   if (filter === 'all') return true
-  const deadline = getDeadlineSignal(subtask).kind
-  if (filter === 'overdue') return deadline === 'overdue'
-  if (filter === 'today') return deadline === 'today'
+  if (filter === 'active') return subtask.status === 'IN_PROGRESS'
+  if (filter === 'completed') return subtask.status === 'COMPLETED'
+  if (filter === 'delayed') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(subtask.status)
+  if (filter === 'overdue') return getDeadlineSignal(subtask).kind === 'overdue'
   if (filter === 'unassigned') return isUnassignedSubtask(subtask)
-  if (filter === 'blocked') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(subtask.status)
   return true
 }
 
 function matchesStepFlowchartFilter(step: StepItem, filter: FlowchartFilter) {
   if (filter === 'all') return true
+  if (filter === 'active') return step.status === 'IN_PROGRESS'
+  if (filter === 'completed') return step.status === 'COMPLETED'
+  if (filter === 'delayed') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(step.status)
   if (filter === 'overdue') return isOverdue(step.dueDate, step.status)
-  if (filter === 'today') return step.dueDate === getVietnamDateKey() && step.status !== 'COMPLETED'
   if (filter === 'unassigned') return !step.ownerId
-  if (filter === 'blocked') return ['WAITING', 'BLOCKED', 'REVISION_REQUIRED', 'PENDING_APPROVAL'].includes(step.status)
   return true
+}
+
+function getVisibleFlowchartSteps(subtask: SubtaskItem, filter: FlowchartFilter) {
+  if (filter === 'all') return subtask.steps
+  const matchedSteps = subtask.steps.filter((step) => matchesStepFlowchartFilter(step, filter))
+  return matchesSubtaskFlowchartFilter(subtask, filter) ? subtask.steps : matchedSteps
+}
+
+function getFlowchartNodeKey(node: FlowchartNode) {
+  if (node.kind === 'project') return flowchartNodeId('project', node.project.id)
+  if (node.kind === 'workstream') return flowchartNodeId('workstream', node.workstream?.id ?? node.project.id)
+  if (node.kind === 'subtask') return flowchartNodeId('subtask', node.subtask?.id ?? node.project.id)
+  return flowchartNodeId('step', node.step?.id ?? node.project.id)
+}
+
+function isFlowchartWorkstreamPathActive(workstream: WorkstreamItem, selectedNode: FlowchartNode) {
+  return selectedNode.workstream?.id === workstream.id
+}
+
+function isFlowchartSubtaskPathActive(subtask: SubtaskItem, selectedNode: FlowchartNode) {
+  return selectedNode.subtask?.id === subtask.id
+}
+
+function isFlowchartStepPathActive(step: StepItem, selectedNode: FlowchartNode) {
+  return selectedNode.step?.id === step.id
+}
+
+function getFlowchartNodeWarnings(node: FlowchartNode) {
+  const warnings: string[] = []
+  const deadline = getFlowchartNodeDeadline(node)
+  const status = getFlowchartNodeStatus(node)
+  if (!getFlowchartNodeOwner(node)) warnings.push('Chưa gắn')
+  if (deadline && isOverdue(deadline, status)) warnings.push('Quá hạn')
+  if (node.subtask) {
+    if (node.subtask.needsFile && !hasEvidence(node.subtask)) warnings.push('Thiếu file')
+    if (node.subtask.status === 'PENDING_APPROVAL') warnings.push('Chờ duyệt')
+    if (['BLOCKED', 'REVISION_REQUIRED', 'WAITING'].includes(node.subtask.status)) warnings.push('Cần xử lý')
+  }
+  if (node.step?.requiresDeliverable && !node.step.deliverableIsValid) warnings.push('Thiếu bàn giao')
+  return warnings
+}
+
+function getFlowchartBreadcrumb(node: FlowchartNode) {
+  return [
+    { kind: 'project', title: node.project.name },
+    node.workstream ? { kind: 'workstream', title: node.workstream.title } : null,
+    node.subtask ? { kind: 'subtask', title: node.subtask.title } : null,
+    node.step ? { kind: 'step', title: node.step.title } : null,
+  ].filter(Boolean) as Array<{ kind: FlowchartNodeKind; title: string }>
 }
 
 function getFlowchartNodeTitle(node: FlowchartNode) {
@@ -3922,8 +4289,8 @@ function getFlowchartNodeProgress(node: FlowchartNode) {
 
 function getFlowchartNodeDescription(node: FlowchartNode) {
   if (node.kind === 'project') return node.project.description
-  if (node.kind === 'workstream') return ''
-  if (node.kind === 'subtask') return node.subtask?.reportText ? '' : ''
+  if (node.kind === 'workstream') return `Đầu việc lớn gồm ${node.workstream?.subtasks.length ?? 0} đầu việc con trong dự án ${node.project.name}.`
+  if (node.kind === 'subtask') return node.subtask?.reportText || 'Chưa có mô tả hoặc cập nhật kết quả cho đầu việc con này.'
   return node.step?.description || node.step?.note || ''
 }
 
@@ -4174,16 +4541,23 @@ const projectFilterRow: React.CSSProperties = {
 
 function filterChipStyle(active: boolean, tone: BadgeTone = 'neutral'): React.CSSProperties {
   const warning = tone === 'warning'
+  const danger = tone === 'danger'
+  const success = tone === 'success'
+  const toneBorder = danger ? 'rgba(184,64,64,.42)' : warning ? 'rgba(184,139,62,.38)' : success ? 'rgba(96,145,92,.38)' : 'var(--line)'
+  const toneBackground = danger ? 'rgba(184,64,64,.11)' : warning ? 'rgba(184,139,62,.10)' : success ? 'rgba(96,145,92,.10)' : 'var(--surface-2)'
+  const toneColor = danger ? 'var(--color-danger)' : warning ? 'var(--color-warning)' : success ? 'var(--color-success)' : 'var(--txt-3)'
   return {
     minHeight: 30,
     padding: '0 12px',
     borderRadius: 999,
-    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : warning ? 'rgba(184,139,62,.38)' : 'var(--line)'}`,
-    background: active ? 'rgba(218,223,33,.10)' : warning ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
-    color: active ? 'var(--txt)' : warning ? 'var(--color-warning)' : 'var(--txt-3)',
+    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : toneBorder}`,
+    background: active ? 'rgba(218,223,33,.10)' : toneBackground,
+    color: active ? 'var(--txt)' : toneColor,
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flex: '0 0 auto',
   }
 }
 
@@ -4531,11 +4905,173 @@ const kanbanEmptyState: React.CSSProperties = {
 const flowchartShell: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
-  padding: 16,
+  gap: 16,
+  padding: 18,
+  borderRadius: 22,
+  background: 'linear-gradient(145deg, rgba(11,13,18,.98), rgba(18,22,29,.96))',
+  border: '1px solid rgba(255,255,255,.10)',
+  boxShadow: '0 24px 80px rgba(0,0,0,.30)',
+}
+
+const flowchartFullscreenShell: React.CSSProperties = {
+  ...flowchartShell,
+  position: 'fixed',
+  inset: 0,
+  zIndex: 120,
+  width: '100vw',
+  height: '100vh',
+  borderRadius: 0,
+  border: 'none',
+  padding: 10,
+  gap: 10,
+  background: 'radial-gradient(circle at 18% 12%, rgba(218,223,33,.07), transparent 32%), linear-gradient(145deg, #07090d, #11151c 58%, #090b0f)',
+  overflow: 'hidden',
+}
+
+const flowchartFullscreenToolbar: React.CSSProperties = {
+  minHeight: 56,
+  display: 'grid',
+  gridTemplateColumns: 'minmax(260px, .55fr) minmax(0, 1.45fr)',
+  gap: 10,
+  alignItems: 'center',
+  padding: '6px 10px',
   borderRadius: 18,
-  background: 'var(--surface)',
-  border: '1px solid var(--line)',
+  border: '1px solid rgba(255,255,255,.10)',
+  background: 'rgba(8,10,13,.76)',
+  boxShadow: '0 18px 54px rgba(0,0,0,.28)',
+}
+
+const flowchartFullscreenTitleBlock: React.CSSProperties = {
+  minWidth: 0,
+  display: 'grid',
+  gridTemplateColumns: 'auto minmax(0, 1fr)',
+  gap: '4px 8px',
+  alignItems: 'center',
+}
+
+const flowchartModeBadge: React.CSSProperties = {
+  gridRow: '1 / span 2',
+  display: 'inline-flex',
+  width: 'fit-content',
+  padding: '5px 8px',
+  borderRadius: 999,
+  border: '1px solid rgba(218,223,33,.42)',
+  background: 'rgba(218,223,33,.11)',
+  color: 'var(--color-lime)',
+  fontSize: 10,
+  fontWeight: 900,
+  textTransform: 'uppercase',
+}
+
+const flowchartFullscreenTitle: React.CSSProperties = {
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: 'var(--txt)',
+  fontSize: 15,
+  lineHeight: 1.2,
+}
+
+const flowchartFullscreenMeta: React.CSSProperties = {
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: 'var(--txt-3)',
+  fontSize: 11,
+  fontWeight: 800,
+}
+
+const flowchartFullscreenToolGroup: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-start',
+  alignItems: 'center',
+  gap: 7,
+  flexWrap: 'nowrap',
+  minWidth: 0,
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  paddingBottom: 1,
+}
+
+const flowchartHero: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 18,
+  alignItems: 'flex-start',
+  flexWrap: 'wrap',
+}
+
+const flowchartEyebrow: React.CSSProperties = {
+  color: 'var(--color-lime)',
+  fontSize: 10,
+  fontWeight: 900,
+  textTransform: 'uppercase',
+  letterSpacing: 0,
+}
+
+const flowchartHeroTitle: React.CSSProperties = {
+  margin: '4px 0 8px',
+  color: 'var(--txt)',
+  fontSize: 22,
+  lineHeight: 1.2,
+}
+
+const flowchartHeroMeta: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const flowchartZoomControls: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const flowchartIconButton: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,.12)',
+  background: 'rgba(255,255,255,.04)',
+  color: 'var(--txt)',
+  fontWeight: 900,
+  cursor: 'pointer',
+  flex: '0 0 auto',
+}
+
+const flowchartFullscreenButton: React.CSSProperties = {
+  minHeight: 34,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 7,
+  padding: '0 12px',
+  borderRadius: 12,
+  border: '1px solid rgba(218,223,33,.38)',
+  background: 'rgba(218,223,33,.10)',
+  color: 'var(--txt)',
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  flex: '0 0 auto',
+}
+
+const flowchartZoomValue: React.CSSProperties = {
+  minWidth: 48,
+  textAlign: 'center',
+  color: 'var(--txt-2)',
+  fontSize: 12,
+  fontWeight: 900,
+  flex: '0 0 auto',
 }
 
 const flowchartToolbar: React.CSSProperties = {
@@ -4550,7 +5086,7 @@ const flowchartControls: React.CSSProperties = {
   display: 'flex',
   gap: 8,
   flexWrap: 'wrap',
-  justifyContent: 'flex-end',
+  alignItems: 'center',
 }
 
 const flowchartStatsRow: React.CSSProperties = {
@@ -4562,93 +5098,266 @@ const flowchartStatsRow: React.CSSProperties = {
   fontWeight: 800,
 }
 
-const flowchartScroll: React.CSSProperties = {
-  overflowX: 'auto',
-  maxWidth: '100%',
-  paddingBottom: 8,
+const flowchartWorkspace: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(300px, 360px)',
+  gap: 16,
+  alignItems: 'start',
 }
 
-const flowchartTree: React.CSSProperties = {
-  minWidth: 960,
+const flowchartCanvasCard: React.CSSProperties = {
+  minWidth: 0,
+  borderRadius: 20,
+  border: '1px solid rgba(255,255,255,.10)',
+  background: 'linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018))',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
+  overflow: 'hidden',
+}
+
+const flowchartCanvasCardFullscreen: React.CSSProperties = {
+  minHeight: 0,
+  height: '100%',
+}
+
+const flowchartCanvasHeader: React.CSSProperties = {
+  minWidth: 1180,
+  display: 'grid',
+  gridTemplateColumns: '280px 260px 330px 280px',
+  gap: 24,
+  padding: '14px 18px 12px',
+  borderBottom: '1px solid rgba(255,255,255,.09)',
+  color: 'var(--txt-3)',
+  fontSize: 11,
+  fontWeight: 900,
+  textTransform: 'uppercase',
+}
+
+const flowchartScroll: React.CSSProperties = {
+  overflowX: 'auto',
+  overflowY: 'auto',
+  maxWidth: '100%',
+  maxHeight: '72vh',
+  padding: 18,
+}
+
+const flowchartToggle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: 999,
+  border: '1px solid rgba(255,255,255,.10)',
+  background: 'rgba(255,255,255,.035)',
+  color: 'var(--txt-3)',
+  fontWeight: 900,
+  cursor: 'pointer',
+  flex: '0 0 auto',
+  fontSize: 11,
+  lineHeight: '18px',
+  opacity: 0.72,
+}
+
+const flowchartZoomLayer: React.CSSProperties = {
+  minWidth: 1180,
+  transformOrigin: 'top left',
+  transition: 'transform .18s ease',
+}
+
+const flowchartBoard: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '280px minmax(850px, 1fr)',
+  gap: 24,
+  alignItems: 'stretch',
+}
+
+const flowchartProjectRail: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 16,
+  zIndex: 1,
+}
+
+const flowchartProjectRailLine: React.CSSProperties = {
+  flex: 1,
+  minHeight: 220,
+  width: 2,
+  marginLeft: 138,
+  background: 'linear-gradient(180deg, rgba(157,184,199,.46), rgba(157,184,199,.05))',
+  borderRadius: 999,
+}
+
+function flowchartProjectRailLineStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartProjectRailLine,
+    width: active ? 3 : 2,
+    background: active
+      ? 'linear-gradient(180deg, rgba(218,223,33,.72), rgba(218,223,33,.08))'
+      : flowchartProjectRailLine.background,
+    boxShadow: active ? '0 0 18px rgba(218,223,33,.16)' : undefined,
+  }
+}
+
+const flowchartLaneStack: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 18,
 }
 
-const flowchartRoot: React.CSSProperties = {
-  maxWidth: 520,
-}
-
-const flowchartBranchList: React.CSSProperties = {
+const flowchartLane: React.CSSProperties = {
+  position: 'relative',
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-  gap: 14,
+  gridTemplateColumns: '260px minmax(560px, 1fr)',
+  gap: 24,
   alignItems: 'start',
 }
 
-const flowchartBranch: React.CSSProperties = {
+const flowchartLaneConnector: React.CSSProperties = {
+  position: 'absolute',
+  left: -24,
+  top: 56,
+  width: 24,
+  height: 3,
+  background: 'linear-gradient(90deg, rgba(157,184,199,.44), rgba(157,184,199,.72))',
+  borderRadius: 999,
+}
+
+function flowchartLaneConnectorStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartLaneConnector,
+    height: active ? 4 : flowchartLaneConnector.height,
+    background: active
+      ? 'linear-gradient(90deg, rgba(218,223,33,.95), rgba(218,223,33,.5))'
+      : flowchartLaneConnector.background,
+    boxShadow: active ? '0 0 18px rgba(218,223,33,.22)' : undefined,
+  }
+}
+
+const flowchartLaneWorkstream: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'flex-start',
+}
+
+const flowchartLaneSubtasks: React.CSSProperties = {
   position: 'relative',
   display: 'flex',
-  gap: 12,
-}
-
-const flowchartConnector: React.CSSProperties = {
-  width: 18,
-  minHeight: 42,
-  borderLeft: '2px solid rgba(218,223,33,.28)',
-  borderTop: '2px solid rgba(218,223,33,.28)',
-  borderTopLeftRadius: 12,
-  marginTop: 24,
-}
-
-const flowchartColumn: React.CSSProperties = {
-  display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 12,
   minWidth: 0,
-  flex: 1,
+  paddingLeft: 20,
+  borderLeft: '2px solid rgba(157,184,199,.30)',
 }
 
-const flowchartNodeWithToggle: React.CSSProperties = {
+function flowchartLaneSubtasksStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartLaneSubtasks,
+    borderLeftColor: active ? 'rgba(218,223,33,.66)' : 'rgba(157,184,199,.30)',
+    boxShadow: active ? 'inset 2px 0 0 rgba(218,223,33,.10)' : undefined,
+  }
+}
+
+const flowchartSubtaskLane: React.CSSProperties = {
+  position: 'relative',
   display: 'grid',
-  gridTemplateColumns: '28px minmax(0, 1fr)',
-  gap: 8,
+  gridTemplateColumns: '300px minmax(250px, 1fr)',
+  gap: 20,
   alignItems: 'start',
 }
 
-const flowchartToggle: React.CSSProperties = {
-  width: 28,
-  height: 28,
+const flowchartSubtaskConnector: React.CSSProperties = {
+  position: 'absolute',
+  left: -20,
+  top: 48,
+  width: 20,
+  height: 3,
+  background: 'linear-gradient(90deg, rgba(157,184,199,.44), rgba(157,184,199,.72))',
   borderRadius: 999,
-  border: '1px solid var(--line)',
-  background: 'var(--surface-2)',
-  color: 'var(--txt)',
-  fontWeight: 900,
-  cursor: 'pointer',
 }
 
-const flowchartSubtaskList: React.CSSProperties = {
+function flowchartSubtaskConnectorStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartSubtaskConnector,
+    height: active ? 4 : flowchartSubtaskConnector.height,
+    background: active
+      ? 'linear-gradient(90deg, rgba(218,223,33,.95), rgba(218,223,33,.5))'
+      : flowchartSubtaskConnector.background,
+    boxShadow: active ? '0 0 18px rgba(218,223,33,.20)' : undefined,
+  }
+}
+
+const flowchartSubtaskCardSlot: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'flex-start',
+}
+
+const flowchartStepColumn: React.CSSProperties = {
+  position: 'relative',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
-  marginLeft: 14,
-  paddingLeft: 14,
-  borderLeft: '1px solid rgba(255,255,255,.10)',
+  paddingLeft: 24,
+  borderLeft: '2px solid rgba(157,184,199,.30)',
 }
 
-const flowchartSubtaskBranch: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
+function flowchartStepColumnStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartStepColumn,
+    borderLeftColor: active ? 'rgba(218,223,33,.62)' : 'rgba(157,184,199,.30)',
+    boxShadow: active ? 'inset 2px 0 0 rgba(218,223,33,.08)' : undefined,
+  }
 }
 
-const flowchartStepList: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-  marginLeft: 36,
-  paddingLeft: 12,
-  borderLeft: '1px dashed rgba(255,255,255,.12)',
+const flowchartStepBranch: React.CSSProperties = {
+  position: 'relative',
+  display: 'grid',
+  gridTemplateColumns: '1fr',
+}
+
+const flowchartStepConnector: React.CSSProperties = {
+  position: 'absolute',
+  left: -24,
+  top: 42,
+  width: 24,
+  height: 3,
+  borderRadius: 999,
+  background: 'linear-gradient(90deg, rgba(157,184,199,.38), rgba(157,184,199,.66))',
+  zIndex: 0,
+}
+
+function flowchartStepConnectorStyle(active: boolean): React.CSSProperties {
+  return {
+    ...flowchartStepConnector,
+    height: active ? 4 : flowchartStepConnector.height,
+    background: active
+      ? 'linear-gradient(90deg, rgba(218,223,33,.95), rgba(218,223,33,.55))'
+      : flowchartStepConnector.background,
+    boxShadow: active ? '0 0 16px rgba(218,223,33,.18)' : undefined,
+  }
+}
+
+function flowchartArrowHeadStyle(active: boolean): React.CSSProperties {
+  return {
+    position: 'absolute',
+    right: -1,
+    top: '50%',
+    width: 0,
+    height: 0,
+    borderTop: active ? '6px solid transparent' : '5px solid transparent',
+    borderBottom: active ? '6px solid transparent' : '5px solid transparent',
+    borderLeft: active ? '8px solid rgba(218,223,33,.92)' : '7px solid rgba(157,184,199,.70)',
+    transform: 'translateY(-50%)',
+  }
+}
+
+const flowchartCollapsedPill: React.CSSProperties = {
+  padding: '12px 14px',
+  borderRadius: 14,
+  border: '1px dashed rgba(255,255,255,.14)',
+  color: 'var(--txt-3)',
+  background: 'rgba(255,255,255,.025)',
+  fontSize: 12,
+  fontWeight: 800,
 }
 
 const flowchartEmptyStep: React.CSSProperties = {
@@ -4660,24 +5369,42 @@ const flowchartEmptyStep: React.CSSProperties = {
   fontWeight: 700,
 }
 
-function flowchartNodeStyle(tone: BadgeTone, variant: 'project' | 'default' | 'step'): React.CSSProperties {
+function flowchartNodeStyle(tone: BadgeTone, variant: 'project' | 'default' | 'step', active: boolean, pathActive: boolean): React.CSSProperties {
   const danger = tone === 'danger'
   const warning = tone === 'warning'
   const success = tone === 'success'
+  const borderColor = active
+    ? 'rgba(218,223,33,.78)'
+    : pathActive
+      ? 'rgba(218,223,33,.42)'
+      : danger
+        ? 'rgba(184,64,64,.48)'
+        : warning
+          ? 'rgba(184,139,62,.44)'
+          : success
+            ? 'rgba(96,145,92,.42)'
+            : 'rgba(255,255,255,.10)'
   return {
     width: '100%',
-    minHeight: variant === 'project' ? 142 : variant === 'step' ? 104 : 120,
+    minHeight: variant === 'project' ? 156 : variant === 'step' ? 116 : 134,
     display: 'flex',
     flexDirection: 'column',
     gap: 9,
     padding: variant === 'project' ? 16 : 13,
     borderRadius: 16,
-    border: `1px solid ${danger ? 'rgba(184,64,64,.48)' : warning ? 'rgba(184,139,62,.44)' : success ? 'rgba(96,145,92,.42)' : 'var(--line)'}`,
-    background: danger ? 'rgba(184,64,64,.12)' : warning ? 'rgba(184,139,62,.10)' : success ? 'rgba(96,145,92,.10)' : 'var(--surface-2)',
+    border: `1px solid ${borderColor}`,
+    background: danger ? 'linear-gradient(180deg, rgba(184,64,64,.15), rgba(184,64,64,.07))' : warning ? 'linear-gradient(180deg, rgba(184,139,62,.14), rgba(184,139,62,.06))' : success ? 'linear-gradient(180deg, rgba(96,145,92,.14), rgba(96,145,92,.06))' : 'linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025))',
     color: 'var(--txt)',
     textAlign: 'left',
     cursor: 'pointer',
-    boxShadow: variant === 'project' ? '0 18px 50px rgba(0,0,0,.24)' : 'none',
+    boxShadow: active
+      ? '0 0 0 3px rgba(218,223,33,.12), 0 20px 54px rgba(0,0,0,.34)'
+      : pathActive
+        ? '0 0 0 2px rgba(218,223,33,.07), 0 16px 40px rgba(0,0,0,.24)'
+        : variant === 'project'
+          ? '0 18px 50px rgba(0,0,0,.24)'
+          : '0 14px 32px rgba(0,0,0,.18)',
+    transition: 'border-color .16s ease, box-shadow .16s ease, transform .16s ease',
   }
 }
 
@@ -4710,9 +5437,9 @@ function flowchartSignalBadge(tone: BadgeTone): React.CSSProperties {
     width: 24,
     height: 24,
     borderRadius: 999,
-    background: tone === 'danger' ? 'rgba(184,64,64,.22)' : tone === 'success' ? 'rgba(96,145,92,.22)' : 'rgba(184,139,62,.18)',
-    color: tone === 'danger' ? 'var(--color-danger)' : tone === 'success' ? 'var(--color-success)' : 'var(--color-warning)',
-    border: `1px solid ${tone === 'danger' ? 'rgba(184,64,64,.45)' : tone === 'success' ? 'rgba(96,145,92,.42)' : 'rgba(184,139,62,.42)'}`,
+    background: tone === 'danger' ? 'rgba(184,64,64,.22)' : tone === 'success' ? 'rgba(96,145,92,.22)' : tone === 'warning' ? 'rgba(184,139,62,.18)' : 'rgba(255,255,255,.05)',
+    color: tone === 'danger' ? 'var(--color-danger)' : tone === 'success' ? 'var(--color-success)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--txt-3)',
+    border: `1px solid ${tone === 'danger' ? 'rgba(184,64,64,.45)' : tone === 'success' ? 'rgba(96,145,92,.42)' : tone === 'warning' ? 'rgba(184,139,62,.42)' : 'rgba(255,255,255,.12)'}`,
     fontSize: 13,
     fontWeight: 900,
   }
@@ -4742,27 +5469,148 @@ const flowchartNodeBottom: React.CSSProperties = {
   flexWrap: 'wrap',
 }
 
-const flowchartDrawerStack: React.CSSProperties = {
+const flowchartProgressArea: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto',
+  gap: 8,
+  alignItems: 'center',
+}
+
+const flowchartProgressTrack: React.CSSProperties = {
+  height: 6,
+  borderRadius: 999,
+  background: 'rgba(255,255,255,.09)',
+  overflow: 'hidden',
+}
+
+const flowchartProgressFill: React.CSSProperties = {
+  height: '100%',
+  borderRadius: 999,
+  transition: 'width .18s ease',
+}
+
+const flowchartProgressText: React.CSSProperties = {
+  color: 'var(--txt-3)',
+  fontSize: 11,
+  fontWeight: 900,
+}
+
+const flowchartWarningChip: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 22,
+  padding: '3px 7px',
+  borderRadius: 999,
+  border: '1px solid rgba(184,139,62,.34)',
+  background: 'rgba(184,139,62,.12)',
+  color: 'var(--color-warning)',
+  fontSize: 10,
+  fontWeight: 900,
+}
+
+const flowchartDetailPanel: React.CSSProperties = {
+  position: 'sticky',
+  top: 86,
+  maxHeight: 'calc(100vh - 112px)',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  padding: 16,
+  borderRadius: 20,
+  border: '1px solid rgba(255,255,255,.11)',
+  background: 'linear-gradient(180deg, rgba(18,22,29,.98), rgba(10,12,17,.98))',
+  boxShadow: '0 24px 70px rgba(0,0,0,.34)',
+  overflowY: 'auto',
 }
 
-const flowchartDrawerCard: React.CSSProperties = {
+const flowchartDetailPanelFullscreen: React.CSSProperties = {
+  top: 0,
+  maxHeight: 'calc(100vh - 142px)',
+  height: '100%',
+}
+
+const flowchartPanelHeader: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'flex-start',
+}
+
+const flowchartPanelTitle: React.CSSProperties = {
+  margin: '4px 0 0',
+  color: 'var(--txt)',
+  fontSize: 18,
+  lineHeight: 1.25,
+}
+
+const flowchartPanelHero: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+  flexWrap: 'wrap',
+}
+
+const flowchartInfoGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+}
+
+const flowchartInfoItem: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+  color: 'var(--txt-2)',
+  fontSize: 12,
+  lineHeight: 1.35,
+}
+
+const flowchartPanelCard: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
   padding: 14,
   borderRadius: 14,
-  background: 'var(--surface)',
-  border: '1px solid var(--line)',
+  background: 'rgba(255,255,255,.035)',
+  border: '1px solid rgba(255,255,255,.09)',
 }
 
-const flowchartDrawerHeader: React.CSSProperties = {
+const flowchartBreadcrumb: React.CSSProperties = {
   display: 'flex',
-  justifyContent: 'space-between',
+  gap: 6,
+  flexWrap: 'wrap',
   alignItems: 'center',
-  gap: 10,
+}
+
+const flowchartBreadcrumbItem: React.CSSProperties = {
+  padding: '5px 8px',
+  borderRadius: 999,
+  border: '1px solid rgba(255,255,255,.10)',
+  color: 'var(--txt-2)',
+  background: 'rgba(255,255,255,.04)',
+  fontSize: 11,
+  fontWeight: 800,
+}
+
+const flowchartBreadcrumbArrow: React.CSSProperties = {
+  color: 'var(--txt-3)',
+  fontSize: 12,
+  fontWeight: 900,
+}
+
+const flowchartDeadlineDanger: React.CSSProperties = {
+  color: 'var(--color-danger)',
+  fontSize: 12,
+  fontWeight: 900,
+}
+
+const flowchartPanelActions: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: 8,
+  flexWrap: 'wrap',
+  paddingTop: 4,
 }
 
 const flowchartStepMiniList: React.CSSProperties = {
