@@ -172,6 +172,12 @@ interface FlowchartNode {
   step?: StepItem
 }
 
+interface ProjectsRouteTarget {
+  projectId?: string
+  taskId?: string
+  tab?: ViewTab
+}
+
 interface ProjectOpsStats {
   today: number
   overdue: number
@@ -246,6 +252,8 @@ function ProjectsPageContent() {
   const [toast, setToast] = React.useState<{ message: string; tone: 'success' | 'danger' } | null>(null)
   const selectedProjectIdRef = React.useRef<string | null>(null)
   const selectedSubtaskIdRef = React.useRef<string | null>(null)
+  const routeSelectionAppliedRef = React.useRef(false)
+  const pendingScrollSubtaskIdRef = React.useRef<string | null>(null)
   const toastTimerRef = React.useRef<number | null>(null)
   const backgroundRefreshTimerRef = React.useRef<number | null>(null)
 
@@ -271,14 +279,32 @@ function ProjectsPageContent() {
       data?.meetings ?? [],
     )
     queueMicrotask(() => {
+      const routeTarget = routeSelectionAppliedRef.current ? null : readProjectsRouteTarget()
       const currentProjectId = selectedProjectIdRef.current
       const currentSubtaskId = selectedSubtaskIdRef.current
-      const nextProject = seeded.find((project) => project.id === currentProjectId) ?? seeded[0] ?? null
-      const nextSubtask = nextProject && currentSubtaskId ? findSubtask(nextProject, currentSubtaskId) : null
+      const nextProject = routeTarget
+        ? findProjectForRouteTarget(seeded, routeTarget) ?? seeded.find((project) => project.id === currentProjectId) ?? seeded[0] ?? null
+        : seeded.find((project) => project.id === currentProjectId) ?? seeded[0] ?? null
+      const targetSubtaskId = routeTarget?.taskId ?? currentSubtaskId
+      const nextSubtask = nextProject && targetSubtaskId ? findSubtask(nextProject, targetSubtaskId) : null
+
+      if (routeTarget) {
+        routeSelectionAppliedRef.current = true
+        if (routeTarget.tab) setActiveTab(routeTarget.tab)
+        if (routeTarget.taskId && nextSubtask) {
+          setActiveTab('overview')
+          pendingScrollSubtaskIdRef.current = nextSubtask.id
+        }
+      }
+
+      const nextProjectId = nextProject?.id ?? null
+      const nextSubtaskId = nextSubtask?.id ?? null
+      selectedProjectIdRef.current = nextProjectId
+      selectedSubtaskIdRef.current = nextSubtaskId
 
       setWorkspace(seeded)
-      setSelectedProjectId(nextProject?.id ?? null)
-      setSelectedSubtaskId(nextSubtask?.id ?? null)
+      setSelectedProjectId(nextProjectId)
+      setSelectedSubtaskId(nextSubtaskId)
       setReady(true)
     })
   }, [data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
@@ -296,6 +322,18 @@ function ProjectsPageContent() {
       if (backgroundRefreshTimerRef.current) window.clearTimeout(backgroundRefreshTimerRef.current)
     }
   }, [])
+
+  React.useEffect(() => {
+    if (!selectedSubtaskId || pendingScrollSubtaskIdRef.current !== selectedSubtaskId) return
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`project-subtask-${selectedSubtaskId}`)?.scrollIntoView({
+        block: 'center',
+        behavior: 'smooth',
+      })
+      pendingScrollSubtaskIdRef.current = null
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTab, selectedSubtaskId, workspace])
 
   function selectSubtask(subtaskId: string) {
     setSelectedSubtaskId((current) => (current === subtaskId ? null : subtaskId))
@@ -1944,6 +1982,7 @@ function OverviewTab({
                 <div key={subtask.id} style={subtaskInlineItem}>
                 <button
                   key={subtask.id}
+                  id={`project-subtask-${subtask.id}`}
                   data-vyvy-row="true"
                   onClick={() => onSelectSubtask(subtask.id)}
                   style={subtaskRowStyle(selectedSubtaskId === subtask.id, subtask)}
@@ -3737,6 +3776,45 @@ function composerTitle(mode: ComposerMode) {
   if (mode === 'workstream') return 'Tạo đầu việc lớn'
   if (mode === 'subtask') return 'Tạo đầu việc con'
   return 'Tạo cuộc họp'
+}
+
+function readProjectsRouteTarget(): ProjectsRouteTarget | null {
+  if (typeof window === 'undefined') return null
+  const params = new URLSearchParams(window.location.search)
+  const projectId = params.get('projectId') ?? undefined
+  const taskId = params.get('taskId') ?? params.get('subtaskId') ?? undefined
+  const tab = coerceViewTab(params.get('tab'))
+
+  if (!projectId && !taskId && !tab) return null
+  return { projectId, taskId, tab }
+}
+
+function coerceViewTab(value: string | null): ViewTab | undefined {
+  if (
+    value === 'overview'
+    || value === 'kanban'
+    || value === 'gantt'
+    || value === 'meetings'
+    || value === 'flowchart'
+  ) {
+    return value
+  }
+  return undefined
+}
+
+function findProjectForRouteTarget(projects: ProjectWorkspace[], target: ProjectsRouteTarget) {
+  if (target.projectId) {
+    const byProjectId = projects.find((project) =>
+      project.id === target.projectId || project.sourceProjectId === target.projectId,
+    )
+    if (byProjectId) return byProjectId
+  }
+
+  if (target.taskId) {
+    return projects.find((project) => Boolean(findSubtask(project, target.taskId ?? null))) ?? null
+  }
+
+  return null
 }
 
 function findSubtask(project: ProjectWorkspace, subtaskId: string | null) {

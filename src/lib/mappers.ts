@@ -125,7 +125,7 @@ function mapTask(row: CommandCenterTaskRow): Task {
     urgency: row.priority,
     waitingFor: row.waiting_for_content ?? undefined,
     kind: inferKind(row.title),
-    futureRoute: `/tasks/${row.id}`,
+    futureRoute: buildProjectTaskRoute(row),
   }
 }
 
@@ -151,7 +151,7 @@ function mapMeeting(row: CommandCenterMeetingRow, drafts: RawCommandCenterData['
     decisionCount: 0,
     importedTaskCount: 0,
     projectId: row.project_id ?? undefined,
-    futureRoute: `/meetings/${row.id}`,
+    futureRoute: row.project_id ? `/projects?projectId=${encodeURIComponent(row.project_id)}&tab=meetings` : '/meetings',
   }
 }
 
@@ -165,7 +165,7 @@ function mapDeliverable(row: CommandCenterDeliverableRow): Deliverable {
     dueDate: row.due_date ?? '',
     status: row.status,
     type: (row.type as Deliverable['type']) ?? 'file',
-    futureRoute: `/deliverables/${row.id}`,
+    futureRoute: `/deliverables?deliverableId=${encodeURIComponent(row.id)}`,
   }
 }
 
@@ -204,7 +204,7 @@ function mapApproval(
             ? 'rejected'
             : 'pending',
     daysWaiting,
-    futureRoute: `/approvals/${row.id}`,
+    futureRoute: `/approvals?approvalId=${encodeURIComponent(row.id)}`,
   }
 }
 
@@ -227,7 +227,7 @@ function mapReminder(
     reminderCount: row.reminder_level,
     lastReminderDate: row.last_reminded_at?.slice(0, 10) ?? '',
     response: mapReminderResponse(row.response_status),
-    futureRoute: `/follow-ups/${row.id}`,
+    futureRoute: `/follow-ups?reminderId=${encodeURIComponent(row.id)}`,
   }
 }
 
@@ -243,8 +243,17 @@ function mapCeoRequest(row: CommandCenterCeoDecisionRequestRow): CEODecisionRequ
     proposedAction: row.recommendation ?? '',
     createdDate: row.created_at?.slice(0, 10) ?? '',
     escalatedBy: '',
-    futureRoute: `/ceo-reports/${row.id}`,
+    futureRoute: `/ceo-reports?requestId=${encodeURIComponent(row.id)}`,
   }
+}
+
+function buildProjectTaskRoute(row: CommandCenterTaskRow) {
+  const params = new URLSearchParams()
+  params.set('taskId', row.id)
+  if (row.project_id) params.set('projectId', row.project_id)
+  if (row.workstream_id) params.set('workstreamId', row.workstream_id)
+  params.set('tab', 'overview')
+  return `/projects?${params.toString()}`
 }
 
 function mapActivityLog(row: CommandCenterActivityLogRow, people: Person[]): ActivityLogEntry {
