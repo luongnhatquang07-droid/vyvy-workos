@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/feedback/Toast'
 import type { DrawerState, PriorityItem } from '../types'
 import { formatRelativeDate } from '../utils'
+import { HoverPreviewCard } from './HoverPreviewCard'
 
 const KIND_LABEL: Record<string, string> = {
   MEETING: 'Họp',
@@ -102,6 +103,8 @@ interface RowProps {
 
 function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
   const [hovered, setHovered] = React.useState(false)
+  const [previewOpen, setPreviewOpen] = React.useState(false)
+  const previewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusColor =
     item.statusVariant === 'danger'
       ? 'var(--color-danger)'
@@ -118,6 +121,27 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
         : '#8C8278'
   const isCollect = item.kind === 'COLLECT_FILE' || item.kind === 'COLLECT_REPORT' || item.kind === 'REMIND'
 
+  function openHoverState() {
+    setHovered(true)
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    previewTimerRef.current = setTimeout(() => setPreviewOpen(true), 300)
+  }
+
+  function closeHoverState() {
+    setHovered(false)
+    setPreviewOpen(false)
+    if (previewTimerRef.current) {
+      clearTimeout(previewTimerRef.current)
+      previewTimerRef.current = null
+    }
+  }
+
+  React.useEffect(() => {
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    }
+  }, [])
+
   return (
     <div
       data-vyvy-row="true"
@@ -127,8 +151,8 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
         border: `1px solid ${hovered ? 'var(--color-border)' : 'transparent'}`,
         background: hovered ? 'var(--color-surface-2)' : 'transparent',
       }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={openHoverState}
+      onMouseLeave={closeHoverState}
       onClick={onOpenDrawer}
     >
       <div style={{ ...gripStyle, background: urgencyDot }} title={URGENCY_LABEL[item.urgency]} />
@@ -162,8 +186,35 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
           {isCollect ? <QuickBtn label="Nhắc" onClick={onRemind} accent /> : null}
         </div>
       ) : null}
+
+      {previewOpen ? (
+        <HoverPreviewCard
+          title={item.title}
+          projectName={item.projectName}
+          ownerName={item.personName}
+          deadlineLabel={item.deadline ? formatRelativeDate(item.deadline) : 'Chưa có'}
+          statusLabel={item.statusLabel}
+          progressLabel="Theo tiến độ task"
+          evidenceLabel={getEvidenceLabel(item)}
+          timingLabel={getTimingLabel(item)}
+          description={item.nextAction ? `Hành động gợi ý: ${item.nextAction}` : undefined}
+        />
+      ) : null}
     </div>
   )
+}
+
+function getEvidenceLabel(item: PriorityItem) {
+  if (item.kind === 'COLLECT_FILE') return 'Đang thiếu file'
+  if (item.kind === 'COLLECT_REPORT') return 'Đang thiếu báo cáo'
+  if (item.kind === 'REMIND') return 'Cần follow-up'
+  return undefined
+}
+
+function getTimingLabel(item: PriorityItem) {
+  if (item.statusVariant === 'danger') return 'Quá hạn / cần xử lý ngay'
+  if (item.deadline) return formatRelativeDate(item.deadline)
+  return undefined
 }
 
 function QuickBtn({
@@ -271,6 +322,7 @@ const sortTextStyle: React.CSSProperties = {
 }
 
 const rowStyle: React.CSSProperties = {
+  position: 'relative',
   display: 'flex',
   alignItems: 'center',
   gap: 12,
