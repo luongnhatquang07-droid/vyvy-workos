@@ -86,6 +86,8 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
                 toast('Đã đánh dấu đã xem.', 'success')
               }}
               onRemind={() => router.push('/follow-ups')}
+              onSnooze={() => toast('Đã ghi nhận hoãn xử lý. Mở chi tiết để đặt thời gian cụ thể.', 'info')}
+              onReassign={() => toast('Mở chi tiết để giao lại người phụ trách.', 'info')}
             />
           ))}
         </div>
@@ -99,11 +101,14 @@ interface RowProps {
   onOpenDrawer: () => void
   onDismiss: () => void
   onRemind: () => void
+  onSnooze: () => void
+  onReassign: () => void
 }
 
-function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
+function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReassign }: RowProps) {
   const [hovered, setHovered] = React.useState(false)
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [menuOpen, setMenuOpen] = React.useState(false)
   const previewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusColor =
     item.statusVariant === 'danger'
@@ -130,6 +135,7 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
   function closeHoverState() {
     setHovered(false)
     setPreviewOpen(false)
+    setMenuOpen(false)
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current)
       previewTimerRef.current = null
@@ -142,14 +148,21 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
     }
   }, [])
 
+  const baseBackground =
+    item.statusVariant === 'danger'
+      ? 'rgba(184,64,64,0.07)'
+      : item.statusVariant === 'warning'
+        ? 'rgba(196,123,43,0.05)'
+        : 'transparent'
+
   return (
     <div
       data-vyvy-row="true"
       data-vyvy-alert={item.urgency === 'CRITICAL' ? 'true' : undefined}
       style={{
         ...rowStyle,
-        border: `1px solid ${hovered ? 'var(--color-border)' : 'transparent'}`,
-        background: hovered ? 'var(--color-surface-2)' : 'transparent',
+        border: `1px solid ${hovered || item.statusVariant === 'danger' ? 'var(--color-border)' : 'transparent'}`,
+        background: hovered ? 'var(--color-surface-2)' : baseBackground,
       }}
       onMouseEnter={openHoverState}
       onMouseLeave={closeHoverState}
@@ -176,14 +189,31 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
       ) : null}
 
       <span style={{ ...nextActionStyle, display: hovered ? 'none' : 'block' }}>
-        → {item.nextAction}
+        → Mở
       </span>
 
       {hovered ? (
         <div style={quickActionsStyle} onClick={(event) => event.stopPropagation()}>
-          <QuickBtn label="Xem" onClick={onOpenDrawer} />
-          <QuickBtn label="Đã xem" onClick={onDismiss} muted />
-          {isCollect ? <QuickBtn label="Nhắc" onClick={onRemind} accent /> : null}
+          <QuickBtn label="Mở" onClick={onOpenDrawer} accent />
+          <button
+            type="button"
+            aria-label="Mở menu tác vụ phụ"
+            style={moreButtonStyle}
+            onClick={(event) => {
+              event.stopPropagation()
+              setMenuOpen((current) => !current)
+            }}
+          >
+            ⋯
+          </button>
+          {menuOpen ? (
+            <div style={moreMenuStyle}>
+              {isCollect ? <MenuAction label="Nhắc ngay" onClick={onRemind} /> : null}
+              <MenuAction label="Đã xem" onClick={onDismiss} />
+              <MenuAction label="Hoãn" onClick={onSnooze} />
+              <MenuAction label="Giao lại" onClick={onReassign} />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -197,7 +227,7 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind }: RowProps) {
           progressLabel="Theo tiến độ task"
           evidenceLabel={getEvidenceLabel(item)}
           timingLabel={getTimingLabel(item)}
-          description={item.nextAction ? `Hành động gợi ý: ${item.nextAction}` : undefined}
+          description={item.nextAction ? `Hành động gợi ý: ${item.nextAction}. Nút chính trong danh sách là Mở.` : undefined}
         />
       ) : null}
     </div>
@@ -230,6 +260,7 @@ function QuickBtn({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       data-vyvy-radar={accent ? 'true' : undefined}
       data-vyvy-confetti={muted ? 'true' : undefined}
@@ -237,6 +268,21 @@ function QuickBtn({
         ...quickButtonStyle,
         background: accent ? 'var(--color-lime)' : 'var(--color-surface)',
         color: muted ? 'var(--color-text-muted)' : accent ? 'var(--color-charcoal)' : 'var(--color-text)',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+function MenuAction({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      style={menuActionStyle}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
       }}
     >
       {label}
@@ -386,8 +432,9 @@ const rowTitleStyle: React.CSSProperties = {
 
 const rowMetaStyle: React.CSSProperties = {
   fontSize: 'var(--text-xs)',
-  color: 'var(--color-text-muted)',
+  color: 'var(--color-text-soft)',
   marginTop: 1,
+  fontWeight: 500,
 }
 
 const deadlineStyle: React.CSSProperties = {
@@ -405,6 +452,7 @@ const nextActionStyle: React.CSSProperties = {
 }
 
 const quickActionsStyle: React.CSSProperties = {
+  position: 'relative',
   display: 'flex',
   gap: 'var(--space-2)',
   flexShrink: 0,
@@ -412,10 +460,48 @@ const quickActionsStyle: React.CSSProperties = {
 
 const quickButtonStyle: React.CSSProperties = {
   fontSize: 11,
-  fontWeight: 500,
+  fontWeight: 700,
   padding: '4px 10px',
   borderRadius: 'var(--radius-sm)',
   border: '1px solid var(--color-border)',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
+}
+
+const moreButtonStyle: React.CSSProperties = {
+  width: 27,
+  height: 27,
+  borderRadius: 'var(--radius-sm)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+  color: 'var(--color-text-muted)',
+  cursor: 'pointer',
+  fontWeight: 800,
+  lineHeight: 1,
+}
+
+const moreMenuStyle: React.CSSProperties = {
+  position: 'absolute',
+  right: 0,
+  top: 32,
+  zIndex: 12,
+  minWidth: 126,
+  padding: 4,
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+  boxShadow: 'var(--shadow-premium)',
+}
+
+const menuActionStyle: React.CSSProperties = {
+  width: '100%',
+  border: 'none',
+  borderRadius: 'var(--radius-sm)',
+  background: 'transparent',
+  color: 'var(--color-text)',
+  padding: '7px 9px',
+  textAlign: 'left',
+  fontSize: 11,
+  fontWeight: 650,
+  cursor: 'pointer',
 }

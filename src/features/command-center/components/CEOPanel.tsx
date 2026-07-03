@@ -1,7 +1,6 @@
 'use client'
 
 import React from 'react'
-import { useRouter } from 'next/navigation'
 import type { CEODecisionRequest, DrawerState, Project } from '../types'
 import { EmptyRow, PanelShell } from './FollowUpPanel'
 
@@ -17,8 +16,7 @@ const SEVERITY_META: Record<string, { label: string; color: string; bg: string }
   info: { label: 'Thông tin', color: 'var(--color-text-muted)', bg: 'var(--color-surface-2)' },
 }
 
-export function CEOPanel({ requests, projects }: CEOPanelProps) {
-  const router = useRouter()
+export function CEOPanel({ requests, projects, onOpenDrawer }: CEOPanelProps) {
   const byProject = Object.fromEntries(projects.map((project) => [project.id, project]))
   const active = requests.filter(() => true)
 
@@ -41,7 +39,7 @@ export function CEOPanel({ requests, projects }: CEOPanelProps) {
               }}
               data-vyvy-row="true"
               data-vyvy-alert={request.severity === 'critical' ? 'true' : undefined}
-              onClick={() => router.push('/ceo-reports')}
+              onClick={() => onOpenDrawer({ open: true, type: 'ceo', id: request.id })}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', marginBottom: 4 }}>
                 <span style={{
@@ -70,12 +68,12 @@ export function CEOPanel({ requests, projects }: CEOPanelProps) {
                 <button
                   onClick={(event) => {
                     event.stopPropagation()
-                    router.push('/ceo-reports')
+                    onOpenDrawer({ open: true, type: 'ceo', id: request.id })
                   }}
                   data-vyvy-radar="true"
                   style={reportButtonStyle}
                 >
-                  Báo CEO
+                  Mở
                 </button>
               </div>
             </div>

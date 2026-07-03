@@ -48,8 +48,8 @@ export function ActivityLog({ entries }: ActivityLogProps) {
 
       <div style={{ padding: '4px 20px' }}>
         {entries.length === 0 ? (
-          <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', fontStyle: 'italic' }}>
-            Chưa có nhật ký theo dõi đang hiệu lực.
+          <div style={emptyLogStyle}>
+            Không có nhật ký theo dõi mới.
           </div>
         ) : entries.map((entry, i) => (
           <div key={entry.id} style={{
@@ -72,4 +72,10 @@ export function ActivityLog({ entries }: ActivityLogProps) {
       </div>
     </div>
   )
+}
+
+const emptyLogStyle: React.CSSProperties = {
+  padding: '12px 0 14px',
+  color: 'var(--color-text-muted)',
+  fontSize: 'var(--text-xs)',
 }
