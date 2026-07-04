@@ -1022,17 +1022,44 @@ export async function PATCH(req: NextRequest) {
       if (updateRes.error) return jsonError(updateRes.error.message, 500)
 
       const approvalStatus = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'REVISION_REQUESTED'
+      const completedAt = new Date().toISOString()
       const approvalsRes = await client
         .from('approvals')
-        .update({ status: approvalStatus, completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({ status: approvalStatus, completed_at: completedAt, updated_at: completedAt })
         .eq('workspace_id', context.workspaceId)
         .eq('deliverable_id', deliverableId)
         .select('id')
       if (approvalsRes.error) return jsonError(approvalsRes.error.message, 500)
 
-      if (approvalsRes.data?.length) {
-        await client.from('approval_actions').insert(approvalsRes.data.map((approval) => ({
-          approval_id: approval.id,
+      let reviewedApprovalIds = approvalsRes.data?.map((approval) => approval.id) ?? []
+      if (!reviewedApprovalIds.length) {
+        const insertApprovalRes = await client
+          .from('approvals')
+          .insert({
+            workspace_id: context.workspaceId,
+            project_id: deliverable.project_id,
+            task_id: deliverable.task_id,
+            step_id: deliverable.step_id,
+            deliverable_id: deliverableId,
+            requested_by: context.personId,
+            approver_id: deliverable.reviewer_id ?? context.personId,
+            due_at: deliverable.due_date,
+            status: approvalStatus,
+            completed_at: completedAt,
+            is_required: true,
+            updated_at: completedAt,
+          })
+          .select('id')
+          .single()
+        if (insertApprovalRes.error || !insertApprovalRes.data) {
+          return jsonError(insertApprovalRes.error?.message ?? 'Không tạo được bản ghi phê duyệt.', 500)
+        }
+        reviewedApprovalIds = [insertApprovalRes.data.id]
+      }
+
+      if (reviewedApprovalIds.length) {
+        await client.from('approval_actions').insert(reviewedApprovalIds.map((approvalId) => ({
+          approval_id: approvalId,
           action: approvalStatus,
           actor_id: context.personId,
           comment: cleanText(body.reviewComment) || null,
