@@ -1017,14 +1017,28 @@ const treeButtonStyle = (depth: number, active: boolean, muted?: boolean): React
 const treeLabelStyle: React.CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }
 const treeCountStyle = (active: boolean): React.CSSProperties => ({ color: active ? 'var(--color-lime-d)' : 'var(--color-text-muted)', fontSize: 10, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-full)', padding: '1px 6px' })
 const fileListStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10, padding: 12, maxHeight: 'calc(100vh - 292px)', overflowY: 'auto' }
-const fileRowStyle = (selected: boolean): React.CSSProperties => ({ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: 13, borderRadius: 'var(--radius-lg)', border: `1px solid ${selected ? 'rgba(218,223,33,.38)' : 'var(--color-border)'}`, background: selected ? 'linear-gradient(180deg, rgba(218,223,33,.09), rgba(218,223,33,.025)), var(--color-surface-2)' : 'var(--color-surface-2)', textAlign: 'left' })
+const fileRowStyle = (selected: boolean): React.CSSProperties => ({
+  width: '100%',
+  minHeight: 104,
+  display: 'grid',
+  gridTemplateColumns: '42px minmax(0, 1fr) minmax(128px, 154px)',
+  alignItems: 'start',
+  columnGap: 12,
+  rowGap: 8,
+  padding: 13,
+  overflow: 'visible',
+  borderRadius: 'var(--radius-lg)',
+  border: `1px solid ${selected ? 'rgba(218,223,33,.38)' : 'var(--color-border)'}`,
+  background: selected ? 'linear-gradient(180deg, rgba(218,223,33,.09), rgba(218,223,33,.025)), var(--color-surface-2)' : 'var(--color-surface-2)',
+  textAlign: 'left',
+})
 const fileIconStyle = (color: string): React.CSSProperties => ({ width: 42, height: 42, borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-surface)', border: '1px solid var(--color-border)', color, fontSize: 19, flexShrink: 0 })
 const fileNameStyle: React.CSSProperties = { color: 'var(--color-text)', fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
 const fileSubStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 12, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-const fileMetaStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '7px 11px', marginTop: 8, color: 'var(--color-text-muted)', fontSize: 11 }
-const rowSideStyle: React.CSSProperties = { flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, maxWidth: 150 }
+const fileMetaStyle: React.CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: '7px 11px', marginTop: 8, color: 'var(--color-text-muted)', fontSize: 11, lineHeight: 1.35 }
+const rowSideStyle: React.CSSProperties = { minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, maxWidth: 154, lineHeight: 1.35 }
 const statusBadgeStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 'var(--radius-full)', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }
-const rowTinyStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 11, textAlign: 'right' }
+const rowTinyStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 11, textAlign: 'right', lineHeight: 1.35, overflowWrap: 'anywhere' }
 const detailWrapStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 14, padding: 16, maxHeight: 'calc(100vh - 96px)', overflowY: 'auto' }
 const detailTopStyle: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'flex-start' }
 const detailIconStyle = (color: string): React.CSSProperties => ({ width: 44, height: 44, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-md)', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color, fontSize: 20 })
