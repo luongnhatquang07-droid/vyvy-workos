@@ -127,7 +127,7 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReas
         : '#8C8278'
   const isCollect = item.kind === 'COLLECT_FILE' || item.kind === 'COLLECT_REPORT' || item.kind === 'REMIND'
 
-  function openHoverState(event: React.MouseEvent<HTMLDivElement>) {
+  function openHoverState(event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement> | React.FocusEvent<HTMLDivElement>) {
     setHovered(true)
     setPreviewAnchor(event.currentTarget)
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
@@ -167,8 +167,15 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReas
         border: `1px solid ${hovered || item.statusVariant === 'danger' ? 'var(--color-border)' : 'transparent'}`,
         background: hovered ? 'var(--color-surface-2)' : baseBackground,
       }}
+      tabIndex={0}
       onMouseEnter={openHoverState}
+      onMouseMove={openHoverState}
       onMouseLeave={closeHoverState}
+      onPointerEnter={openHoverState}
+      onPointerMove={openHoverState}
+      onPointerLeave={closeHoverState}
+      onFocus={openHoverState}
+      onBlur={closeHoverState}
       onClick={onOpenDrawer}
     >
       <div style={{ ...gripStyle, background: urgencyDot }} title={URGENCY_LABEL[item.urgency]} />

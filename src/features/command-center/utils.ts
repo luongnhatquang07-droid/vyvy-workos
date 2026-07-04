@@ -231,7 +231,8 @@ export function buildCOOSummary(
   const pendingMeeting = meetings.find((meeting) => meeting.taskDraftCount > meeting.importedTaskCount)
   if (pendingMeeting) proposedActions.push(`Nhập ${pendingMeeting.taskDraftCount} đầu việc từ "${pendingMeeting.title}" vào Task Inbox`)
   const escalateCandidates = reminders.filter((reminder) => reminder.response === 'NO_RESPONSE' && reminder.reminderCount >= 2)
-  if (escalateCandidates.length > 0) proposedActions.push(`${escalateCandidates.length} người cần báo trưởng phòng do không phản hồi`)
+  const escalatePersonCount = new Set(escalateCandidates.map((reminder) => reminder.personId)).size
+  if (escalatePersonCount > 0) proposedActions.push(`${escalatePersonCount} người cần báo trưởng phòng do không phản hồi`)
   if (lateApprovals.length > 0) proposedActions.push(`Xử lý ${lateApprovals.length} phê duyệt đang trễ hạn`)
 
   return { urgentItems, risks, watchItems, proposedActions }
@@ -242,7 +243,7 @@ export function buildSummaryBanner(
   chaseItems: ChaseItem[],
   ceoRequests: CEODecisionRequest[],
 ): SummaryBannerData {
-  const escalateCount = chaseItems.filter((item) => item.suggestEscalate).length
+  const escalateCount = new Set(chaseItems.filter((item) => item.suggestEscalate).map((item) => item.personId)).size
   const meetingPart = kpi.meetingsToday > 0
     ? `Hôm nay có **${kpi.meetingsToday} cuộc họp**`
     : 'Hôm nay chưa có cuộc họp nào'

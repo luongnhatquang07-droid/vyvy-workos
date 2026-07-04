@@ -178,7 +178,7 @@ function ChaseRow({
   const previewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const response = RESPONSE_LABEL[item.response] ?? RESPONSE_LABEL.NO_RESPONSE
 
-  function openHoverState(event: React.MouseEvent<HTMLDivElement>) {
+  function openHoverState(event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement> | React.FocusEvent<HTMLDivElement>) {
     setHovered(true)
     setPreviewAnchor(event.currentTarget)
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
@@ -210,9 +210,16 @@ function ChaseRow({
       }}
       data-vyvy-row="true"
       data-vyvy-alert={item.remindCount >= 2 ? 'true' : undefined}
+      tabIndex={0}
       onClick={onOpen}
       onMouseEnter={openHoverState}
+      onMouseMove={openHoverState}
       onMouseLeave={closeHoverState}
+      onPointerEnter={openHoverState}
+      onPointerMove={openHoverState}
+      onPointerLeave={closeHoverState}
+      onFocus={openHoverState}
+      onBlur={closeHoverState}
     >
       {nested ? <span style={nestedDotStyle(item.remindCount >= 2)} /> : <div style={{ ...avatarStyle, background: avatarBg }}>{person?.avatarInitials ?? '?'}</div>}
 

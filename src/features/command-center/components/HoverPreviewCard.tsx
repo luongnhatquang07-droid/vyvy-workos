@@ -35,17 +35,7 @@ export function HoverPreviewCard({
     const anchor = anchorElement
 
     function updatePosition() {
-      const rect = anchor.getBoundingClientRect()
-      const width = 340
-      const estimatedHeight = 220
-      const margin = 16
-      const gap = 10
-      const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin))
-      const topBelow = rect.bottom + gap
-      const top = topBelow + estimatedHeight + margin > window.innerHeight
-        ? Math.max(margin, rect.top - estimatedHeight - gap)
-        : topBelow
-      setPosition({ top, left })
+      setPosition(getAnchorPosition(anchor))
     }
 
     updatePosition()
@@ -86,11 +76,30 @@ export function HoverPreviewCard({
   )
 
   if (anchorElement) {
-    if (!position || typeof document === 'undefined') return null
-    return createPortal(card, document.body)
+    if (typeof document === 'undefined') return null
+    return createPortal(
+      React.cloneElement(card, {
+        style: { ...previewStyle, ...portalPositionStyle(position ?? getAnchorPosition(anchorElement)) },
+      }),
+      document.body,
+    )
   }
 
   return card
+}
+
+function getAnchorPosition(anchor: HTMLElement): { top: number; left: number } {
+  const rect = anchor.getBoundingClientRect()
+  const width = 340
+  const estimatedHeight = 220
+  const margin = 16
+  const gap = 10
+  const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))
+  const topBelow = rect.bottom + gap
+  const top = topBelow + estimatedHeight + margin > window.innerHeight
+    ? Math.max(margin, rect.top - estimatedHeight - gap)
+    : topBelow
+  return { top, left }
 }
 
 function PreviewLine({ label, value }: { label: string; value: string }) {
