@@ -77,6 +77,7 @@ export interface TaskRow {
   due_date: string | null
   waiting_for_person_id: string | null
   waiting_for_content: string | null
+  expected_result: string | null
   deleted_at: string | null
 }
 
@@ -214,6 +215,7 @@ export interface CommandCenterTaskRow {
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   waiting_for_person_id: string | null
   waiting_for_content: string | null
+  expected_result: string | null
   deleted_at: string | null
 }
 

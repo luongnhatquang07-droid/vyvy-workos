@@ -3695,6 +3695,7 @@ function toSeedSubtask(
     .map((step) => {
       const linkedDeliverable = taskDeliverables.find((deliverable) => deliverable.step_id === step.id)
       const evidence = getDeliverableEvidenceState(linkedDeliverable, deliverableVersions)
+      const stepStatus = normalizeStatus(step.status)
       return {
         id: step.id,
         title: step.title,
@@ -3702,7 +3703,7 @@ function toSeedSubtask(
         ownerId: step.owner_id,
         dueDate: step.due_date ?? dueDate,
         missingDueDate: !step.due_date,
-        status: normalizeStatus(step.status),
+        status: evidence.valid ? 'COMPLETED' : stepStatus,
         note: step.description ?? '',
         isRequired: step.is_required !== false,
         requiresDeliverable: Boolean(linkedDeliverable),
@@ -3717,6 +3718,19 @@ function toSeedSubtask(
     })
   const taskLevelDeliverable = taskDeliverables.find((deliverable) => !deliverable.step_id)
   const taskEvidence = getDeliverableEvidenceState(taskLevelDeliverable, deliverableVersions)
+  const requiredDeliverableEvidence = taskDeliverables
+    .filter((deliverable) => deliverable.is_required !== false)
+    .map((deliverable) => getDeliverableEvidenceState(deliverable, deliverableVersions))
+  const allRequiredDeliverablesValid = requiredDeliverableEvidence.length > 0 && requiredDeliverableEvidence.every((evidence) => evidence.valid)
+  const requiredSteps = persistedSteps.filter((step) => step.isRequired)
+  const allRequiredStepsSatisfied = requiredSteps.every((step) => step.status === 'COMPLETED' || (step.requiresDeliverable && step.deliverableIsValid))
+  const normalizedTaskStatus = normalizeStatus(task.status)
+  const effectiveStatus: TaskStatus =
+    allRequiredDeliverablesValid &&
+    allRequiredStepsSatisfied &&
+    !['CANCELLED', 'BLOCKED', 'REVISION_REQUIRED'].includes(normalizedTaskStatus)
+      ? 'COMPLETED'
+      : normalizedTaskStatus
 
   return {
     id: task.id,
@@ -3728,8 +3742,8 @@ function toSeedSubtask(
     dueDate,
     missingStartDate: !task.start_date,
     missingDueDate: !task.due_date,
-    status: normalizeStatus(task.status),
-    reportText: '',
+    status: effectiveStatus,
+    reportText: task.expected_result ?? '',
     needsFile: Boolean(taskLevelDeliverable ?? taskDeliverables.length),
     taskDeliverableValid: taskEvidence.valid,
     fileBlocker: taskEvidence.blocker,
@@ -4214,7 +4228,7 @@ function getBlockedSection(subtask: SubtaskItem): DetailSection {
     getPendingApprovalDeliverableSteps(subtask).length
   ) return 'files'
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
-  if (!subtask.reportText.trim()) return 'report'
+  if (!subtask.reportText.trim() && !hasEvidence(subtask)) return 'report'
   return 'workflow'
 }
 
@@ -4228,14 +4242,14 @@ function getCompactBlockerText(subtask: SubtaskItem) {
     return 'thiếu file/báo cáo.'
   }
   if (subtask.steps.some((step) => step.isRequired && step.status !== 'COMPLETED')) return 'còn bước bắt buộc chưa hoàn thành.'
-  if (!subtask.reportText.trim()) return 'thiếu báo cáo/kết quả đầu việc.'
+  if (!subtask.reportText.trim() && !hasEvidence(subtask)) return 'thiếu báo cáo/kết quả đầu việc.'
   return getCompletionBlockers(subtask).join('; ') || 'còn điều kiện chưa đạt.'
 }
 
 function getCompletionBlockers(subtask: SubtaskItem) {
   if (subtask.status === 'COMPLETED') return []
   const blockers: string[] = []
-  if (!subtask.reportText.trim()) {
+  if (!subtask.reportText.trim() && !hasEvidence(subtask)) {
     blockers.push('nhập báo cáo/kết quả đầu việc')
   }
 
