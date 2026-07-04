@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getCommandCenterData } from '@/lib/db/commandCenter'
+import { resyncCompletedTasks } from '@/lib/db/taskCompletionSync'
+import { isLocalProductionDatabaseRequest } from '@/lib/localQaGuard'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(request: Request) {
   const sb = await createClient()
   const {
     data: { user },
@@ -50,6 +52,9 @@ export async function GET() {
   }
 
   try {
+    if (!isLocalProductionDatabaseRequest(request)) {
+      await resyncCompletedTasks(sb, workspaceId)
+    }
     const data = await getCommandCenterData(workspaceId)
     return NextResponse.json({ ...data, workspaceId })
   } catch (error) {

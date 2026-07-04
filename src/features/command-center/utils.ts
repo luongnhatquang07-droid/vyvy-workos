@@ -84,6 +84,8 @@ export function buildPriorityList(
   const items: PriorityItem[] = []
 
   tasks.forEach((task) => {
+    if (task.status === 'COMPLETED' || task.status === 'CANCELLED') return
+
     const isOverdue = Boolean(task.dueDate) && task.dueDate < today
     const isToday = task.dueDate === today
     if (!isOverdue && !isToday && task.urgency !== 'CRITICAL' && task.urgency !== 'HIGH') return
