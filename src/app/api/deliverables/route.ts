@@ -386,6 +386,17 @@ function isDeliverableApproved(deliverable: { status: string | null; approved_ve
   return deliverable.status === 'APPROVED' && Boolean(deliverable.approved_version_id)
 }
 
+function buildApprovedDeliverableResult(deliverables: Array<{ name: string | null }>) {
+  const names = deliverables
+    .map((deliverable) => deliverable.name?.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+
+  return names.length
+    ? `Đã có bàn giao được duyệt: ${names.join('; ')}`
+    : 'Đã có bàn giao được duyệt.'
+}
+
 function taskStatusForOpenDeliverables(deliverables: Array<{ status: string | null }>): TaskStatus {
   if (deliverables.some((deliverable) => deliverable.status === 'SUBMITTED')) return 'PENDING_APPROVAL'
   if (deliverables.some((deliverable) => deliverable.status === 'REVISION_REQUIRED' || deliverable.status === 'MISSING_INFORMATION' || deliverable.status === 'NOT_SUBMITTED')) {
@@ -422,19 +433,19 @@ async function syncTaskAfterDeliverableReview(
 
   const taskRes = await client
     .from('tasks')
-    .select('id,status')
+    .select('id,status,expected_result')
     .eq('workspace_id', workspaceId)
     .eq('id', deliverable.task_id)
     .is('deleted_at', null)
     .maybeSingle()
   if (taskRes.error) throw taskRes.error
-  const task = taskRes.data as { id: string; status: TaskStatus | null } | null
+  const task = taskRes.data as { id: string; status: TaskStatus | null; expected_result: string | null } | null
   if (!task) return { taskId: deliverable.task_id, status: null, completed: false, blockers: ['task da bi xoa hoac khong ton tai'], autoCompletedStepIds: [] }
 
   const [deliverablesRes, stepsRes] = await Promise.all([
     client
       .from('deliverables')
-      .select('id,step_id,status,is_required,approved_version_id')
+      .select('id,name,step_id,status,is_required,approved_version_id')
       .eq('workspace_id', workspaceId)
       .eq('task_id', deliverable.task_id)
       .is('deleted_at', null),
@@ -450,6 +461,7 @@ async function syncTaskAfterDeliverableReview(
 
   const taskDeliverables = (deliverablesRes.data ?? []) as Array<{
     id: string
+    name: string | null
     step_id: string | null
     status: DeliverableStatus | null
     is_required: boolean | null
@@ -541,9 +553,14 @@ async function syncTaskAfterDeliverableReview(
     }
   }
 
+  const completionPayload: { status: 'COMPLETED'; expected_result?: string } = { status: 'COMPLETED' }
+  if (!task.expected_result?.trim()) {
+    completionPayload.expected_result = buildApprovedDeliverableResult(approvedRequiredDeliverables)
+  }
+
   const updateTaskRes = await client
     .from('tasks')
-    .update({ status: 'COMPLETED' })
+    .update(completionPayload)
     .eq('workspace_id', workspaceId)
     .eq('id', task.id)
   if (updateTaskRes.error) throw updateTaskRes.error

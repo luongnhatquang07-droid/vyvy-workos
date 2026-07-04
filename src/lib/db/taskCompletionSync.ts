@@ -8,10 +8,12 @@ type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'APPROVED'
 interface StaleTaskRow {
   id: string
   status: TaskStatus | null
+  expected_result: string | null
 }
 
 interface StaleDeliverableRow {
   id: string
+  name: string | null
   task_id: string | null
   step_id: string | null
   status: DeliverableStatus | null
@@ -38,13 +40,13 @@ export async function resyncCompletedTasks(client: SupabaseClient, workspaceId: 
   const [tasksRes, deliverablesRes, stepsRes] = await Promise.all([
     client
       .from('tasks')
-      .select('id,status')
+      .select('id,status,expected_result')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .not('status', 'in', '("COMPLETED","CANCELLED")'),
     client
       .from('deliverables')
-      .select('id,task_id,step_id,status,is_required,approved_version_id')
+      .select('id,name,task_id,step_id,status,is_required,approved_version_id')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null),
     client
@@ -65,6 +67,7 @@ export async function resyncCompletedTasks(client: SupabaseClient, workspaceId: 
   const deliverablesByTask = groupByTask(deliverables.filter((deliverable) => deliverable.task_id && taskIds.has(deliverable.task_id)))
   const stepsByTask = groupByTask(steps.filter((step) => taskIds.has(step.task_id)))
   const completedTaskIds: string[] = []
+  const completedTaskPatches: Array<{ id: string; expectedResult: string | null }> = []
   const completedStepIds = new Set<string>()
 
   for (const task of tasks) {
@@ -82,6 +85,10 @@ export async function resyncCompletedTasks(client: SupabaseClient, workspaceId: 
     approvedLinkedStepIds.forEach((stepId) => completedStepIds.add(stepId))
     defaultStepIds.forEach((stepId) => completedStepIds.add(stepId))
     completedTaskIds.push(task.id)
+    completedTaskPatches.push({
+      id: task.id,
+      expectedResult: task.expected_result?.trim() ? null : buildApprovedDeliverableResult(requiredDeliverables),
+    })
   }
 
   const completedStepIdList = Array.from(completedStepIds)
@@ -94,14 +101,19 @@ export async function resyncCompletedTasks(client: SupabaseClient, workspaceId: 
     if (stepUpdateRes.error) throw stepUpdateRes.error
   }
 
-  if (completedTaskIds.length > 0) {
+  for (const taskPatch of completedTaskPatches) {
+    const payload: { status: 'COMPLETED'; expected_result?: string } = { status: 'COMPLETED' }
+    if (taskPatch.expectedResult) payload.expected_result = taskPatch.expectedResult
+
     const taskUpdateRes = await client
       .from('tasks')
-      .update({ status: 'COMPLETED' })
+      .update(payload)
       .eq('workspace_id', workspaceId)
-      .in('id', completedTaskIds)
+      .eq('id', taskPatch.id)
     if (taskUpdateRes.error) throw taskUpdateRes.error
+  }
 
+  if (completedTaskIds.length > 0) {
     const reminderUpdateRes = await client
       .from('reminders')
       .update({ status: 'closed', response_status: 'CLOSED', updated_at: new Date().toISOString() })
@@ -130,6 +142,17 @@ function groupByTask<T extends { task_id: string | null }>(rows: T[]) {
 
 function isApprovedDeliverable(deliverable: StaleDeliverableRow) {
   return deliverable.status === 'APPROVED' && Boolean(deliverable.approved_version_id)
+}
+
+function buildApprovedDeliverableResult(deliverables: StaleDeliverableRow[]) {
+  const names = deliverables
+    .map((deliverable) => deliverable.name?.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+
+  return names.length
+    ? `Đã có bàn giao được duyệt: ${names.join('; ')}`
+    : 'Đã có bàn giao được duyệt.'
 }
 
 function isDefaultCompletionStep(row: StaleStepRow) {
