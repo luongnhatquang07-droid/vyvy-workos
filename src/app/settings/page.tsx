@@ -34,8 +34,8 @@ export default function SettingsPage() {
               <input defaultValue="VyVy WorkOS" style={inputStyle} />
             </Field>
             <Field label="Múi giờ">
-              <select defaultValue="Asia/Bangkok" style={inputStyle}>
-                <option value="Asia/Bangkok">Asia/Bangkok (UTC+7)</option>
+              <select defaultValue="Asia/Ho_Chi_Minh" style={inputStyle}>
+                <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh / Vietnam time (UTC+7)</option>
                 <option value="UTC">UTC</option>
               </select>
             </Field>
