@@ -142,6 +142,17 @@ export default function DeliverablesPage() {
   const approvedCount = deliverables.filter((item) => item.status === 'APPROVED').length
 
   React.useEffect(() => {
+    const urlDeliverableId = new URLSearchParams(window.location.search).get('deliverableId')
+    if (!urlDeliverableId) return
+    window.setTimeout(() => {
+      setDetail(null)
+      setDetailError('')
+      setDetailLoading(true)
+      setSelectedId(urlDeliverableId)
+    }, 0)
+  }, [])
+
+  React.useEffect(() => {
     if (!selectedId || !workspaceId) return
     void loadDetail(selectedId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,6 +179,7 @@ export default function DeliverablesPage() {
   function openDeliverable(id: string) {
     setDetail(null)
     setDetailError('')
+    setDetailLoading(true)
     setSelectedId(id)
   }
 
