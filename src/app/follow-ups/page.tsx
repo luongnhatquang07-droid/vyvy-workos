@@ -58,6 +58,7 @@ type ComposerState = {
 }
 
 type NextOption = '2h' | 'afternoon' | 'tomorrow_morning' | '24h' | 'custom'
+type FollowUpView = 'today' | 'upcoming' | 'all'
 
 type ReminderLog = {
   id: string
@@ -77,6 +78,7 @@ export default function FollowUpsPage() {
   const [logs, setLogs] = React.useState<ReminderLog[]>([])
   const [toast, setToast] = React.useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [activeView, setActiveView] = React.useState<FollowUpView>('today')
 
   const people = React.useMemo(() => toMap(data?.people ?? []), [data?.people])
   const tasks = React.useMemo(() => toMap(data?.tasks ?? []), [data?.tasks])
@@ -102,17 +104,33 @@ export default function FollowUpsPage() {
   )
 
   const allItems = React.useMemo(() => [...reminderItems, ...missingFileItems], [missingFileItems, reminderItems])
-  const dueNow = React.useMemo(
-    () => allItems.filter((item) => item.isDueNow && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)),
+  const activeItems = React.useMemo(
+    () => allItems.filter((item) => !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)),
     [allItems],
+  )
+  const dueNow = React.useMemo(
+    () => activeItems.filter(isTodayFollowUp),
+    [activeItems],
+  )
+  const upcoming = React.useMemo(
+    () => activeItems.filter((item) => !isTodayFollowUp(item)),
+    [activeItems],
+  )
+  const visibleItems = React.useMemo(
+    () => {
+      if (activeView === 'today') return dueNow
+      if (activeView === 'upcoming') return upcoming
+      return activeItems
+    },
+    [activeItems, activeView, dueNow, upcoming],
   )
   const lateEscalation = React.useMemo(
-    () => allItems.filter((item) => item.sentCount >= 2 || (item.isOverdue && item.sentCount >= 1) || item.responseStatus === 'NO_RESPONSE'),
-    [allItems],
+    () => activeItems.filter((item) => item.sentCount >= 2 || (item.isOverdue && item.sentCount >= 1) || item.responseStatus === 'NO_RESPONSE'),
+    [activeItems],
   )
   const pending = React.useMemo(
-    () => allItems.filter((item) => ['NOT_REMINDERED', 'REMINDERED', 'WAITING_RESPONSE'].includes(item.responseStatus)),
-    [allItems],
+    () => activeItems.filter((item) => ['NOT_REMINDERED', 'REMINDERED', 'WAITING_RESPONSE'].includes(item.responseStatus)),
+    [activeItems],
   )
   const promised = React.useMemo(
     () => allItems.filter((item) => item.responseStatus === 'PROMISED_DELIVERY'),
@@ -258,7 +276,13 @@ export default function FollowUpsPage() {
               <div style={headLabel}>Danh sách đang theo</div>
               <div style={headMeta}>Bấm vào một dòng để soạn tin nhắc.</div>
             </div>
-            <div style={headCount}>{allItems.length} mục</div>
+            <div style={headCount}>{visibleItems.length} mục</div>
+          </div>
+
+          <div style={followUpTabsStyle}>
+            <button type="button" style={followUpTabStyle(activeView === 'today')} onClick={() => setActiveView('today')}>Hôm nay ({dueNow.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'upcoming')} onClick={() => setActiveView('upcoming')}>Sắp tới ({upcoming.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'all')} onClick={() => setActiveView('all')}>Tất cả ({activeItems.length})</button>
           </div>
 
           <div style={tableHeaderRow}>
@@ -271,10 +295,10 @@ export default function FollowUpsPage() {
 
           {loading ? (
             <div style={emptyState}>Đang tải danh sách follow-up...</div>
-          ) : allItems.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <div style={emptyState}>Hiện chưa có mục nào cần theo dõi.</div>
           ) : (
-            allItems.map((item, index) => <FollowUpRow key={item.id} item={item} index={index} total={allItems.length} onOpen={() => void openComposer([item])} />)
+            visibleItems.map((item, index) => <FollowUpRow key={item.id} item={item} index={index} total={visibleItems.length} onOpen={() => void openComposer([item])} />)
           )}
         </section>
 
@@ -635,7 +659,7 @@ function toReminderItem(
     sentCount,
     lastRemindedAt: reminder.last_reminded_at,
     nextFollowUpAt: reminder.next_follow_up_at,
-    isDueNow: !reminder.next_follow_up_at || new Date(reminder.next_follow_up_at).getTime() <= Date.now(),
+    isDueNow: isTodayFollowUpSchedule(reminder.next_follow_up_at, deadline, responseStatus),
     isOverdue: Boolean(deadline && deadline < todayKey()),
   }
 }
@@ -669,7 +693,7 @@ function toMissingFileItem(
     sentCount: 0,
     lastRemindedAt: null,
     nextFollowUpAt: null,
-    isDueNow: true,
+    isDueNow: isTodayFollowUpSchedule(null, deliverable.due_date ?? task?.due_date ?? '', 'NOT_REMINDERED'),
     isOverdue: Boolean((deliverable.due_date ?? task?.due_date) && (deliverable.due_date ?? task?.due_date)! < todayKey()),
   }
 }
@@ -692,6 +716,25 @@ function groupItemsByPerson(items: FollowUpItem[]) {
     byPerson.set(key, current)
   }
   return Array.from(byPerson.values()).sort((a, b) => b.items.length - a.items.length || a.personName.localeCompare(b.personName, 'vi'))
+}
+
+function isTodayFollowUp(item: FollowUpItem) {
+  return item.isDueNow && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)
+}
+
+function isTodayFollowUpSchedule(
+  nextFollowUpAt: string | null,
+  deadline: string,
+  responseStatus: keyof typeof RESPONSE_MAP,
+) {
+  if (responseStatus === 'FILE_SUBMITTED' || responseStatus === 'CLOSED') return false
+  const today = todayKey()
+  if (nextFollowUpAt) {
+    const followUpDate = new Date(nextFollowUpAt)
+    if (!Number.isNaN(followUpDate.getTime())) return todayKey(followUpDate) <= today
+  }
+  if (!deadline) return true
+  return deadline <= today
 }
 
 function buildMessage(items: FollowUpItem[]) {
@@ -789,8 +832,8 @@ function toMap<T extends { id: string }>(items: T[]): Record<string, T> {
   return Object.fromEntries(items.map((item) => [item.id, item]))
 }
 
-function todayKey() {
-  const now = new Date()
+function todayKey(date = new Date()) {
+  const now = date
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
@@ -920,6 +963,24 @@ const headCount: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--color-text-muted)',
 }
+
+const followUpTabsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  padding: '0 20px 14px',
+  borderBottom: '1px solid var(--color-border)',
+}
+
+const followUpTabStyle = (active: boolean): React.CSSProperties => ({
+  border: `1px solid ${active ? 'var(--brand-lime-border)' : 'var(--color-border)'}`,
+  borderRadius: '999px',
+  background: active ? 'var(--brand-lime-soft)' : 'var(--color-surface-2)',
+  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
+  padding: '7px 12px',
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: 'pointer',
+})
 
 const tableHeaderRow: React.CSSProperties = {
   display: 'grid',
