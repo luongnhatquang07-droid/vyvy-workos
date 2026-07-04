@@ -162,18 +162,19 @@ export async function PATCH(request: Request) {
     const guard = await guardWorkspaceExistingWrite(request, auth, body.type, body.id)
     if (guard) return guard
 
-    if (body.type === 'project') await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate']))
-    else if (body.type === 'workstream') await updateEntity(auth, 'workstreams', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate']))
-    else if (body.type === 'task') await updateEntity(auth, 'tasks', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult']))
+    let updated: unknown = null
+    if (body.type === 'project') updated = await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status']))
+    else if (body.type === 'workstream') updated = await updateEntity(auth, 'workstreams', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'priority']))
+    else if (body.type === 'task') updated = await updateEntity(auth, 'tasks', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult', 'priority']))
     else if (body.type === 'step') {
-      await updateEntity(auth, 'task_steps', body.id, mapPatch(patch, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'isRequired']))
+      updated = await updateEntity(auth, 'task_steps', body.id, mapPatch(patch, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'isRequired', 'priority']))
       if (patch.requiresDeliverable === true) await ensureStepDeliverable(auth, body.id)
       if (patch.requiresDeliverable === false) await disableStepDeliverable(auth, body.id)
     }
     else return NextResponse.json({ error: 'Loại thao tác chưa được hỗ trợ.' }, { status: 400 })
 
     await logActivity(auth, 'UPDATE_WORKSPACE_ITEM', body.type, body.id, patch)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, item: updated })
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
   }
@@ -329,8 +330,10 @@ async function updateEntity(
   id: string,
   patch: Record<string, unknown>,
 ) {
-  const result = await auth.sb.from(table).update(patch).eq('id', id).eq('workspace_id', auth.workspaceId)
+  const result = await auth.sb.from(table).update(patch).eq('id', id).eq('workspace_id', auth.workspaceId).select('*').maybeSingle()
   if (result.error) throw result.error
+  if (!result.data) throw new Error('Không tìm thấy bản ghi cần cập nhật.')
+  return result.data
 }
 
 async function softDeleteProject(auth: WorkspaceAuth, projectId: string) {
@@ -586,6 +589,7 @@ function mapPatch(input: Record<string, unknown>, allowed: string[]) {
   if (allowed.includes('dueDate') && input.dueDate !== undefined) out.due_date = dateOrNull(input.dueDate)
   if (allowed.includes('status') && input.status !== undefined) out.status = text(input.status)
   if (allowed.includes('isRequired') && input.isRequired !== undefined) out.is_required = input.isRequired !== false
+  if (allowed.includes('priority') && input.priority !== undefined) out.priority = text(input.priority)
   return out
 }
 
@@ -705,7 +709,7 @@ async function ensureStepDeliverable(
 
   const stepRes = await auth.sb
     .from('task_steps')
-    .select('id,task_id,title,owner_id,due_date,tasks!task_steps_task_id_fkey(project_id)')
+    .select('id,task_id,title,description,owner_id,due_date,tasks!task_steps_task_id_fkey(project_id)')
     .eq('workspace_id', auth.workspaceId)
     .eq('id', stepId)
     .maybeSingle()
@@ -714,6 +718,7 @@ async function ensureStepDeliverable(
     id: string
     task_id: string
     title: string
+    description: string | null
     owner_id: string | null
     due_date: string | null
     tasks: { project_id: string | null } | null
@@ -725,7 +730,8 @@ async function ensureStepDeliverable(
     project_id: step.tasks?.project_id ?? null,
     task_id: step.task_id,
     step_id: step.id,
-    name: `Kết quả: ${step.title}`,
+    name: `Bàn giao: ${step.title}`,
+    required_format: step.description,
     type: 'report',
     submitter_id: step.owner_id,
     due_date: step.due_date,

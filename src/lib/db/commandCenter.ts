@@ -43,7 +43,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .is('deleted_at', null),
 
     sb.from('projects')
-      .select('id,name,code,owner_id,status,health_status,start_date,due_date,deleted_at')
+      .select('id,name,code,description,owner_id,status,health_status,start_date,due_date,deleted_at')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null),
 
@@ -54,7 +54,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .order('sort_order', { ascending: true }),
 
     sb.from('tasks')
-      .select('id,title,owner_id,project_id,workstream_id,start_date,due_date,status,priority,waiting_for_person_id,waiting_for_content,expected_result,deleted_at')
+      .select('id,title,description,owner_id,project_id,workstream_id,start_date,due_date,status,priority,waiting_for_person_id,waiting_for_content,expected_result,deleted_at')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null),
 

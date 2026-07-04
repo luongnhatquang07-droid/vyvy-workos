@@ -31,13 +31,23 @@ import type {
 type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
 type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
 type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings' | 'flowchart'
-type ProjectWorkFilter = 'all' | 'unassigned'
+type ProjectQuickFilter = 'all' | 'unassigned'
+type ProjectStatusFilter = 'all' | 'overdue' | TaskStatus
+type ProjectDeadlineFilter = 'all' | 'today' | 'this_week' | 'next_week' | 'overdue' | 'this_month' | 'none'
 type FlowchartFilter = 'all' | 'active' | 'completed' | 'delayed' | 'overdue' | 'unassigned'
 type FlowchartNodeKind = 'project' | 'workstream' | 'subtask' | 'step'
 type DeadlineSignalKind = 'overdue' | 'today' | 'upcoming' | 'normal' | 'none'
 type BadgeTone = 'neutral' | 'warning' | 'danger' | 'success'
 type StepTemplate = 'none' | 'basic' | 'approval'
 type DetailSection = 'report' | 'files' | 'workflow' | 'deadline'
+type EditableKind = 'project' | 'workstream' | 'subtask' | 'step'
+
+interface ProjectFilters {
+  quick: ProjectQuickFilter
+  status: ProjectStatusFilter
+  deadline: ProjectDeadlineFilter
+  search: string
+}
 
 interface AttachmentItem {
   id: string
@@ -81,6 +91,7 @@ interface SubtaskItem {
   id: string
   sourceTaskId: string | null
   title: string
+  description: string
   ownerId: string | null
   supporterIds: string[]
   startDate: string
@@ -100,7 +111,9 @@ interface SubtaskItem {
 interface WorkstreamItem {
   id: string
   title: string
+  description: string
   ownerId: string | null
+  storedStatus: string | null
   startDate: string
   dueDate: string
   status: TaskStatus
@@ -122,12 +135,22 @@ interface ProjectWorkspace {
   sourceProjectId: string | null
   name: string
   code: string
+  status: TaskStatus
+  storedStatus: string | null
   ownerId: string | null
   startDate: string
   dueDate: string
   description: string
   workstreams: WorkstreamItem[]
   meetings: MeetingItem[]
+}
+
+interface EditContext {
+  target: EditTarget
+  project: ProjectWorkspace
+  workstream?: WorkstreamItem
+  subtask?: SubtaskItem
+  step?: StepItem
 }
 
 interface ComposerDraft {
@@ -164,6 +187,26 @@ interface DeleteDraft {
   subtaskId?: string
   stepId?: string
   sourceId?: string
+}
+
+interface EditTarget {
+  kind: EditableKind
+  projectId: string
+  workstreamId?: string
+  subtaskId?: string
+  stepId?: string
+}
+
+interface EditDraft {
+  title: string
+  description: string
+  ownerId: string
+  startDate: string
+  dueDate: string
+  status: TaskStatus
+  expectedResult: string
+  isRequired: boolean
+  requiresDeliverable: boolean
 }
 
 interface FlowchartNode {
@@ -232,6 +275,15 @@ const FLOWCHART_MIN_ZOOM = 0.5
 const FLOWCHART_MAX_ZOOM = 1.6
 const FLOWCHART_ZOOM_STEP = 0.1
 
+function createDefaultProjectFilters(): ProjectFilters {
+  return {
+    quick: 'all',
+    status: 'all',
+    deadline: 'all',
+    search: '',
+  }
+}
+
 export default function ProjectsPage() {
   return <ProjectsPageContent />
 }
@@ -248,10 +300,11 @@ function ProjectsPageContent() {
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null)
   const [selectedSubtaskId, setSelectedSubtaskId] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<ViewTab>('overview')
-  const [projectWorkFilter, setProjectWorkFilter] = React.useState<ProjectWorkFilter>('all')
+  const [projectFilters, setProjectFilters] = React.useState<ProjectFilters>(() => createDefaultProjectFilters())
   const [composerMode, setComposerMode] = React.useState<ComposerMode>(null)
   const [composerParentId, setComposerParentId] = React.useState<string | null>(null)
   const [composerDraft, setComposerDraft] = React.useState<ComposerDraft>(createDraft())
+  const [editTarget, setEditTarget] = React.useState<EditTarget | null>(null)
   const [deadlineDraft, setDeadlineDraft] = React.useState<DragDraft | null>(null)
   const [deadlineReason, setDeadlineReason] = React.useState('')
   const [deleteDraft, setDeleteDraft] = React.useState<DeleteDraft | null>(null)
@@ -352,10 +405,9 @@ function ProjectsPageContent() {
   const selectedProject = workspace.find((project) => project.id === selectedProjectId) ?? workspace[0] ?? null
   const selectedSubtask = selectedProject ? findSubtask(selectedProject, selectedSubtaskId) : null
   const workspaceId = data?.workspaceId
-  const activeUploadStep =
-    selectedSubtask?.steps.find((step) => step.id === activeUploadStepId && step.deliverableId)
-    ?? selectedSubtask?.steps.find((step) => step.requiresDeliverable && step.deliverableId)
-    ?? null
+  const selectedUploadStep = selectedSubtask?.steps.find((step) => step.id === activeUploadStepId) ?? null
+  const activeUploadStep = selectedUploadStep?.deliverableId ? selectedUploadStep : null
+  const editContext = editTarget ? resolveEditContext(workspace, editTarget) : null
 
   const metrics = React.useMemo(() => {
     const allWorkstreams = workspace.flatMap((project) => project.workstreams)
@@ -434,6 +486,94 @@ function ProjectsPageContent() {
       }
       return null
     }
+  }
+
+  async function saveEditTarget(draft: EditDraft) {
+    if (!editContext) return false
+    const validationError = validateEditDraft(draft)
+    if (validationError) {
+      showToast(validationError, 'danger')
+      return false
+    }
+
+    const apiTarget = getEditApiTarget(editContext)
+    if (!apiTarget) {
+      showToast('Không tìm thấy dữ liệu cần sửa.', 'danger')
+      return false
+    }
+
+    const previousWorkspace = workspace
+    updateWorkspace((current) => applyEditDraftToWorkspace(current, editContext.target, draft))
+
+    const result = await commitWorkspaceMutation('PATCH', {
+      type: apiTarget.type,
+      id: apiTarget.id,
+      patch: buildEditPatch(editContext.target.kind, draft),
+    }, { alertOnError: false, refreshMode: editContext.target.kind === 'step' && draft.requiresDeliverable ? 'await' : 'background' })
+
+    if (!result) {
+      setWorkspace(previousWorkspace)
+      showToast('Không thể lưu thay đổi. Vui lòng thử lại.', 'danger')
+      return false
+    }
+
+    showToast('Đã lưu thay đổi.')
+    setEditTarget(null)
+    return true
+  }
+
+  async function openStepUpload(subtaskId: string, stepId: string) {
+    if (!selectedProject) return
+    const subtask = findSubtask(selectedProject, subtaskId)
+    const step = subtask?.steps.find((item) => item.id === stepId)
+    if (!step) return
+
+    if (!step.deliverableId) {
+      updateWorkspace((current) =>
+        current.map((project) =>
+          project.id !== selectedProject.id
+            ? project
+            : {
+                ...project,
+                workstreams: project.workstreams.map((workstream) => ({
+                  ...workstream,
+                  subtasks: workstream.subtasks.map((item) =>
+                    item.id !== subtaskId
+                      ? item
+                      : {
+                          ...item,
+                          steps: item.steps.map((currentStep) =>
+                            currentStep.id === stepId ? { ...currentStep, requiresDeliverable: true } : currentStep,
+                          ),
+                        },
+                  ),
+                })),
+              },
+        ),
+      )
+      const result = await commitWorkspaceMutation('PATCH', {
+        type: 'step',
+        id: stepId,
+        patch: {
+          title: step.title,
+          description: step.description || step.note,
+          ownerId: step.ownerId,
+          dueDate: step.dueDate,
+          status: step.status,
+          isRequired: step.isRequired,
+          requiresDeliverable: true,
+        },
+      }, { alertOnError: false, refreshMode: 'await' })
+
+      if (!result) {
+        showToast('Không thể tạo mục bàn giao cho bước. Vui lòng thử lại.', 'danger')
+        return
+      }
+    }
+
+    setActiveUploadStepId(stepId)
+    openSubtaskSection('files')
+    showToast('Đã mở khu File/Bàn giao cho bước.')
   }
 
   function toggleSubtaskSection(section: DetailSection) {
@@ -990,6 +1130,7 @@ function ProjectsPageContent() {
             <div style={sectionTitle}>{subtask.title}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <GhostButton icon="ti-pencil" onClick={() => setEditTarget({ kind: 'subtask', projectId: selectedProject.id, subtaskId: subtask.id })}>Sửa</GhostButton>
             <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>Xóa đầu việc con</DangerButton>
             <select value={subtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
               {TASK_STATUS_OPTIONS.map((option) => (
@@ -1029,10 +1170,8 @@ function ProjectsPageContent() {
           onUpdateStep={(stepId, patch) => updateStep(subtask.id, stepId, patch)}
           onDeleteStep={(stepId) => deleteStep(subtask.id, stepId)}
           onAddStep={(draft) => addStep(subtask.id, draft)}
-          onUploadForStep={(stepId) => {
-            setActiveUploadStepId(stepId)
-            openSubtaskSection('files')
-          }}
+          onUploadForStep={(stepId) => void openStepUpload(subtask.id, stepId)}
+          onEditStep={(stepId) => setEditTarget({ kind: 'step', projectId: selectedProject.id, workstreamId: findWorkstreamForSubtask(selectedProject, subtask.id)?.id, subtaskId: subtask.id, stepId })}
         />
       </section>
     )
@@ -1122,6 +1261,7 @@ function ProjectsPageContent() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <GhostButton icon="ti-pencil" onClick={() => setEditTarget({ kind: 'project', projectId: selectedProject.id })}>Sửa dự án</GhostButton>
                   <GhostButton icon="ti-stack-2" onClick={() => openComposer('workstream')}>Tạo đầu việc lớn</GhostButton>
                   <GhostButton icon="ti-microphone-2" onClick={() => openComposer('meeting')}>Tạo cuộc họp</GhostButton>
                   <DangerButton icon="ti-trash" onClick={() => deleteProject(selectedProject.id)}>Xóa dự án</DangerButton>
@@ -1138,8 +1278,8 @@ function ProjectsPageContent() {
               {selectedProjectOps ? (
                 <ProjectOpsStrip
                   stats={selectedProjectOps}
-                  activeFilter={projectWorkFilter}
-                  onChangeFilter={setProjectWorkFilter}
+                  filters={projectFilters}
+                  onChangeFilters={(patch) => setProjectFilters((current) => ({ ...current, ...patch }))}
                 />
               ) : null}
 
@@ -1161,12 +1301,13 @@ function ProjectsPageContent() {
                 <OverviewTab
                   project={selectedProject}
                   people={people}
-                  activeFilter={projectWorkFilter}
+                  filters={projectFilters}
                   selectedSubtaskId={selectedSubtaskId}
                   onSelectSubtask={selectSubtask}
                   renderSubtaskDetail={renderInlineSubtaskDetail}
                   onOpenSubtaskComposer={(workstreamId) => openComposer('subtask', workstreamId)}
                   onDeleteWorkstream={(workstreamId) => deleteWorkstream(selectedProject.id, workstreamId)}
+                  onEditWorkstream={(workstreamId) => setEditTarget({ kind: 'workstream', projectId: selectedProject.id, workstreamId })}
                 />
               ) : null}
 
@@ -1174,7 +1315,7 @@ function ProjectsPageContent() {
                 <KanbanTab
                   project={selectedProject}
                   people={people}
-                  activeFilter={projectWorkFilter}
+                  filters={projectFilters}
                   onSelectSubtask={selectSubtask}
                   onChangeStatus={updateKanbanSubtaskStatus}
                   selectedSubtaskId={selectedSubtaskId}
@@ -1190,11 +1331,13 @@ function ProjectsPageContent() {
                 <FlowchartTab
                   project={selectedProject}
                   people={people}
+                  projectFilters={projectFilters}
                   onSaveSubtaskReport={saveFlowchartSubtaskReport}
                   onOpenSubtask={(subtaskId) => {
                     setSelectedSubtaskId(subtaskId)
                     setActiveTab('overview')
                   }}
+                  onEditNode={(target) => setEditTarget(target)}
                 />
               ) : null}
 
@@ -1330,6 +1473,13 @@ function ProjectsPageContent() {
           </div>
         </ModalShell>
       ) : null}
+
+      <EditWorkItemDrawer
+        context={editContext}
+        people={people}
+        onClose={() => setEditTarget(null)}
+        onSave={saveEditTarget}
+      />
     </div>
   )
 }
@@ -1352,6 +1502,7 @@ function SubtaskCompactDetail({
   onDeleteStep,
   onAddStep,
   onUploadForStep,
+  onEditStep,
 }: {
   subtask: SubtaskItem
   project: ProjectWorkspace
@@ -1370,6 +1521,7 @@ function SubtaskCompactDetail({
   onDeleteStep: (stepId: string) => void
   onAddStep: (draft: StepDraft) => void
   onUploadForStep: (stepId: string) => void
+  onEditStep: (stepId: string) => void
 }) {
   const blockers = getCompletionBlockers(subtask)
   const workflowSummary = getWorkflowSummary(subtask)
@@ -1545,6 +1697,7 @@ function SubtaskCompactDetail({
             onDeleteStep={onDeleteStep}
             onAddStep={onAddStep}
             onUploadForStep={onUploadForStep}
+            onEditStep={onEditStep}
           />
         </AccordionSection>
 
@@ -1647,6 +1800,7 @@ function StepWorkflowPanel({
   onDeleteStep,
   onAddStep,
   onUploadForStep,
+  onEditStep,
 }: {
   subtask: SubtaskItem
   people: Record<string, CommandCenterPersonRow>
@@ -1654,6 +1808,7 @@ function StepWorkflowPanel({
   onDeleteStep: (stepId: string) => void
   onAddStep: (draft: StepDraft) => void
   onUploadForStep: (stepId: string) => void
+  onEditStep: (stepId: string) => void
 }) {
   const [adding, setAdding] = React.useState(false)
   const [draft, setDraft] = React.useState<StepDraft>(() => createStepDraft(subtask))
@@ -1699,6 +1854,7 @@ function StepWorkflowPanel({
               onUpdate={(patch) => onUpdateStep(step.id, patch)}
               onDelete={() => onDeleteStep(step.id)}
               onUpload={() => onUploadForStep(step.id)}
+              onEdit={() => onEditStep(step.id)}
             />
           ))}
         </div>
@@ -1732,6 +1888,7 @@ function StepCard({
   onUpdate,
   onDelete,
   onUpload,
+  onEdit,
 }: {
   index: number
   step: StepItem
@@ -1739,6 +1896,7 @@ function StepCard({
   onUpdate: (patch: Partial<StepItem>) => void
   onDelete: () => void
   onUpload: () => void
+  onEdit: () => void
 }) {
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<StepDraft>(() => stepToDraft(step))
@@ -1803,10 +1961,10 @@ function StepCard({
             <GhostButton icon={step.status === 'COMPLETED' ? 'ti-rotate-clockwise' : nextQuickStatus === 'COMPLETED' ? 'ti-check' : 'ti-player-play'} onClick={() => onUpdate({ status: nextQuickStatus })}>
               {step.status === 'COMPLETED' ? 'Mở lại' : nextQuickStatus === 'COMPLETED' ? 'Đánh dấu xong' : 'Bắt đầu'}
             </GhostButton>
-            {step.requiresDeliverable ? (
-              <GhostButton icon="ti-upload" onClick={onUpload}>Tải file cho bước này</GhostButton>
-            ) : null}
-            <GhostButton icon="ti-pencil" onClick={() => setEditing(true)}>Sửa</GhostButton>
+            <GhostButton icon="ti-upload" onClick={onUpload}>
+              {step.deliverableId ? 'Tải file cho bước này' : 'Tạo bàn giao & tải file'}
+            </GhostButton>
+            <GhostButton icon="ti-pencil" onClick={onEdit}>Sửa</GhostButton>
             <IconButton label="Xóa bước" icon="ti-trash" tone="danger" onClick={onDelete} />
           </div>
         )}
@@ -1878,12 +2036,12 @@ function StepDraftForm({
 
 function ProjectOpsStrip({
   stats,
-  activeFilter,
-  onChangeFilter,
+  filters,
+  onChangeFilters,
 }: {
   stats: ProjectOpsStats
-  activeFilter: ProjectWorkFilter
-  onChangeFilter: (filter: ProjectWorkFilter) => void
+  filters: ProjectFilters
+  onChangeFilters: (patch: Partial<ProjectFilters>) => void
 }) {
   return (
     <section style={opsStripStyle} aria-label="Cảnh báo vận hành dự án">
@@ -1896,12 +2054,35 @@ function ProjectOpsStrip({
         <OpsStat label="Bị chặn" value={stats.blocked} tone={stats.blocked ? 'danger' : 'neutral'} />
       </div>
       <div style={projectFilterRow}>
-        <button type="button" onClick={() => onChangeFilter('all')} style={filterChipStyle(activeFilter === 'all')}>
+        <button type="button" onClick={() => onChangeFilters(createDefaultProjectFilters())} style={filterChipStyle(filters.quick === 'all' && filters.status === 'all' && filters.deadline === 'all' && !filters.search)}>
           Tất cả
         </button>
-        <button type="button" onClick={() => onChangeFilter('unassigned')} style={filterChipStyle(activeFilter === 'unassigned', stats.unassigned > 0 ? 'warning' : 'neutral')}>
+        <button type="button" onClick={() => onChangeFilters({ quick: filters.quick === 'unassigned' ? 'all' : 'unassigned' })} style={filterChipStyle(filters.quick === 'unassigned', stats.unassigned > 0 ? 'warning' : 'neutral')}>
           Chưa gắn người · {stats.unassigned}
         </button>
+        <select aria-label="Lọc trạng thái" value={filters.status} onChange={(event) => onChangeFilters({ status: event.target.value as ProjectStatusFilter })} style={selectStyle}>
+          <option value="all">Tất cả trạng thái</option>
+          {TASK_STATUS_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+          <option value="overdue">Quá hạn</option>
+        </select>
+        <select aria-label="Lọc deadline" value={filters.deadline} onChange={(event) => onChangeFilters({ deadline: event.target.value as ProjectDeadlineFilter })} style={selectStyle}>
+          <option value="all">Tất cả thời gian</option>
+          <option value="today">Hôm nay</option>
+          <option value="this_week">Tuần này</option>
+          <option value="next_week">Tuần sau</option>
+          <option value="overdue">Quá hạn</option>
+          <option value="this_month">Tháng này</option>
+          <option value="none">Không có deadline</option>
+        </select>
+        <input
+          aria-label="Tìm trong dự án"
+          value={filters.search}
+          onChange={(event) => onChangeFilters({ search: event.target.value })}
+          placeholder="Tìm project, đầu việc, bước..."
+          style={{ ...inputStyle, minWidth: 220, flex: '1 1 220px' }}
+        />
       </div>
     </section>
   )
@@ -1913,6 +2094,136 @@ function OpsStat({ label, value, tone }: { label: string; value: number; tone: B
       <strong>{value}</strong>
       <span>{label}</span>
     </div>
+  )
+}
+
+function EditWorkItemDrawer({
+  context,
+  people,
+  onClose,
+  onSave,
+}: {
+  context: EditContext | null
+  people: Record<string, CommandCenterPersonRow>
+  onClose: () => void
+  onSave: (draft: EditDraft) => Promise<boolean>
+}) {
+  if (!context) return null
+  return (
+    <EditWorkItemDrawerBody
+      key={getEditContextKey(context)}
+      context={context}
+      people={people}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  )
+}
+
+function EditWorkItemDrawerBody({
+  context,
+  people,
+  onClose,
+  onSave,
+}: {
+  context: EditContext
+  people: Record<string, CommandCenterPersonRow>
+  onClose: () => void
+  onSave: (draft: EditDraft) => Promise<boolean>
+}) {
+  const [draft, setDraft] = React.useState<EditDraft>(() => editContextToDraft(context))
+  const [saving, setSaving] = React.useState(false)
+
+  const kind = context.target.kind
+  const title = getEditDrawerTitle(context)
+  const showStartDate = kind !== 'step'
+  const showExpectedResult = kind === 'subtask' || kind === 'step'
+  const showStepToggles = kind === 'step'
+  const showRequiresDeliverable = kind === 'step'
+
+  async function handleSave() {
+    if (saving) return
+    setSaving(true)
+    const ok = await onSave(draft)
+    setSaving(false)
+    if (ok) onClose()
+  }
+
+  return (
+    <Drawer
+      open={Boolean(context)}
+      title={title}
+      onClose={onClose}
+      width={520}
+      footer={(
+        <>
+          <GhostButton icon="ti-x" onClick={onClose}>Hủy</GhostButton>
+          <PrimaryButton icon="ti-device-floppy" onClick={handleSave} disabled={saving}>
+            {saving ? 'Đang lưu...' : 'Lưu'}
+          </PrimaryButton>
+        </>
+      )}
+    >
+      <div style={drawerTabLabelStyle}>
+        <i className="ti ti-info-circle" />
+        <span>Thông tin</span>
+      </div>
+      <div style={formGrid}>
+        <Field label={getTitleFieldLabel(kind)}>
+          <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} style={inputStyle} />
+        </Field>
+        <Field label="Owner / người phụ trách">
+          <select value={draft.ownerId} onChange={(event) => setDraft((current) => ({ ...current, ownerId: event.target.value }))} style={inputStyle}>
+            <option value="">Chưa gắn người</option>
+            {Object.values(people).map((person) => (
+              <option key={person.id} value={person.id}>{person.full_name}</option>
+            ))}
+          </select>
+        </Field>
+        {showStartDate ? (
+          <Field label="Ngày bắt đầu">
+            <input type="date" value={draft.startDate} onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} style={inputStyle} />
+          </Field>
+        ) : null}
+        <Field label="Deadline">
+          <input type="date" value={draft.dueDate} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} style={inputStyle} />
+        </Field>
+        <Field label="Trạng thái">
+          <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))} style={inputStyle}>
+            {TASK_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Mô tả / ghi chú">
+        <textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} style={textareaStyle} />
+      </Field>
+
+      {showExpectedResult ? (
+        <Field label={kind === 'step' ? 'Kết quả cần nộp / ghi chú bước' : 'Expected result / kết quả cần nộp'}>
+          <textarea value={draft.expectedResult} onChange={(event) => setDraft((current) => ({ ...current, expectedResult: event.target.value }))} style={textareaStyle} />
+        </Field>
+      ) : null}
+
+      {showRequiresDeliverable || showStepToggles ? (
+        <div style={stepToggleRow}>
+          {showStepToggles ? (
+            <label style={toggleWrap}>
+              <input type="checkbox" checked={draft.isRequired} onChange={(event) => setDraft((current) => ({ ...current, isRequired: event.target.checked }))} />
+              <span>Bước bắt buộc</span>
+            </label>
+          ) : null}
+          {showRequiresDeliverable ? (
+            <label style={toggleWrap}>
+              <input type="checkbox" checked={draft.requiresDeliverable} onChange={(event) => setDraft((current) => ({ ...current, requiresDeliverable: event.target.checked }))} />
+              <span>Yêu cầu file/báo cáo</span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+    </Drawer>
   )
 }
 
@@ -1949,26 +2260,28 @@ function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskIte
 function OverviewTab({
   project,
   people,
-  activeFilter,
+  filters,
   selectedSubtaskId,
   onSelectSubtask,
   renderSubtaskDetail,
   onOpenSubtaskComposer,
   onDeleteWorkstream,
+  onEditWorkstream,
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
-  activeFilter: ProjectWorkFilter
+  filters: ProjectFilters
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
   renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
   onOpenSubtaskComposer: (workstreamId: string) => void
   onDeleteWorkstream: (workstreamId: string) => void
+  onEditWorkstream: (workstreamId: string) => void
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {project.workstreams.map((workstream) => {
-        const visibleSubtasks = sortSubtasksForOperations(workstream.subtasks).filter((subtask) => matchesProjectWorkFilter(subtask, activeFilter))
+        const visibleSubtasks = sortSubtasksForOperations(workstream.subtasks).filter((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
         return (
         <section key={workstream.id} style={workstreamCard}>
           <div style={workstreamHead}>
@@ -1985,13 +2298,14 @@ function OverviewTab({
                 <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getWorkstreamProgress(workstream)}%` }} /></div>
                 <span style={mutedMetaStyle}>{getWorkstreamProgress(workstream)}%</span>
               </div>
+              <GhostButton icon="ti-pencil" onClick={() => onEditWorkstream(workstream.id)}>Sửa</GhostButton>
               <DangerButton icon="ti-trash" onClick={() => onDeleteWorkstream(workstream.id)}>Xóa đầu việc lớn</DangerButton>
               <GhostButton icon="ti-plus" onClick={() => onOpenSubtaskComposer(workstream.id)}>Thêm đầu việc con</GhostButton>
             </div>
           </div>
 
           {visibleSubtasks.length === 0 ? (
-            <div style={emptyInline}>Đầu việc lớn này chưa có đầu việc con.</div>
+            <div style={emptyInline}>{workstream.subtasks.length ? 'Không có việc phù hợp với bộ lọc.' : 'Đầu việc lớn này chưa có đầu việc con.'}</div>
           ) : (
             <div style={subtaskTable}>
               {visibleSubtasks.map((subtask) => (
@@ -2032,7 +2346,7 @@ function OverviewTab({
 function KanbanTab({
   project,
   people,
-  activeFilter,
+  filters,
   selectedSubtaskId,
   onSelectSubtask,
   onChangeStatus,
@@ -2040,7 +2354,7 @@ function KanbanTab({
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
-  activeFilter: ProjectWorkFilter
+  filters: ProjectFilters
   selectedSubtaskId: string | null
   onSelectSubtask: (id: string) => void
   onChangeStatus: (subtask: SubtaskItem, nextStatus: TaskStatus) => Promise<boolean>
@@ -2052,8 +2366,10 @@ function KanbanTab({
   const [dragOverStatus, setDragOverStatus] = React.useState<TaskStatus | null>(null)
   const [showAllColumns, setShowAllColumns] = React.useState(false)
   const subtasks = project.workstreams.flatMap((workstream) =>
-    workstream.subtasks.map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
-  ).filter((subtask) => matchesProjectWorkFilter(subtask, activeFilter))
+    workstream.subtasks
+      .filter((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
+      .map((subtask) => ({ ...subtask, workstreamTitle: workstream.title })),
+  )
   const activeDragSubtaskId = draggingSubtaskId ?? mouseDragSubtaskId
   const columnItems = KANBAN_COLUMNS.reduce((map, status) => {
     map[status] = sortSubtasksForOperations(subtasks.filter((subtask) => subtask.status === status))
@@ -2133,7 +2449,7 @@ function KanbanTab({
               <span style={progressBadgeStyle}>{items.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 80 }}>
-              {!items.length ? <div style={kanbanEmptyState}>Chưa có việc</div> : null}
+              {!items.length ? <div style={kanbanEmptyState}>Không có việc phù hợp</div> : null}
               {items.map((subtask) => (
                 <div key={subtask.id} style={subtaskInlineItem}>
                 <div
@@ -2202,13 +2518,17 @@ function getDefaultFlowchartCollapsedIds(project: ProjectWorkspace) {
 function FlowchartTab({
   project,
   people,
+  projectFilters,
   onSaveSubtaskReport,
   onOpenSubtask,
+  onEditNode,
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
+  projectFilters: ProjectFilters
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
   onOpenSubtask: (subtaskId: string) => void
+  onEditNode: (target: EditTarget) => void
 }) {
   const [filter, setFilter] = React.useState<FlowchartFilter>('all')
   const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => getDefaultFlowchartCollapsedIds(project))
@@ -2289,19 +2609,25 @@ function FlowchartTab({
     [project],
   )
   const visibleWorkstreams = React.useMemo(() => {
-    if (filter === 'all') return project.workstreams
     return project.workstreams
       .map((workstream) => {
         const workstreamMatches = matchesWorkstreamFlowchartFilter(workstream, filter)
+        const workstreamProjectMatches = matchesWorkstreamProjectFilter(workstream, projectFilters, project)
         return {
           ...workstream,
-          subtasks: workstreamMatches
+          subtasks: workstreamMatches && workstreamProjectMatches
             ? workstream.subtasks
-            : workstream.subtasks.filter((subtask) => matchesFlowchartFilter(subtask, filter)),
+            : workstream.subtasks.filter((subtask) =>
+                matchesFlowchartFilter(subtask, filter) &&
+                matchesProjectWorkFilter(subtask, projectFilters, { project, workstream }),
+              ),
         }
       })
-      .filter((workstream) => matchesWorkstreamFlowchartFilter(workstream, filter) || workstream.subtasks.length > 0)
-  }, [filter, project])
+      .filter((workstream) =>
+        (matchesWorkstreamFlowchartFilter(workstream, filter) && matchesWorkstreamProjectFilter(workstream, projectFilters, project)) ||
+        workstream.subtasks.length > 0,
+      )
+  }, [filter, project, projectFilters])
   const selectedNodeKey = getFlowchartNodeKey(selectedNode)
   const allSubtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
   const allSteps = allSubtasks.flatMap((subtask) => subtask.steps)
@@ -2313,7 +2639,7 @@ function FlowchartTab({
     return count + workstream.subtasks.reduce((stepCount, subtask) => (
       collapsedIds.has(flowchartNodeId('subtask', subtask.id))
         ? stepCount
-        : stepCount + getVisibleFlowchartSteps(subtask, filter).length
+        : stepCount + getVisibleFlowchartSteps(subtask, filter, projectFilters).length
     ), 0)
   }, 0)
   const projectStatus = getFlowchartNodeStatus({ kind: 'project', project })
@@ -2625,7 +2951,7 @@ function FlowchartTab({
                                 const subtaskNode: FlowchartNode = { kind: 'subtask', project, workstream, subtask }
                                 const subtaskId = flowchartNodeId('subtask', subtask.id)
                                 const subtaskCollapsed = collapsedIds.has(subtaskId)
-                                const visibleSteps = getVisibleFlowchartSteps(subtask, filter)
+                                const visibleSteps = getVisibleFlowchartSteps(subtask, filter, projectFilters)
                                 const subtaskPathActive = isFlowchartSubtaskPathActive(subtask, selectedNode)
                                 return (
                                   <div key={subtask.id} style={flowchartSubtaskLane}>
@@ -2700,6 +3026,7 @@ function FlowchartTab({
             onClose={isFullscreen ? () => setDetailVisible(false) : () => setSelectedNode({ kind: 'project', project })}
             onSaveSubtaskReport={onSaveSubtaskReport}
             onOpenSubtask={onOpenSubtask}
+            onEditNode={onEditNode}
           />
         ) : null}
       </div>
@@ -2794,6 +3121,7 @@ function FlowchartDetailDrawer({
   onClose,
   onSaveSubtaskReport,
   onOpenSubtask,
+  onEditNode,
 }: {
   node: FlowchartNode | null
   people: Record<string, CommandCenterPersonRow>
@@ -2801,6 +3129,7 @@ function FlowchartDetailDrawer({
   onClose: () => void
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
   onOpenSubtask: (subtaskId: string) => void
+  onEditNode: (target: EditTarget) => void
 }) {
   if (!node) return null
 
@@ -2908,6 +3237,7 @@ function FlowchartDetailDrawer({
 
       <div style={flowchartPanelActions}>
         <button type="button" onClick={onClose} style={ghostBtnStyle}>Đóng</button>
+        <GhostButton icon="ti-pencil" onClick={() => onEditNode(flowchartNodeToEditTarget(node))}>Sửa</GhostButton>
         {subtask ? (
           <PrimaryButton icon="ti-external-link" onClick={() => onOpenSubtask(subtask.id)}>
             Mở trong Tổng quan
@@ -3627,7 +3957,9 @@ function seedWorkspace(
       ? {
           id: `ungrouped-${project.id}`,
           title: 'Chưa phân nhóm',
+          description: '',
           ownerId: project.owner_id ?? fallbackOwner,
+          storedStatus: 'NOT_STARTED',
           startDate,
           dueDate: project.due_date ?? shiftDate(startDate, 21),
           status: 'NOT_STARTED',
@@ -3642,10 +3974,12 @@ function seedWorkspace(
       sourceProjectId: project.id,
       name: project.name,
       code: project.code ?? `PRJ-${index + 1}`,
+      status: normalizeStatus(project.status),
+      storedStatus: project.status,
       ownerId: project.owner_id ?? fallbackOwner,
       startDate,
       dueDate,
-      description: '',
+      description: project.description ?? '',
       workstreams: projectTree,
       meetings: meetings
         .filter((meeting) => meeting.project_id === project.id)
@@ -3671,10 +4005,12 @@ function toWorkstreamItem(
   return {
     id: workstream.id,
     title: workstream.name,
+    description: workstream.description ?? '',
     ownerId: workstream.owner_id ?? fallbackOwner,
+    storedStatus: workstream.status,
     startDate: workstream.start_date ?? subtasks[0]?.startDate ?? projectStart,
     dueDate: workstream.due_date ?? subtasks.map((task) => task.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(projectStart, 14),
-    status: deriveWorkstreamStatus(subtasks),
+    status: isTaskStatus(workstream.status) ? normalizeStatus(workstream.status) : deriveWorkstreamStatus(subtasks),
     subtasks,
   }
 }
@@ -3736,6 +4072,7 @@ function toSeedSubtask(
     id: task.id,
     sourceTaskId: task.id,
     title: task.title,
+    description: task.description ?? '',
     ownerId: task.owner_id,
     supporterIds: [],
     startDate,
@@ -3840,6 +4177,10 @@ function normalizeStatus(value: string): TaskStatus {
   return 'NOT_STARTED'
 }
 
+function isTaskStatus(value: string | null | undefined): value is TaskStatus {
+  return Boolean(value && TASK_STATUS_ORDER.includes(value as TaskStatus))
+}
+
 function makeStep(title: string, ownerId: string | null, dueDate: string): StepItem {
   return {
     id: makeId('step'),
@@ -3883,6 +4224,220 @@ function stepToDraft(step: StepItem): StepDraft {
     isRequired: step.isRequired,
     requiresDeliverable: step.requiresDeliverable,
   }
+}
+
+function resolveEditContext(workspace: ProjectWorkspace[], target: EditTarget): EditContext | null {
+  const project = workspace.find((item) => item.id === target.projectId)
+  if (!project) return null
+  if (target.kind === 'project') return { target, project }
+
+  const workstream = project.workstreams.find((item) => item.id === target.workstreamId)
+  if (!workstream) return null
+  if (target.kind === 'workstream') return { target, project, workstream }
+
+  const subtask = workstream.subtasks.find((item) => item.id === target.subtaskId)
+  if (!subtask) return null
+  if (target.kind === 'subtask') return { target, project, workstream, subtask }
+
+  const step = subtask.steps.find((item) => item.id === target.stepId)
+  if (!step) return null
+  return { target, project, workstream, subtask, step }
+}
+
+function editContextToDraft(context: EditContext): EditDraft {
+  if (context.target.kind === 'project') {
+    return {
+      title: context.project.name,
+      description: context.project.description,
+      ownerId: context.project.ownerId ?? '',
+      startDate: context.project.startDate,
+      dueDate: context.project.dueDate,
+      status: context.project.status,
+      expectedResult: '',
+      isRequired: true,
+      requiresDeliverable: false,
+    }
+  }
+
+  if (context.target.kind === 'workstream' && context.workstream) {
+    return {
+      title: context.workstream.title,
+      description: context.workstream.description,
+      ownerId: context.workstream.ownerId ?? '',
+      startDate: context.workstream.startDate,
+      dueDate: context.workstream.dueDate,
+      status: context.workstream.status,
+      expectedResult: '',
+      isRequired: true,
+      requiresDeliverable: false,
+    }
+  }
+
+  if (context.target.kind === 'subtask' && context.subtask) {
+    return {
+      title: context.subtask.title,
+      description: context.subtask.description,
+      ownerId: context.subtask.ownerId ?? '',
+      startDate: context.subtask.startDate,
+      dueDate: context.subtask.dueDate,
+      status: context.subtask.status,
+      expectedResult: context.subtask.reportText,
+      isRequired: true,
+      requiresDeliverable: context.subtask.needsFile,
+    }
+  }
+
+  const step = context.step as StepItem
+  return {
+    title: step.title,
+    description: step.description || step.note,
+    ownerId: step.ownerId ?? '',
+    startDate: '',
+    dueDate: step.dueDate,
+    status: step.status,
+    expectedResult: step.note,
+    isRequired: step.isRequired,
+    requiresDeliverable: step.requiresDeliverable,
+  }
+}
+
+function validateEditDraft(draft: EditDraft) {
+  if (!draft.title.trim()) return 'Tên không được để trống.'
+  if (draft.startDate && Number.isNaN(Date.parse(`${draft.startDate}T00:00:00+07:00`))) return 'Ngày bắt đầu không hợp lệ.'
+  if (draft.dueDate && Number.isNaN(Date.parse(`${draft.dueDate}T00:00:00+07:00`))) return 'Deadline không hợp lệ.'
+  if (!isTaskStatus(draft.status)) return 'Trạng thái không hợp lệ.'
+  return null
+}
+
+function getEditApiTarget(context: EditContext): { type: 'project' | 'workstream' | 'task' | 'step'; id: string } | null {
+  if (context.target.kind === 'project') return { type: 'project', id: context.project.sourceProjectId ?? context.project.id }
+  if (context.target.kind === 'workstream' && context.workstream) return { type: 'workstream', id: context.workstream.id }
+  if (context.target.kind === 'subtask' && context.subtask) return { type: 'task', id: context.subtask.sourceTaskId ?? context.subtask.id }
+  if (context.target.kind === 'step' && context.step) return { type: 'step', id: context.step.id }
+  return null
+}
+
+function buildEditPatch(kind: EditableKind, draft: EditDraft): Record<string, unknown> {
+  if (kind === 'step') {
+    return {
+      title: draft.title.trim(),
+      description: (draft.expectedResult || draft.description).trim(),
+      ownerId: draft.ownerId || null,
+      dueDate: draft.dueDate || null,
+      status: draft.status,
+      isRequired: draft.isRequired,
+      requiresDeliverable: draft.requiresDeliverable,
+    }
+  }
+
+  return {
+    name: draft.title.trim(),
+    description: draft.description.trim(),
+    ownerId: draft.ownerId || null,
+    startDate: draft.startDate || null,
+    dueDate: draft.dueDate || null,
+    status: draft.status,
+    ...(kind === 'subtask' ? { expectedResult: draft.expectedResult.trim() } : {}),
+  }
+}
+
+function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTarget, draft: EditDraft) {
+  return workspace.map((project) => {
+    if (project.id !== target.projectId) return project
+    if (target.kind === 'project') {
+      return {
+        ...project,
+        name: draft.title.trim(),
+        description: draft.description,
+        ownerId: draft.ownerId || null,
+        startDate: draft.startDate,
+        dueDate: draft.dueDate,
+        status: draft.status,
+        storedStatus: draft.status,
+      }
+    }
+
+    return {
+      ...project,
+      workstreams: project.workstreams.map((workstream) => {
+        if (workstream.id !== target.workstreamId) return workstream
+        if (target.kind === 'workstream') {
+          return {
+            ...workstream,
+            title: draft.title.trim(),
+            description: draft.description,
+            ownerId: draft.ownerId || null,
+            startDate: draft.startDate,
+            dueDate: draft.dueDate,
+            status: draft.status,
+            storedStatus: draft.status,
+          }
+        }
+
+        return {
+          ...workstream,
+          subtasks: workstream.subtasks.map((subtask) => {
+            if (subtask.id !== target.subtaskId) return subtask
+            if (target.kind === 'subtask') {
+              return {
+                ...subtask,
+                title: draft.title.trim(),
+                description: draft.description,
+                ownerId: draft.ownerId || null,
+                startDate: draft.startDate,
+                dueDate: draft.dueDate,
+                status: draft.status,
+                reportText: draft.expectedResult,
+              }
+            }
+
+            return {
+              ...subtask,
+              steps: subtask.steps.map((step) =>
+                step.id !== target.stepId
+                  ? step
+                  : {
+                      ...step,
+                      title: draft.title.trim(),
+                      description: draft.expectedResult || draft.description,
+                      note: draft.expectedResult || draft.description,
+                      ownerId: draft.ownerId || null,
+                      dueDate: draft.dueDate,
+                      status: draft.status,
+                      isRequired: draft.isRequired,
+                      requiresDeliverable: draft.requiresDeliverable,
+                    },
+              ),
+            }
+          }),
+        }
+      }),
+    }
+  })
+}
+
+function getEditContextKey(context: EditContext) {
+  return [
+    context.target.kind,
+    context.project.id,
+    context.workstream?.id,
+    context.subtask?.id,
+    context.step?.id,
+  ].filter(Boolean).join(':')
+}
+
+function getEditDrawerTitle(context: EditContext) {
+  if (context.target.kind === 'project') return 'Sửa dự án'
+  if (context.target.kind === 'workstream') return 'Sửa đầu việc lớn'
+  if (context.target.kind === 'subtask') return 'Sửa đầu việc con'
+  return 'Sửa bước'
+}
+
+function getTitleFieldLabel(kind: EditableKind) {
+  if (kind === 'project') return 'Tên dự án'
+  if (kind === 'workstream') return 'Tên đầu việc lớn'
+  if (kind === 'subtask') return 'Tên đầu việc con'
+  return 'Tên bước'
 }
 
 function stepObjective(step: StepItem) {
@@ -3980,6 +4535,11 @@ function findSubtask(project: ProjectWorkspace, subtaskId: string | null) {
   return null
 }
 
+function findWorkstreamForSubtask(project: ProjectWorkspace, subtaskId: string | null) {
+  if (!subtaskId) return null
+  return project.workstreams.find((workstream) => workstream.subtasks.some((subtask) => subtask.id === subtaskId)) ?? null
+}
+
 function normalizeWorkspaceTree(projects: ProjectWorkspace[]) {
   return projects.map((project) => {
     const workstreams = project.workstreams.map((workstream) => {
@@ -3991,7 +4551,7 @@ function normalizeWorkspaceTree(projects: ProjectWorkspace[]) {
         ...workstream,
         startDate: subtaskStartDates.length ? subtaskStartDates.reduce((min, value) => (value < min ? value : min), subtaskStartDates[0]) : workstream.startDate,
         dueDate: subtaskDueDates.length ? subtaskDueDates.reduce((max, value) => (value > max ? value : max), subtaskDueDates[0]) : workstream.dueDate,
-        status: deriveWorkstreamStatus(subtasks),
+        status: isTaskStatus(workstream.storedStatus) ? normalizeStatus(workstream.storedStatus) : deriveWorkstreamStatus(subtasks),
         subtasks,
       }
     })
@@ -4003,6 +4563,7 @@ function normalizeWorkspaceTree(projects: ProjectWorkspace[]) {
       ...project,
       startDate: workstreamStartDates.length ? workstreamStartDates.reduce((min, value) => (value < min ? value : min), workstreamStartDates[0]) : project.startDate,
       dueDate: workstreamDueDates.length ? workstreamDueDates.reduce((max, value) => (value > max ? value : max), workstreamDueDates[0]) : project.dueDate,
+      status: isTaskStatus(project.storedStatus) ? normalizeStatus(project.storedStatus) : project.status,
       workstreams,
     }
   })
@@ -4369,9 +4930,100 @@ function isUnassignedSubtask(subtask: SubtaskItem) {
   return !subtask.ownerId
 }
 
-function matchesProjectWorkFilter(subtask: SubtaskItem, filter: ProjectWorkFilter) {
-  if (filter === 'unassigned') return isUnassignedSubtask(subtask)
+function matchesProjectWorkFilter(subtask: SubtaskItem, filters: ProjectFilters, context?: { project?: ProjectWorkspace; workstream?: WorkstreamItem }) {
+  if (filters.quick === 'unassigned' && !isUnassignedSubtask(subtask) && !subtask.steps.some((step) => !step.ownerId)) return false
+
+  const statusMatches =
+    filters.status === 'all' ||
+    matchesStatusFilter(subtask.status, subtask.dueDate, filters.status) ||
+    subtask.steps.some((step) => matchesStatusFilter(step.status, step.dueDate, filters.status))
+  if (!statusMatches) return false
+
+  const deadlineMatches =
+    filters.deadline === 'all' ||
+    matchesDeadlineFilter(subtask.dueDate, subtask.status, filters.deadline) ||
+    subtask.steps.some((step) => matchesDeadlineFilter(step.dueDate, step.status, filters.deadline))
+  if (!deadlineMatches) return false
+
+  if (!matchesSearchFilter([
+    context?.project?.name,
+    context?.project?.code,
+    context?.workstream?.title,
+    subtask.title,
+    subtask.description,
+    subtask.reportText,
+    ...subtask.steps.flatMap((step) => [step.title, step.description, step.note]),
+  ], filters.search)) return false
+
   return true
+}
+
+function matchesWorkstreamProjectFilter(workstream: WorkstreamItem, filters: ProjectFilters, project: ProjectWorkspace) {
+  const directMatch =
+    matchesStatusFilter(workstream.status, workstream.dueDate, filters.status) &&
+    matchesDeadlineFilter(workstream.dueDate, workstream.status, filters.deadline) &&
+    matchesSearchFilter([project.name, project.code, workstream.title, workstream.description], filters.search) &&
+    (filters.quick !== 'unassigned' || !workstream.ownerId)
+
+  return directMatch || workstream.subtasks.some((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
+}
+
+function matchesStepProjectFilter(step: StepItem, filters: ProjectFilters) {
+  if (filters.quick === 'unassigned' && step.ownerId) return false
+  if (!matchesStatusFilter(step.status, step.dueDate, filters.status)) return false
+  if (!matchesDeadlineFilter(step.dueDate, step.status, filters.deadline)) return false
+  return matchesSearchFilter([step.title, step.description, step.note], filters.search)
+}
+
+function matchesStatusFilter(status: TaskStatus, dueDate: string, filter: ProjectStatusFilter) {
+  if (filter === 'all') return true
+  if (filter === 'overdue') return isOverdue(dueDate, status)
+  return status === filter
+}
+
+function matchesDeadlineFilter(dueDate: string, status: TaskStatus, filter: ProjectDeadlineFilter) {
+  if (filter === 'all') return true
+  if (!dueDate) return filter === 'none'
+  if (filter === 'none') return false
+  if (filter === 'overdue') return isOverdue(dueDate, status)
+  if (status === 'COMPLETED' || status === 'CANCELLED') return false
+
+  const today = getVietnamDateKey()
+  if (filter === 'today') return dueDate === today
+  if (filter === 'this_week') {
+    const range = getWeekRange(today, 0)
+    return dueDate >= range.start && dueDate <= range.end
+  }
+  if (filter === 'next_week') {
+    const range = getWeekRange(today, 1)
+    return dueDate >= range.start && dueDate <= range.end
+  }
+  if (filter === 'this_month') return dueDate.slice(0, 7) === today.slice(0, 7)
+  return true
+}
+
+function matchesSearchFilter(values: Array<string | null | undefined>, search: string) {
+  const needle = normalizeSearch(search)
+  if (!needle) return true
+  return values.some((value) => normalizeSearch(value ?? '').includes(needle))
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function getWeekRange(today: string, offsetWeeks: number) {
+  const [year, month, dayOfMonth] = today.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, dayOfMonth))
+  const day = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() - day + 1 + offsetWeeks * 7)
+  const start = date.toISOString().slice(0, 10)
+  date.setUTCDate(date.getUTCDate() + 6)
+  return { start, end: date.toISOString().slice(0, 10) }
 }
 
 function subtaskNeedsEvidence(subtask: SubtaskItem) {
@@ -4464,10 +5116,13 @@ function matchesStepFlowchartFilter(step: StepItem, filter: FlowchartFilter) {
   return true
 }
 
-function getVisibleFlowchartSteps(subtask: SubtaskItem, filter: FlowchartFilter) {
-  if (filter === 'all') return subtask.steps
-  const matchedSteps = subtask.steps.filter((step) => matchesStepFlowchartFilter(step, filter))
-  return matchesSubtaskFlowchartFilter(subtask, filter) ? subtask.steps : matchedSteps
+function getVisibleFlowchartSteps(subtask: SubtaskItem, filter: FlowchartFilter, projectFilters: ProjectFilters) {
+  const subtaskMatches = matchesSubtaskFlowchartFilter(subtask, filter) && matchesProjectWorkFilter(subtask, projectFilters)
+  if (subtaskMatches) return subtask.steps
+  return subtask.steps.filter((step) =>
+    matchesStepFlowchartFilter(step, filter) &&
+    matchesStepProjectFilter(step, projectFilters),
+  )
 }
 
 function getFlowchartNodeKey(node: FlowchartNode) {
@@ -4475,6 +5130,26 @@ function getFlowchartNodeKey(node: FlowchartNode) {
   if (node.kind === 'workstream') return flowchartNodeId('workstream', node.workstream?.id ?? node.project.id)
   if (node.kind === 'subtask') return flowchartNodeId('subtask', node.subtask?.id ?? node.project.id)
   return flowchartNodeId('step', node.step?.id ?? node.project.id)
+}
+
+function flowchartNodeToEditTarget(node: FlowchartNode): EditTarget {
+  if (node.kind === 'project') return { kind: 'project', projectId: node.project.id }
+  if (node.kind === 'workstream') return { kind: 'workstream', projectId: node.project.id, workstreamId: node.workstream?.id }
+  if (node.kind === 'subtask') {
+    return {
+      kind: 'subtask',
+      projectId: node.project.id,
+      workstreamId: node.workstream?.id,
+      subtaskId: node.subtask?.id,
+    }
+  }
+  return {
+    kind: 'step',
+    projectId: node.project.id,
+    workstreamId: node.workstream?.id,
+    subtaskId: node.subtask?.id,
+    stepId: node.step?.id,
+  }
 }
 
 function isFlowchartWorkstreamPathActive(workstream: WorkstreamItem, selectedNode: FlowchartNode) {
@@ -6454,6 +7129,21 @@ const smallPrimaryButton: React.CSSProperties = {
   padding: '8px 12px',
   fontSize: 12,
   fontWeight: 800,
+}
+
+const drawerTabLabelStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  alignSelf: 'flex-start',
+  padding: '7px 10px',
+  borderRadius: 999,
+  border: '1px solid var(--line)',
+  background: 'rgba(218, 223, 33, 0.08)',
+  color: 'var(--txt-1)',
+  fontSize: 12,
+  fontWeight: 800,
+  marginBottom: 14,
 }
 
 const fieldLabel: React.CSSProperties = {

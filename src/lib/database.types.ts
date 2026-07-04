@@ -49,6 +49,7 @@ export interface ProjectRow {
   workspace_id: string
   name: string
   code: string | null
+  description: string | null
   owner_id: string | null
   status: string
   health_status: 'NO_DATA' | 'ON_TRACK' | 'WARNING' | 'AT_RISK' | 'CRITICAL'
@@ -187,6 +188,7 @@ export interface CommandCenterProjectRow {
   id: string
   name: string
   code: string | null
+  description: string | null
   owner_id: string | null
   status: string
   health_status: 'NO_DATA' | 'ON_TRACK' | 'WARNING' | 'AT_RISK' | 'CRITICAL'
@@ -198,6 +200,7 @@ export interface CommandCenterProjectRow {
 export interface CommandCenterTaskRow {
   id: string
   title: string
+  description: string | null
   owner_id: string | null
   project_id: string | null
   workstream_id: string | null
