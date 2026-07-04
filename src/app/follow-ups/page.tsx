@@ -49,6 +49,12 @@ type FollowUpItem = {
   isOverdue: boolean
 }
 
+type FollowUpPersonGroup = {
+  personId: string
+  personName: string
+  items: FollowUpItem[]
+}
+
 type ComposerState = {
   items: FollowUpItem[]
   mode: 'single' | 'bulk'
@@ -79,6 +85,7 @@ export default function FollowUpsPage() {
   const [toast, setToast] = React.useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [activeView, setActiveView] = React.useState<FollowUpView>('today')
+  const [groupOpenOverrides, setGroupOpenOverrides] = React.useState<Record<string, boolean>>({})
 
   const people = React.useMemo(() => toMap(data?.people ?? []), [data?.people])
   const tasks = React.useMemo(() => toMap(data?.tasks ?? []), [data?.tasks])
@@ -141,6 +148,7 @@ export default function FollowUpsPage() {
     [allItems],
   )
   const dueGroups = React.useMemo(() => groupItemsByPerson(dueNow), [dueNow])
+  const groupedVisibleItems = React.useMemo(() => groupItemsByPerson(visibleItems), [visibleItems])
 
   React.useEffect(() => {
     if (!toast) return
@@ -250,6 +258,18 @@ export default function FollowUpsPage() {
     }
   }
 
+  function isGroupExpanded(group: FollowUpPersonGroup) {
+    const fallback = activeView !== 'all' || group.items.some((item) => item.isOverdue || isTodayFollowUp(item))
+    return groupOpenOverrides[group.personId] ?? fallback
+  }
+
+  function toggleGroup(group: FollowUpPersonGroup) {
+    setGroupOpenOverrides((current) => ({
+      ...current,
+      [group.personId]: !isGroupExpanded(group),
+    }))
+  }
+
   return (
     <div style={pageStyle}>
       <PageHead
@@ -298,7 +318,16 @@ export default function FollowUpsPage() {
           ) : visibleItems.length === 0 ? (
             <div style={emptyState}>Hiện chưa có mục nào cần theo dõi.</div>
           ) : (
-            visibleItems.map((item, index) => <FollowUpRow key={item.id} item={item} index={index} total={visibleItems.length} onOpen={() => void openComposer([item])} />)
+            groupedVisibleItems.map((group) => (
+              <FollowUpGroup
+                key={group.personId}
+                group={group}
+                expanded={isGroupExpanded(group)}
+                onToggle={() => toggleGroup(group)}
+                onOpenGroup={() => void openComposer(group.items, group.items.length > 1 ? 'bulk' : 'single')}
+                onOpenItem={(item) => void openComposer([item])}
+              />
+            ))
           )}
         </section>
 
@@ -386,6 +415,58 @@ export default function FollowUpsPage() {
           onSchedule={() => void runAction('schedule')}
           onEscalate={() => void runAction('escalate')}
         />
+      ) : null}
+    </div>
+  )
+}
+
+function FollowUpGroup({
+  group,
+  expanded,
+  onToggle,
+  onOpenGroup,
+  onOpenItem,
+}: {
+  group: FollowUpPersonGroup
+  expanded: boolean
+  onToggle: () => void
+  onOpenGroup: () => void
+  onOpenItem: (item: FollowUpItem) => void
+}) {
+  const todayCount = group.items.filter(isTodayFollowUp).length
+  const upcomingCount = group.items.length - todayCount
+  const overdueCount = group.items.filter((item) => item.isOverdue).length
+  const role = group.items.find((item) => item.personRole)?.personRole ?? 'Chưa có chức danh'
+
+  return (
+    <div style={groupPanelStyle}>
+      <div style={groupHeaderStyle}>
+        <button type="button" onClick={onToggle} style={groupToggleStyle} aria-expanded={expanded}>
+          <i className={`ti ${expanded ? 'ti-chevron-down' : 'ti-chevron-right'}`} />
+          <span>
+            <strong>{group.personName}</strong>
+            <small>{role}</small>
+          </span>
+        </button>
+        <div style={groupStatsStyle}>
+          <span style={groupStatPillStyle('warning')}>Hôm nay {todayCount}</span>
+          <span style={groupStatPillStyle('neutral')}>Sắp tới {upcomingCount}</span>
+          <span style={groupStatPillStyle(overdueCount > 0 ? 'danger' : 'neutral')}>Quá hạn {overdueCount}</span>
+          <button type="button" onClick={onOpenGroup} style={groupComposeButtonStyle}>Soạn nhóm</button>
+        </div>
+      </div>
+      {expanded ? (
+        <div>
+          {group.items.map((item, index) => (
+            <FollowUpRow
+              key={item.id}
+              item={item}
+              index={index}
+              total={group.items.length}
+              onOpen={() => onOpenItem(item)}
+            />
+          ))}
+        </div>
       ) : null}
     </div>
   )
@@ -707,8 +788,8 @@ function getProjectForItem(
   return projectId ? projects[projectId] : null
 }
 
-function groupItemsByPerson(items: FollowUpItem[]) {
-  const byPerson = new Map<string, { personId: string; personName: string; items: FollowUpItem[] }>()
+function groupItemsByPerson(items: FollowUpItem[]): FollowUpPersonGroup[] {
+  const byPerson = new Map<string, FollowUpPersonGroup>()
   for (const item of items) {
     const key = item.personId ?? `unknown-${item.id}`
     const current = byPerson.get(key) ?? { personId: key, personName: item.personName, items: [] }
@@ -991,6 +1072,60 @@ const tableHeaderRow: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   color: 'var(--color-text-muted)',
+}
+
+const groupPanelStyle: React.CSSProperties = {
+  borderTop: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+}
+
+const groupHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '12px 20px',
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0)), var(--color-surface-2)',
+}
+
+const groupToggleStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 10,
+  minWidth: 0,
+  border: 0,
+  background: 'transparent',
+  color: 'var(--color-text)',
+  cursor: 'pointer',
+  textAlign: 'left',
+}
+
+const groupStatsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+  justifyContent: 'flex-end',
+}
+
+const groupStatPillStyle = (tone: 'warning' | 'danger' | 'neutral'): React.CSSProperties => ({
+  padding: '4px 8px',
+  borderRadius: '999px',
+  background: tone === 'danger' ? 'var(--color-danger-bg)' : tone === 'warning' ? 'var(--color-warning-bg)' : 'var(--color-surface)',
+  color: tone === 'danger' ? 'var(--color-danger)' : tone === 'warning' ? 'var(--color-warning)' : 'var(--color-text-muted)',
+  fontSize: 11,
+  fontWeight: 800,
+})
+
+const groupComposeButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--brand-lime-border)',
+  borderRadius: '999px',
+  background: 'var(--brand-lime-soft)',
+  color: 'var(--color-text)',
+  padding: '5px 10px',
+  fontSize: 11,
+  fontWeight: 800,
+  cursor: 'pointer',
 }
 
 const tableRow: React.CSSProperties = {
