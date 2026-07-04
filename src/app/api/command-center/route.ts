@@ -54,8 +54,15 @@ export async function GET(request: Request) {
 
   try {
     if (!isLocalProductionDatabaseRequest(request)) {
-      const syncClient = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : sb
-      await resyncCompletedTasks(syncClient, workspaceId)
+      try {
+        const syncClient = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : sb
+        await resyncCompletedTasks(syncClient, workspaceId)
+      } catch (syncError) {
+        console.warn(
+          'COMMAND_CENTER_RESYNC_SKIPPED',
+          syncError instanceof Error ? syncError.message : 'Unknown resync error',
+        )
+      }
     }
     const data = await getCommandCenterData(workspaceId)
     return NextResponse.json({ ...data, workspaceId })
