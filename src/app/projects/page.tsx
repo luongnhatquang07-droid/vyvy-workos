@@ -2195,6 +2195,10 @@ function KanbanTab({
   )
 }
 
+function getDefaultFlowchartCollapsedIds(project: ProjectWorkspace) {
+  return new Set(project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)))
+}
+
 function FlowchartTab({
   project,
   people,
@@ -2207,7 +2211,7 @@ function FlowchartTab({
   onOpenSubtask: (subtaskId: string) => void
 }) {
   const [filter, setFilter] = React.useState<FlowchartFilter>('all')
-  const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => new Set())
+  const [collapsedIds, setCollapsedIds] = React.useState<Set<string>>(() => getDefaultFlowchartCollapsedIds(project))
   const [selectedNode, setSelectedNode] = React.useState<FlowchartNode>(() => ({ kind: 'project', project }))
   const [zoom, setZoom] = React.useState(1)
   const [pan, setPan] = React.useState<FlowchartPan>({ x: 0, y: 0 })
@@ -2224,7 +2228,7 @@ function FlowchartTab({
     previousProjectIdRef.current = project.id
     queueMicrotask(() => {
       setSelectedNode({ kind: 'project', project })
-      setCollapsedIds(new Set())
+      setCollapsedIds(getDefaultFlowchartCollapsedIds(project))
       setFilter('all')
       setZoom(1)
       setPan({ x: 0, y: 0 })
@@ -2301,10 +2305,17 @@ function FlowchartTab({
   const selectedNodeKey = getFlowchartNodeKey(selectedNode)
   const allSubtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
   const allSteps = allSubtasks.flatMap((subtask) => subtask.steps)
-  const visibleSubtaskCount = visibleWorkstreams.flatMap((workstream) => workstream.subtasks).length
-  const visibleStepCount = visibleWorkstreams.flatMap((workstream) =>
-    workstream.subtasks.flatMap((subtask) => getVisibleFlowchartSteps(subtask, filter)),
-  ).length
+  const visibleSubtaskCount = visibleWorkstreams.reduce((count, workstream) => (
+    collapsedIds.has(flowchartNodeId('workstream', workstream.id)) ? count : count + workstream.subtasks.length
+  ), 0)
+  const visibleStepCount = visibleWorkstreams.reduce((count, workstream) => {
+    if (collapsedIds.has(flowchartNodeId('workstream', workstream.id))) return count
+    return count + workstream.subtasks.reduce((stepCount, subtask) => (
+      collapsedIds.has(flowchartNodeId('subtask', subtask.id))
+        ? stepCount
+        : stepCount + getVisibleFlowchartSteps(subtask, filter).length
+    ), 0)
+  }, 0)
   const projectStatus = getFlowchartNodeStatus({ kind: 'project', project })
   const projectDeadline = project.dueDate ? `${formatDeadlineLabel(project.dueDate, projectStatus)} · ${toFullDate(project.dueDate)}` : 'Không deadline'
   const workspaceStyle: React.CSSProperties = isFullscreen
