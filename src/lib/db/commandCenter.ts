@@ -1,6 +1,7 @@
 import 'server-only'
 
 import type { RawCommandCenterData } from '@/lib/database.types'
+import { buildDeadlineRollups } from '@/lib/deadlineRollup'
 import { createClient } from '@/lib/supabase/server'
 
 const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
@@ -95,20 +96,44 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       .limit(100),
   ])
 
-  const projects = requireRows('dự án', projectsRes) as RawCommandCenterData['projects']
+  let projects = requireRows('dự án', projectsRes) as RawCommandCenterData['projects']
   const projectIds = new Set(projects.map((project) => project.id))
-  const workstreams = (requireRows('đầu việc lớn', workstreamsRes) as RawCommandCenterData['workstreams'])
+  let workstreams = (requireRows('đầu việc lớn', workstreamsRes) as RawCommandCenterData['workstreams'])
     .filter((workstream) => projectIds.has(workstream.project_id))
   const workstreamIds = new Set(workstreams.map((workstream) => workstream.id))
-  const tasks = (requireRows('đầu việc', tasksRes) as RawCommandCenterData['tasks'])
+  let tasks = (requireRows('đầu việc', tasksRes) as RawCommandCenterData['tasks'])
     .filter((task) =>
       (!task.project_id || projectIds.has(task.project_id)) &&
       (!task.workstream_id || workstreamIds.has(task.workstream_id)),
     )
   const taskIds = new Set(tasks.map((task) => task.id))
-  const taskSteps = (requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'])
+  let taskSteps = (requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'])
     .filter((step) => taskIds.has(step.task_id))
   const stepIds = new Set(taskSteps.map((step) => step.id))
+
+  const deadlineRollups = buildDeadlineRollups({
+    projects,
+    workstreams,
+    subtasks: tasks,
+    steps: taskSteps,
+  })
+  projects = projects.map((project) => ({
+    ...project,
+    due_date: deadlineRollups.projectDeadlines.get(project.id) ?? project.due_date,
+  }))
+  workstreams = workstreams.map((workstream) => ({
+    ...workstream,
+    due_date: deadlineRollups.workstreamDeadlines.get(workstream.id) ?? workstream.due_date,
+  }))
+  tasks = tasks.map((task) => ({
+    ...task,
+    due_date: deadlineRollups.taskDeadlines.get(task.id) ?? task.due_date,
+  }))
+  taskSteps = taskSteps.map((step) => ({
+    ...step,
+    due_date: deadlineRollups.stepDeadlines.get(step.id) ?? step.due_date,
+  }))
+
   const meetings = (requireRows('cuộc họp', meetingsRes) as RawCommandCenterData['meetings'])
     .filter((meeting) => !meeting.project_id || projectIds.has(meeting.project_id))
   const meetingIds = new Set(meetings.map((meeting) => meeting.id))
