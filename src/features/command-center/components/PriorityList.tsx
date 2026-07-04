@@ -69,10 +69,10 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
         <div style={headerStyle}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             <span style={stepBadgeStyle}>1</span>
-            <h2 style={titleStyle}>Việc ưu tiên hôm nay</h2>
-            <span style={countBadgeStyle}>{visible.length}</span>
+            <h2 style={titleStyle}>Việc ưu tiên đang mở</h2>
+            <span style={countBadgeStyle}>{visible.length} việc</span>
           </div>
-          <div style={sortTextStyle}>Sắp theo mức ưu tiên</div>
+          <div style={sortTextStyle}>Chỉ tính việc chưa hoàn thành, sắp theo mức ưu tiên</div>
         </div>
 
         <div>

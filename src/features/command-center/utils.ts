@@ -268,9 +268,9 @@ export function buildSummaryBanner(
   const chips = [
     { label: `${kpi.meetingsToday} họp`, colorClass: 'default' as const, route: '/meetings' },
     { label: `${kpi.unimportedDrafts} draft chưa nhập`, colorClass: 'waiting' as const, route: '/task-inbox' },
-    { label: `${kpi.pendingDeliverable} nợ file`, colorClass: 'default' as const, route: '/follow-ups' },
-    { label: `${kpi.overdueItems} quá hạn`, colorClass: 'danger' as const, route: '/follow-ups' },
-    { label: `${kpi.pendingApprovals} chờ duyệt`, colorClass: 'warning' as const, route: '/approvals' },
+    { label: `${kpi.pendingDeliverable} người nợ file`, colorClass: 'default' as const, route: '/follow-ups' },
+    { label: `${kpi.overdueItems} việc quá hạn`, colorClass: 'danger' as const, route: '/follow-ups' },
+    { label: `${kpi.pendingApprovals} yêu cầu duyệt`, colorClass: 'warning' as const, route: '/approvals' },
     { label: `${kpi.ceoItems} báo CEO`, colorClass: 'lime' as const, route: '/ceo-reports' },
   ]
   return { paragraph, chips }

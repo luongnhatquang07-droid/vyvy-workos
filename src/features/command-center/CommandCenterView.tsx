@@ -169,7 +169,7 @@ function CCHeader({
         <h1 style={headlineStyle} data-vyvy-type="true" suppressHydrationWarning>Trung tâm điều hành</h1>
         <div style={subheadStyle}>
           {displayDateTime}
-          {!loading && typeof todayActionCount === 'number' ? ` · Cần xử lý hôm nay: ${todayActionCount} việc` : ''}
+          {!loading && typeof todayActionCount === 'number' ? ` · Cần xử lý hôm nay: ${todayActionCount} việc ưu tiên đang mở` : ''}
         </div>
       </div>
       {hasDataIssue ? <span style={issueBadgeStyle}>Cần kiểm tra dữ liệu</span> : null}

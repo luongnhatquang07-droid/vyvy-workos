@@ -262,7 +262,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
       />
       <KPICard
         value={kpi.overdueItems}
-        label="Quá hạn"
+        label="Quá hạn công việc"
         unit="việc"
         description="Việc có deadline trước hôm nay và chưa hoàn thành."
         icon="ti-alarm"
@@ -277,7 +277,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
       <KPICard
         value={kpi.pendingApprovals}
         label="Chờ duyệt"
-        unit="việc"
+        unit="yêu cầu"
         description="Yêu cầu phê duyệt đang chờ xử lý hoặc đã trễ hạn."
         icon="ti-stamp"
         iconBg="var(--color-success-bg)"
