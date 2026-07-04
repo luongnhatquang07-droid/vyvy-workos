@@ -10,6 +10,7 @@ import type {
   CommandCenterPersonRow,
   CommandCenterProjectRow,
   CommandCenterTaskRow,
+  CommandCenterTaskStepRow,
   RawCommandCenterData,
   CommandCenterReminderRow,
 } from '@/lib/database.types'
@@ -373,23 +374,116 @@ function getDeliverableCheckState(
   }
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+}
+
+function isDefaultCompletionStep(row: CommandCenterTaskStepRow) {
+  const text = `${row.title} ${row.description ?? ''}`
+  const normalized = normalizeSearchText(text)
+  return (
+    normalized.includes('cap nhat ket qua') ||
+    normalized.includes('bao cao ket qua') ||
+    normalized.includes('thuc hien va cap nhat')
+  )
+}
+
+function isCompletedTaskStatus(status: CommandCenterTaskRow['status'] | undefined) {
+  return status === 'COMPLETED' || status === 'CANCELLED'
+}
+
+function isTaskDeliverableSatisfied(
+  row: CommandCenterDeliverableRow,
+  versions: CommandCenterDeliverableVersionRow[],
+) {
+  return getDeliverableCheckState(row, versions).gateOpen
+}
+
+function getEffectiveTaskStatus(
+  row: CommandCenterTaskRow,
+  deliverables: CommandCenterDeliverableRow[],
+  versions: CommandCenterDeliverableVersionRow[],
+  steps: CommandCenterTaskStepRow[],
+): CommandCenterTaskRow['status'] {
+  if (isCompletedTaskStatus(row.status)) return row.status
+
+  const requiredDeliverables = deliverables.filter(
+    (deliverable) => deliverable.task_id === row.id && deliverable.is_required !== false,
+  )
+  if (requiredDeliverables.length === 0) return row.status
+
+  const deliverablesSatisfied = requiredDeliverables.every((deliverable) => (
+    isTaskDeliverableSatisfied(deliverable, versions)
+  ))
+  if (!deliverablesSatisfied) return row.status
+
+  const requiredSteps = steps.filter((step) => step.task_id === row.id && step.is_required !== false)
+  const stepsSatisfied = requiredSteps.every((step) => {
+    if (step.status === 'COMPLETED') return true
+    const stepDeliverables = requiredDeliverables.filter((deliverable) => deliverable.step_id === step.id)
+    if (stepDeliverables.length > 0) {
+      return stepDeliverables.every((deliverable) => isTaskDeliverableSatisfied(deliverable, versions))
+    }
+    return isDefaultCompletionStep(step)
+  })
+
+  return stepsSatisfied ? 'COMPLETED' : row.status
+}
+
+function isReminderForCompletedTask(
+  row: CommandCenterReminderRow,
+  taskRows: CommandCenterTaskRow[],
+  deliverables: CommandCenterDeliverableRow[],
+) {
+  const task = row.task_id ? taskRows.find((item) => item.id === row.task_id) : null
+  if (isCompletedTaskStatus(task?.status)) return true
+
+  const deliverable = row.deliverable_id ? deliverables.find((item) => item.id === row.deliverable_id) : null
+  const deliverableTask = deliverable?.task_id ? taskRows.find((item) => item.id === deliverable.task_id) : null
+  return isCompletedTaskStatus(deliverableTask?.status)
+}
+
+function isApprovalForCompletedTask(
+  row: CommandCenterApprovalRow,
+  taskRows: CommandCenterTaskRow[],
+  deliverables: CommandCenterDeliverableRow[],
+) {
+  const task = row.task_id ? taskRows.find((item) => item.id === row.task_id) : null
+  if (isCompletedTaskStatus(task?.status)) return true
+
+  const deliverable = row.deliverable_id ? deliverables.find((item) => item.id === row.deliverable_id) : null
+  const deliverableTask = deliverable?.task_id ? taskRows.find((item) => item.id === deliverable.task_id) : null
+  return isCompletedTaskStatus(deliverableTask?.status)
+}
+
 export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData {
   const today = getVietnamDateKey()
 
   const people = raw.people.map(mapPerson)
   const projects = raw.projects.map(mapProject)
-  const tasks = raw.tasks.map(mapTask)
+  const effectiveTaskRows = raw.tasks.map((row) => ({
+    ...row,
+    status: getEffectiveTaskStatus(row, raw.deliverables, raw.deliverableVersions, raw.taskSteps),
+  }))
+  const activeReminderRows = raw.reminders.filter((row) => !isReminderForCompletedTask(row, effectiveTaskRows, raw.deliverables))
+  const activeApprovalRows = raw.approvals.filter((row) => !isApprovalForCompletedTask(row, effectiveTaskRows, raw.deliverables))
+
+  const tasks = effectiveTaskRows.map(mapTask)
   const meetings = raw.meetings.map((row) => mapMeeting(row, raw.taskDrafts))
   const deliverables = raw.deliverables.map(mapDeliverable)
-  const approvals = raw.approvals.map((row) => mapApproval(row, raw.tasks, raw.deliverables, today))
-  const reminders = raw.reminders.map((row) => mapReminder(row, raw.tasks, raw.deliverables))
+  const approvals = activeApprovalRows.map((row) => mapApproval(row, effectiveTaskRows, raw.deliverables, today))
+  const reminders = activeReminderRows.map((row) => mapReminder(row, effectiveTaskRows, raw.deliverables))
   const ceoRequests = raw.ceoRequests.map(mapCeoRequest)
   const activityLog = raw.activityLogs.map((row) => mapActivityLog(row, people))
 
-  const chaseItems: ChaseItem[] = raw.reminders.map((row) => {
+  const chaseItems: ChaseItem[] = activeReminderRows.map((row) => {
     const response = mapReminderResponse(row.response_status)
     const deliverable = raw.deliverables.find((item) => item.id === row.deliverable_id)
-    const task = raw.tasks.find((item) => item.id === row.task_id)
+    const task = effectiveTaskRows.find((item) => item.id === row.task_id)
 
     return {
       personId: row.person_id ?? '',
@@ -402,9 +496,17 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
     }
   })
 
-  const remindedDeliverables = new Set(raw.reminders.map((row) => row.deliverable_id).filter(Boolean))
+  const remindedDeliverables = new Set(activeReminderRows.map((row) => row.deliverable_id).filter(Boolean))
   raw.deliverables
-    .filter((row) => row.submitter_id && !remindedDeliverables.has(row.id) && !['SUBMITTED', 'APPROVED'].includes(row.status))
+    .filter((row) => {
+      const linkedTask = row.task_id ? effectiveTaskRows.find((item) => item.id === row.task_id) : null
+      return (
+        row.submitter_id &&
+        !isCompletedTaskStatus(linkedTask?.status) &&
+        !remindedDeliverables.has(row.id) &&
+        !['SUBMITTED', 'APPROVED'].includes(row.status)
+      )
+    })
     .forEach((row) => {
       chaseItems.push({
         personId: row.submitter_id ?? '',
@@ -417,10 +519,10 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
       })
     })
 
-  const commitments: Commitment[] = raw.reminders
+  const commitments: Commitment[] = activeReminderRows
     .filter((row) => mapReminderResponse(row.response_status) === 'PROMISED')
     .map((row) => {
-      const task = raw.tasks.find((item) => item.id === row.task_id)
+      const task = effectiveTaskRows.find((item) => item.id === row.task_id)
       const deliverable = raw.deliverables.find((item) => item.id === row.deliverable_id)
 
       return {
