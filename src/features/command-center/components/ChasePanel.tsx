@@ -174,11 +174,13 @@ function ChaseRow({
 }) {
   const [hovered, setHovered] = React.useState(false)
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [previewAnchor, setPreviewAnchor] = React.useState<HTMLElement | null>(null)
   const previewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const response = RESPONSE_LABEL[item.response] ?? RESPONSE_LABEL.NO_RESPONSE
 
-  function openHoverState() {
+  function openHoverState(event: React.MouseEvent<HTMLDivElement>) {
     setHovered(true)
+    setPreviewAnchor(event.currentTarget)
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
     previewTimerRef.current = setTimeout(() => setPreviewOpen(true), 300)
   }
@@ -186,6 +188,7 @@ function ChaseRow({
   function closeHoverState() {
     setHovered(false)
     setPreviewOpen(false)
+    setPreviewAnchor(null)
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current)
       previewTimerRef.current = null
@@ -272,6 +275,7 @@ function ChaseRow({
 
       {previewOpen ? (
         <HoverPreviewCard
+          anchorElement={previewAnchor}
           title={item.owedItem}
           ownerName={person?.name}
           deadlineLabel={item.deadline ? formatRelativeDate(item.deadline) : 'Chưa có deadline'}

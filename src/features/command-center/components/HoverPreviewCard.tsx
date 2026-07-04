@@ -1,8 +1,10 @@
 'use client'
 
 import React from 'react'
+import { createPortal } from 'react-dom'
 
 interface HoverPreviewCardProps {
+  anchorElement?: HTMLElement | null
   title: string
   projectName?: string
   ownerName?: string
@@ -15,6 +17,7 @@ interface HoverPreviewCardProps {
 }
 
 export function HoverPreviewCard({
+  anchorElement,
   title,
   projectName,
   ownerName,
@@ -25,8 +28,40 @@ export function HoverPreviewCard({
   timingLabel,
   description,
 }: HoverPreviewCardProps) {
-  return (
-    <div style={previewStyle} role="tooltip">
+  const [position, setPosition] = React.useState<{ top: number; left: number } | null>(null)
+
+  React.useLayoutEffect(() => {
+    if (!anchorElement) return
+    const anchor = anchorElement
+
+    function updatePosition() {
+      const rect = anchor.getBoundingClientRect()
+      const width = 340
+      const estimatedHeight = 220
+      const margin = 16
+      const gap = 10
+      const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin))
+      const topBelow = rect.bottom + gap
+      const top = topBelow + estimatedHeight + margin > window.innerHeight
+        ? Math.max(margin, rect.top - estimatedHeight - gap)
+        : topBelow
+      setPosition({ top, left })
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [anchorElement])
+
+  const card = (
+    <div
+      style={anchorElement && position ? { ...previewStyle, ...portalPositionStyle(position) } : previewStyle}
+      role="tooltip"
+    >
       <div style={previewHeaderStyle}>
         <strong style={previewTitleStyle}>{title}</strong>
         {statusLabel ? <span style={statusPillStyle}>{statusLabel}</span> : null}
@@ -49,6 +84,13 @@ export function HoverPreviewCard({
       {description ? <p style={descriptionStyle}>{description}</p> : null}
     </div>
   )
+
+  if (anchorElement) {
+    if (!position || typeof document === 'undefined') return null
+    return createPortal(card, document.body)
+  }
+
+  return card
 }
 
 function PreviewLine({ label, value }: { label: string; value: string }) {
@@ -74,6 +116,16 @@ const previewStyle: React.CSSProperties = {
   boxShadow: '0 24px 60px rgba(0,0,0,.38)',
   color: 'var(--color-text)',
   pointerEvents: 'none',
+}
+
+function portalPositionStyle(position: { top: number; left: number }): React.CSSProperties {
+  return {
+    position: 'fixed',
+    top: position.top,
+    left: position.left,
+    right: 'auto',
+    zIndex: 9999,
+  }
 }
 
 const previewHeaderStyle: React.CSSProperties = {

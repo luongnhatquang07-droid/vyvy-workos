@@ -108,6 +108,7 @@ interface RowProps {
 function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReassign }: RowProps) {
   const [hovered, setHovered] = React.useState(false)
   const [previewOpen, setPreviewOpen] = React.useState(false)
+  const [previewAnchor, setPreviewAnchor] = React.useState<HTMLElement | null>(null)
   const [menuOpen, setMenuOpen] = React.useState(false)
   const previewTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusColor =
@@ -126,8 +127,9 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReas
         : '#8C8278'
   const isCollect = item.kind === 'COLLECT_FILE' || item.kind === 'COLLECT_REPORT' || item.kind === 'REMIND'
 
-  function openHoverState() {
+  function openHoverState(event: React.MouseEvent<HTMLDivElement>) {
     setHovered(true)
+    setPreviewAnchor(event.currentTarget)
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
     previewTimerRef.current = setTimeout(() => setPreviewOpen(true), 300)
   }
@@ -135,6 +137,7 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReas
   function closeHoverState() {
     setHovered(false)
     setPreviewOpen(false)
+    setPreviewAnchor(null)
     setMenuOpen(false)
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current)
@@ -219,6 +222,7 @@ function PriorityRow({ item, onOpenDrawer, onDismiss, onRemind, onSnooze, onReas
 
       {previewOpen ? (
         <HoverPreviewCard
+          anchorElement={previewAnchor}
           title={item.title}
           projectName={item.projectName}
           ownerName={item.personName}
