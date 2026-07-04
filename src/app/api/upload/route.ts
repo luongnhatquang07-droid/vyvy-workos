@@ -8,6 +8,12 @@ import {
   normalizeVersionReviewStatus,
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
+import {
+  ensureLocalQaWriteAllowed,
+  guardExistingEntityWrite,
+  isLocalProductionDatabaseRequest,
+  qaPrefixFound,
+} from '@/lib/localQaGuard'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
@@ -173,7 +179,7 @@ async function loadDeliverableForUpload(workspaceId: string, deliverableId: stri
   const client = createServiceClient()
   const { data, error } = await client
     .from('deliverables')
-    .select('id,workspace_id,project_id,task_id,step_id,reviewer_id,due_date')
+    .select('id,workspace_id,project_id,task_id,step_id,name,description,reviewer_id,due_date')
     .eq('id', deliverableId)
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)
@@ -380,6 +386,94 @@ async function markSupersededUploadVersion({
   )
 }
 
+async function guardUploadTarget({
+  request,
+  workspaceId,
+  fileName,
+  projectId,
+  taskId,
+  deliverable,
+}: {
+  request: Request
+  workspaceId: string
+  fileName: string
+  projectId: string | null
+  taskId: string | null
+  deliverable: {
+    id: string
+    project_id: string | null
+    task_id: string | null
+    step_id: string | null
+    name?: string | null
+    description?: string | null
+  } | null
+}) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  if (deliverable?.project_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'projects',
+      id: deliverable.project_id,
+      workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được upload file vào dự án thật từ localhost.',
+    })
+  }
+
+  if (projectId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'projects',
+      id: projectId,
+      workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được upload file vào dự án thật từ localhost.',
+    })
+  }
+
+  if (deliverable?.task_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'tasks',
+      id: deliverable.task_id,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được upload file vào đầu việc thật từ localhost.',
+    })
+  }
+
+  if (taskId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'tasks',
+      id: taskId,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được upload file vào đầu việc thật từ localhost.',
+    })
+  }
+
+  if (deliverable?.step_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'task_steps',
+      id: deliverable.step_id,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được upload file vào bước thật từ localhost.',
+    })
+  }
+
+  if (deliverable && qaPrefixFound(deliverable)) return null
+  return ensureLocalQaWriteAllowed(request, { fileName }, 'Chỉ được upload file QA có prefix rõ ràng từ localhost.')
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData()
@@ -414,6 +508,16 @@ export async function POST(req: NextRequest) {
 
     const client = createServiceClient()
     const deliverable = await loadDeliverableForUpload(workspaceId, deliverableId)
+    const guard = await guardUploadTarget({
+      request: req,
+      workspaceId,
+      fileName: file.name,
+      projectId,
+      taskId,
+      deliverable,
+    })
+    if (guard) return guard
+
     const finalApproverId = requestedApproverId ?? deliverable?.reviewer_id ?? null
     if (finalApproverId && !(await belongsToWorkspace('people', finalApproverId, workspaceId))) {
       return NextResponse.json({ error: 'Người duyệt không thuộc workspace hiện tại.' }, { status: 403 })

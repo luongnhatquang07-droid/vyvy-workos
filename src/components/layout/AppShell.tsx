@@ -9,6 +9,7 @@ import { CommandDataProvider } from '@/hooks/useCommandData'
 
 const STORAGE_KEY = 'vyvy_sidebar_collapsed'
 const OVERLAY_BREAKPOINT = 1100
+const PRODUCTION_SUPABASE_REF = 'tgmnkqcxucxpnhhsggug'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -86,6 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', position: 'relative', zIndex: 1 }}>
           <Topbar onToggleSidebar={handleTopbarToggle} onOpenCommandPalette={openCmd} />
+          <LocalQaBanner />
           <main id="main-content" className="vyvy-main" style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
             <div key={pathname} className="vyvy-route-view">
               {children}
@@ -96,4 +98,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </CommandDataProvider>
   )
+}
+
+function LocalQaBanner() {
+  const [host, setHost] = React.useState('')
+
+  React.useEffect(() => {
+    function syncHost() {
+      setHost(window.location.hostname)
+    }
+    syncHost()
+  }, [])
+
+  if (!host || !isLocalHost(host)) return null
+
+  const supabaseRef = getPublicSupabaseRef()
+  const isProductionRef = supabaseRef === PRODUCTION_SUPABASE_REF
+  const message = isProductionRef
+    ? 'LOCAL đang trỏ PRODUCTION DB — chỉ được đọc, không thao tác dữ liệu thật.'
+    : 'LOCAL QA / STAGING — có thể test an toàn.'
+
+  return (
+    <div
+      role="status"
+      style={{
+        borderBottom: isProductionRef ? '1px solid rgba(248, 113, 113, 0.4)' : '1px solid rgba(218, 223, 33, 0.28)',
+        background: isProductionRef ? 'rgba(127, 29, 29, 0.48)' : 'rgba(34, 48, 25, 0.72)',
+        color: isProductionRef ? '#FECACA' : '#E8F28D',
+        fontSize: 12,
+        fontWeight: 700,
+        letterSpacing: 0,
+        padding: '8px 24px',
+      }}
+    >
+      {message}
+    </div>
+  )
+}
+
+function getPublicSupabaseRef() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  return url.match(/^https:\/\/([^.]+)\.supabase\.co/i)?.[1] ?? ''
+}
+
+function isLocalHost(host: string) {
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
 }

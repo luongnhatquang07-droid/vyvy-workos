@@ -8,6 +8,13 @@ import {
   normalizeVersionReviewStatus,
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
+import {
+  ensureLocalQaWriteAllowed,
+  guardExistingEntityWrite,
+  isLocalProductionDatabaseRequest,
+  localQaGuardResponse,
+  qaPrefixFound,
+} from '@/lib/localQaGuard'
 
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
 
@@ -394,6 +401,110 @@ async function markVersionLifecycleStatus({
   })
 }
 
+async function guardDeliverableCreate(
+  request: Request,
+  workspaceId: string,
+  target: {
+    name: string
+    projectId: string | null
+    taskId: string | null
+    stepId: string | null
+  },
+) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  if (target.projectId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'projects',
+      id: target.projectId,
+      workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được tạo bàn giao trong dự án thật từ localhost.',
+    })
+  }
+
+  if (target.taskId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'tasks',
+      id: target.taskId,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được tạo bàn giao trong đầu việc thật từ localhost.',
+    })
+  }
+
+  if (target.stepId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'task_steps',
+      id: target.stepId,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được tạo bàn giao trong bước thật từ localhost.',
+    })
+  }
+
+  return ensureLocalQaWriteAllowed(request, { name: target.name }, 'Chỉ được tạo bàn giao QA có prefix rõ ràng.')
+}
+
+async function guardDeliverableTargetWrite(
+  request: Request,
+  workspaceId: string,
+  deliverable: {
+    name: string | null
+    description: string | null
+    project_id: string | null
+    task_id: string | null
+    step_id: string | null
+  },
+) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  if (deliverable.project_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'projects',
+      id: deliverable.project_id,
+      workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được thay đổi file/bàn giao thuộc dự án thật từ localhost.',
+    })
+  }
+
+  if (deliverable.task_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'tasks',
+      id: deliverable.task_id,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được thay đổi file/bàn giao thuộc đầu việc thật từ localhost.',
+    })
+  }
+
+  if (deliverable.step_id) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'task_steps',
+      id: deliverable.step_id,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được thay đổi file/bàn giao thuộc bước thật từ localhost.',
+    })
+  }
+
+  if (qaPrefixFound(deliverable)) return null
+  return localQaGuardResponse('Không được thay đổi file/bàn giao thật từ localhost.')
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const workspaceId = searchParams.get('workspaceId') ?? ''
@@ -425,6 +536,14 @@ export async function POST(req: NextRequest) {
     const reviewerId = cleanId(body.reviewerId)
 
     if (!cleanText(body.name)) return jsonError('Tên bàn giao không được để trống.', 400)
+    const createGuard = await guardDeliverableCreate(req, context.workspaceId, {
+      name: cleanText(body.name),
+      projectId,
+      taskId,
+      stepId,
+    })
+    if (createGuard) return createGuard
+
     const checks = await Promise.all([
       ensureEntityInWorkspace('projects', projectId, context.workspaceId),
       ensureEntityInWorkspace('tasks', taskId, context.workspaceId),
@@ -496,6 +615,8 @@ export async function PATCH(req: NextRequest) {
     if (!detail) return jsonError('Không tìm thấy hạng mục bàn giao.', 404)
     const deliverable = detail.deliverable as {
       id: string
+      name: string | null
+      description: string | null
       project_id: string | null
       task_id: string | null
       step_id: string | null
@@ -503,6 +624,8 @@ export async function PATCH(req: NextRequest) {
       due_date: string | null
       approved_version_id: string | null
     }
+    const guard = await guardDeliverableTargetWrite(req, context.workspaceId, deliverable)
+    if (guard) return guard
 
     if (action === 'setReviewer') {
       const reviewerId = cleanId(body.reviewerId)

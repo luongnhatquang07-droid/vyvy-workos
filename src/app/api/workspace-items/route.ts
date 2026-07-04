@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  ensureLocalQaWriteAllowed,
+  guardExistingEntityWrite,
+  isLocalProductionDatabaseRequest,
+} from '@/lib/localQaGuard'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -14,6 +19,9 @@ export async function POST(request: Request) {
   const payload = body.payload ?? {}
 
   try {
+    const guard = await guardWorkspaceCreate(request, auth, body.type, payload)
+    if (guard) return guard
+
     if (body.type === 'project') {
       const result = await auth.sb.from('projects').insert({
         workspace_id: auth.workspaceId,
@@ -151,6 +159,9 @@ export async function PATCH(request: Request) {
   const patch = body.patch ?? {}
 
   try {
+    const guard = await guardWorkspaceExistingWrite(request, auth, body.type, body.id)
+    if (guard) return guard
+
     if (body.type === 'project') await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate']))
     else if (body.type === 'workstream') await updateEntity(auth, 'workstreams', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate']))
     else if (body.type === 'task') await updateEntity(auth, 'tasks', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult']))
@@ -176,6 +187,9 @@ export async function DELETE(request: Request) {
   if (!body.type || !body.id) return NextResponse.json({ error: 'Thiếu loại hoặc id cần xóa.' }, { status: 400 })
 
   try {
+    const guard = await guardWorkspaceExistingWrite(request, auth, body.type, body.id)
+    if (guard) return guard
+
     if (body.type === 'project') await softDeleteProject(auth, body.id)
     else if (body.type === 'workstream') await softDeleteWorkstream(auth, body.id)
     else if (body.type === 'task') await softDeleteTask(auth, body.id)
@@ -187,6 +201,98 @@ export async function DELETE(request: Request) {
   } catch (error) {
     return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
   }
+}
+
+async function guardWorkspaceCreate(
+  request: Request,
+  auth: WorkspaceAuth,
+  type: EntityType | undefined,
+  payload: Record<string, unknown>,
+) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  if (type === 'project') {
+    return ensureLocalQaWriteAllowed(request, payload, 'Chỉ được tạo dữ liệu QA có prefix CLAUDE_QA_, CODEX_QA_ hoặc TEST_.')
+  }
+
+  if (type === 'workstream') {
+    return guardExistingEntityWrite({
+      request,
+      client: auth.sb,
+      table: 'projects',
+      id: text(payload.projectId),
+      workspaceId: auth.workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được tạo đầu việc lớn trong dự án thật từ localhost.',
+    })
+  }
+
+  if (type === 'task') {
+    return guardExistingEntityWrite({
+      request,
+      client: auth.sb,
+      table: 'projects',
+      id: text(payload.projectId),
+      workspaceId: auth.workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được tạo đầu việc con trong dự án thật từ localhost.',
+    })
+  }
+
+  if (type === 'step') {
+    return guardExistingEntityWrite({
+      request,
+      client: auth.sb,
+      table: 'tasks',
+      id: text(payload.taskId),
+      workspaceId: auth.workspaceId,
+      fields: ['title'],
+      detail: 'Không được tạo bước trong đầu việc thật từ localhost.',
+    })
+  }
+
+  if (type === 'meeting') {
+    return guardExistingEntityWrite({
+      request,
+      client: auth.sb,
+      table: 'projects',
+      id: text(payload.projectId),
+      workspaceId: auth.workspaceId,
+      fields: ['name', 'code'],
+      detail: 'Không được tạo cuộc họp trong dự án thật từ localhost.',
+    })
+  }
+
+  return ensureLocalQaWriteAllowed(request, { type, payload })
+}
+
+async function guardWorkspaceExistingWrite(
+  request: Request,
+  auth: WorkspaceAuth,
+  type: EntityType,
+  id: string,
+) {
+  const config = workspaceEntityGuardConfig(type)
+  if (!config) return ensureLocalQaWriteAllowed(request, { type, id })
+
+  return guardExistingEntityWrite({
+    request,
+    client: auth.sb,
+    table: config.table,
+    id,
+    workspaceId: auth.workspaceId,
+    fields: config.fields,
+    detail: `Không được sửa hoặc xóa ${config.label} thật từ localhost.`,
+  })
+}
+
+function workspaceEntityGuardConfig(type: EntityType) {
+  if (type === 'project') return { table: 'projects', fields: ['name', 'code'], label: 'dự án' } as const
+  if (type === 'workstream') return { table: 'workstreams', fields: ['name'], label: 'đầu việc lớn' } as const
+  if (type === 'task') return { table: 'tasks', fields: ['title'], label: 'đầu việc con' } as const
+  if (type === 'step') return { table: 'task_steps', fields: ['title'], label: 'bước' } as const
+  if (type === 'meeting') return { table: 'meetings', fields: ['title'], label: 'cuộc họp' } as const
+  return null
 }
 
 async function getWorkspace() {

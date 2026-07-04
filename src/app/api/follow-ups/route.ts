@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient as createServerClient } from '@/lib/supabase/server'
+import {
+  ensureLocalQaWriteAllowed,
+  guardExistingEntityWrite,
+  isLocalProductionDatabaseRequest,
+  localQaGuardResponse,
+  qaPrefixFound,
+} from '@/lib/localQaGuard'
 
 type FollowUpAction = 'markSent' | 'schedule' | 'escalate'
 
@@ -71,6 +78,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (!items.length) return jsonError('Thiếu item cần nhắc.', 400)
+
+  const guard = await guardFollowUpWrite(request, auth.workspaceId, body, items)
+  if (guard) return guard
 
   const client = createServiceClient()
   const results: Array<{ reminderId: string; reminderLevel: number }> = []
@@ -162,6 +172,95 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, results })
+}
+
+async function guardFollowUpWrite(
+  request: Request,
+  workspaceId: string,
+  body: FollowUpPostBody,
+  items: ReturnType<typeof normalizeItems>,
+) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  const client = createServiceClient()
+  for (const item of items) {
+    if (item.reminderId) {
+      const reminder = await client
+        .from('reminders')
+        .select('id,task_id,deliverable_id')
+        .eq('workspace_id', workspaceId)
+        .eq('id', item.reminderId)
+        .maybeSingle()
+      if (reminder.error || !reminder.data) return localQaGuardResponse('Không được thay đổi reminder thật từ localhost.')
+      const guard = await guardFollowUpTarget(request, workspaceId, reminder.data.task_id, reminder.data.deliverable_id)
+      if (guard) return guard
+      continue
+    }
+
+    const guard = await guardFollowUpTarget(request, workspaceId, item.taskId, item.deliverableId)
+    if (guard) return guard
+  }
+
+  return ensureLocalQaWriteAllowed(request, body, 'Chỉ được tạo hoặc cập nhật follow-up QA có prefix rõ ràng.')
+}
+
+async function guardFollowUpTarget(
+  request: Request,
+  workspaceId: string,
+  taskId: string | null,
+  deliverableId: string | null,
+) {
+  if (deliverableId) {
+    const client = createServiceClient()
+    const deliverable = await client
+      .from('deliverables')
+      .select('id,project_id,task_id,name,description')
+      .eq('workspace_id', workspaceId)
+      .eq('id', deliverableId)
+      .maybeSingle()
+    if (deliverable.error || !deliverable.data) return localQaGuardResponse('Không được nhắc file/bàn giao thật từ localhost.')
+
+    if (deliverable.data.project_id) {
+      return guardExistingEntityWrite({
+        request,
+        client,
+        table: 'projects',
+        id: deliverable.data.project_id,
+        workspaceId,
+        fields: ['name', 'code'],
+        detail: 'Không được nhắc file/bàn giao thuộc dự án thật từ localhost.',
+      })
+    }
+
+    if (deliverable.data.task_id) {
+      return guardExistingEntityWrite({
+        request,
+        client,
+        table: 'tasks',
+        id: deliverable.data.task_id,
+        workspaceId,
+        fields: ['title'],
+        detail: 'Không được nhắc file/bàn giao thuộc đầu việc thật từ localhost.',
+      })
+    }
+
+    if (qaPrefixFound(deliverable.data)) return null
+    return localQaGuardResponse('Không được nhắc file/bàn giao thật từ localhost.')
+  }
+
+  if (taskId) {
+    return guardExistingEntityWrite({
+      request,
+      client: createServiceClient(),
+      table: 'tasks',
+      id: taskId,
+      workspaceId,
+      fields: ['title'],
+      detail: 'Không được nhắc đầu việc thật từ localhost.',
+    })
+  }
+
+  return localQaGuardResponse('Không được tạo follow-up không rõ target từ localhost.')
 }
 
 async function getWorkspaceContext(): Promise<WorkspaceContext> {

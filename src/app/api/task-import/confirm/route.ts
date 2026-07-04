@@ -2,6 +2,11 @@ import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import {
+  isLocalProductionDatabaseRequest,
+  localQaGuardResponse,
+  qaPrefixFound,
+} from '@/lib/localQaGuard'
+import {
   type BulkImportRow,
   type ImportIssue,
   makeImportSummary,
@@ -59,6 +64,9 @@ export async function POST(request: Request) {
   if (!incomingRows.length) {
     return NextResponse.json({ error: 'Không có dòng đầu việc hợp lệ để nhập.' }, { status: 400 })
   }
+
+  const guard = guardBulkImportWrite(request, incomingRows)
+  if (guard) return guard
 
   const context = await loadImportContext(auth)
   const validatedRows = validateRows(incomingRows, context)
@@ -209,6 +217,15 @@ export async function POST(request: Request) {
     projectIds: createdProjectIds,
     taskIds: createdTaskIds,
   })
+}
+
+function guardBulkImportWrite(request: Request, rows: BulkImportRow[]) {
+  if (!isLocalProductionDatabaseRequest(request)) return null
+
+  const allRowsTargetQaProject = rows.every((row) => qaPrefixFound(row.projectName))
+  if (allRowsTargetQaProject) return null
+
+  return localQaGuardResponse('Import hàng loạt từ localhost chỉ được phép vào project có prefix CLAUDE_QA_, CODEX_QA_ hoặc TEST_.')
 }
 
 async function getWorkspace(): Promise<WorkspaceContext> {
