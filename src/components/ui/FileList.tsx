@@ -56,6 +56,14 @@ interface FileListProps {
   onChanged?: () => void
 }
 
+interface ReasonDialogState {
+  title: string
+  description: string
+  defaultReason: string
+  confirmLabel: string
+  onConfirm: (reason: string) => void
+}
+
 function formatBytes(bytes: number | null | undefined) {
   if (!bytes) return ''
   if (bytes < 1024) return `${bytes} B`
@@ -133,6 +141,8 @@ export function FileList({
   const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
   const [replacingId, setReplacingId] = React.useState<string | null>(null)
   const [replaceDraft, setReplaceDraft] = React.useState<{ versionId: string; reason: string } | null>(null)
+  const [reasonDialog, setReasonDialog] = React.useState<ReasonDialogState | null>(null)
+  const [reasonInput, setReasonInput] = React.useState('')
   const [notice, setNotice] = React.useState('')
   const [error, setError] = React.useState('')
   const replaceInputRef = React.useRef<HTMLInputElement>(null)
@@ -187,16 +197,28 @@ export function FileList({
     })
   }, [loadFiles, refreshKey])
 
-  function askVersionReason(actionLabel: string) {
-    const fallbackReason = 'Up nhầm file'
-    try {
-      return window.prompt(
-      `${actionLabel}\n\nChọn/nhập lý do: Up nhầm file, File sai nội dung, File trùng, Khác`,
-      'Up nhầm file',
-      )?.trim() ?? ''
-    } catch {
-      return fallbackReason
+  function openReasonDialog(nextDialog: ReasonDialogState) {
+    setError('')
+    setReasonInput(nextDialog.defaultReason)
+    setReasonDialog(nextDialog)
+    setMenuOpenId(null)
+  }
+
+  function closeReasonDialog() {
+    setReasonDialog(null)
+    setReasonInput('')
+  }
+
+  function confirmReasonDialog() {
+    if (!reasonDialog) return
+    const reason = reasonInput.trim()
+    if (!reason) {
+      setError('Vui lòng nhập lý do trước khi xác nhận.')
+      return
     }
+    const onConfirm = reasonDialog.onConfirm
+    closeReasonDialog()
+    onConfirm(reason)
   }
 
   async function runVersionLifecycleAction(
@@ -255,34 +277,54 @@ export function FileList({
     await runReviewAction(versionId, 'approve', 'Đã xác nhận thủ công.')
   }
 
-  async function requestVersionRevision(versionId: string) {
-    const reason = askVersionReason('Yêu cầu sửa version')
-    if (!reason) return
-    await runReviewAction(versionId, 'requestRevision', reason)
+  function requestVersionRevision(versionId: string) {
+    openReasonDialog({
+      title: 'Yêu cầu sửa version',
+      description: 'Ghi lý do để người nộp biết cần chỉnh gì.',
+      defaultReason: 'File sai nội dung',
+      confirmLabel: 'Yêu cầu sửa',
+      onConfirm: (reason) => void runReviewAction(versionId, 'requestRevision', reason),
+    })
   }
 
-  async function rejectVersion(versionId: string) {
-    const reason = askVersionReason('Đánh dấu từ chối / không đạt')
-    if (!reason) return
-    await runReviewAction(versionId, 'reject', reason)
+  function rejectVersion(versionId: string) {
+    openReasonDialog({
+      title: 'Từ chối / không đạt',
+      description: 'Version này sẽ không được tính là file hợp lệ.',
+      defaultReason: 'File không đạt yêu cầu',
+      confirmLabel: 'Từ chối',
+      onConfirm: (reason) => void runReviewAction(versionId, 'reject', reason),
+    })
   }
 
-  async function deleteVersion(versionId: string) {
-    const reason = askVersionReason('Xóa/hủy version chưa duyệt')
-    if (!reason) return
-    await runVersionLifecycleAction(versionId, 'deleteVersion', reason)
+  function deleteVersion(versionId: string) {
+    openReasonDialog({
+      title: 'Xóa/hủy version chưa duyệt',
+      description: 'Version được giữ audit log và không còn tính là hợp lệ.',
+      defaultReason: 'Up nhầm file',
+      confirmLabel: 'Xác nhận hủy',
+      onConfirm: (reason) => void runVersionLifecycleAction(versionId, 'deleteVersion', reason),
+    })
   }
 
-  async function markVersionMistake(versionId: string) {
-    const reason = askVersionReason('Đánh dấu version up nhầm')
-    if (!reason) return
-    await runVersionLifecycleAction(versionId, 'markVersionMistake', reason)
+  function markVersionMistake(versionId: string) {
+    openReasonDialog({
+      title: 'Đánh dấu up nhầm',
+      description: 'File up nhầm sẽ không mở completion gate. Hãy nộp lại file đúng sau đó.',
+      defaultReason: 'Up nhầm file',
+      confirmLabel: 'Đánh dấu up nhầm',
+      onConfirm: (reason) => void runVersionLifecycleAction(versionId, 'markVersionMistake', reason),
+    })
   }
 
-  async function supersedeVersion(versionId: string) {
-    const reason = askVersionReason('Đánh dấu version cũ đã bị thay thế')
-    if (!reason) return
-    await runVersionLifecycleAction(versionId, 'supersedeVersion', reason)
+  function supersedeVersion(versionId: string) {
+    openReasonDialog({
+      title: 'Đánh dấu đã thay thế',
+      description: 'Version cũ vẫn còn lịch sử nhưng không còn là bản hiện tại.',
+      defaultReason: 'Đã thay bằng version mới',
+      confirmLabel: 'Đánh dấu thay thế',
+      onConfirm: (reason) => void runVersionLifecycleAction(versionId, 'supersedeVersion', reason),
+    })
   }
 
   async function copyLink(url: string) {
@@ -297,11 +339,16 @@ export function FileList({
 
   function startReplacement(version: VersionItem) {
     const status = normalizeVersionReviewStatus(version.review_status)
-    const reason = askVersionReason(status === 'APPROVED' ? 'Tạo version thay thế' : 'Thay file cho version này')
-    if (!reason) return
-    setReplaceDraft({ versionId: version.id, reason })
-    setMenuOpenId(null)
-    queueMicrotask(() => replaceInputRef.current?.click())
+    openReasonDialog({
+      title: status === 'APPROVED' ? 'Tạo version thay thế' : 'Thay file cho version này',
+      description: 'File mới sẽ tạo version mới, không ghi đè version cũ.',
+      defaultReason: status === 'APPROVED' ? 'Tạo version thay thế' : 'Thay file sai',
+      confirmLabel: 'Chọn file mới',
+      onConfirm: (reason) => {
+        setReplaceDraft({ versionId: version.id, reason })
+        queueMicrotask(() => replaceInputRef.current?.click())
+      },
+    })
   }
 
   async function uploadReplacement(file: File) {
@@ -363,6 +410,22 @@ export function FileList({
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {reasonDialog ? (
+          <div style={reasonDialogStyle} role="dialog" aria-modal="false" aria-label={reasonDialog.title}>
+            <div style={reasonDialogTitleStyle}>{reasonDialog.title}</div>
+            <div style={reasonDialogDescStyle}>{reasonDialog.description}</div>
+            <input
+              value={reasonInput}
+              onChange={(event) => setReasonInput(event.target.value)}
+              placeholder="Nhập lý do..."
+              style={reasonInputStyle}
+            />
+            <div style={reasonDialogActionStyle}>
+              <button type="button" onClick={closeReasonDialog} style={secondaryButtonStyle}>Hủy</button>
+              <button type="button" onClick={confirmReasonDialog} style={primaryButtonStyle}>{reasonDialog.confirmLabel}</button>
+            </div>
+          </div>
+        ) : null}
         <input
           ref={replaceInputRef}
           type="file"
@@ -554,6 +617,67 @@ const noticeText: React.CSSProperties = {
   border: '1px solid rgba(56, 142, 60, 0.22)',
   borderRadius: 8,
   padding: '7px 9px',
+}
+
+const reasonDialogStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  padding: 12,
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  background: 'var(--color-surface-2)',
+  boxShadow: '0 14px 34px rgba(0,0,0,.22)',
+}
+
+const reasonDialogTitleStyle: React.CSSProperties = {
+  color: 'var(--color-text)',
+  fontSize: 13,
+  fontWeight: 850,
+}
+
+const reasonDialogDescStyle: React.CSSProperties = {
+  color: 'var(--color-text-muted)',
+  fontSize: 12,
+  lineHeight: 1.45,
+}
+
+const reasonInputStyle: React.CSSProperties = {
+  width: '100%',
+  minHeight: 36,
+  borderRadius: 9,
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+  color: 'var(--color-text)',
+  padding: '8px 10px',
+  fontSize: 12,
+  outline: 'none',
+}
+
+const reasonDialogActionStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: 8,
+}
+
+const secondaryButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  background: 'var(--color-surface)',
+  color: 'var(--color-text-muted)',
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 800,
+}
+
+const primaryButtonStyle: React.CSSProperties = {
+  border: '1px solid rgba(218,223,33,.32)',
+  borderRadius: 8,
+  background: 'var(--color-lime)',
+  color: 'var(--color-charcoal)',
+  padding: '7px 10px',
+  fontSize: 12,
+  fontWeight: 850,
 }
 
 const retryButtonStyle: React.CSSProperties = {
