@@ -54,7 +54,12 @@ export function getSidebarCounts(data: RawCommandCenterData, today = todayKey())
 }
 
 function getPendingApprovals(approvals: CommandCenterApprovalRow[], today: string) {
-  return approvals.filter((approval) => approval.status === 'PENDING' || Boolean(approval.due_at && approval.due_at < today))
+  return approvals.filter((approval) => (
+    approval.status === 'NOT_REQUESTED' ||
+    approval.status === 'PENDING' ||
+    approval.status === 'PENDING_REVIEW' ||
+    Boolean(approval.due_at && approval.due_at < today)
+  ))
 }
 
 function getDueReminders(reminders: CommandCenterReminderRow[], today: string) {

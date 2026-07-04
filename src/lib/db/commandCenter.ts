@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { withSyntheticPendingApprovals } from '@/lib/approvalQueue'
 import type { RawCommandCenterData } from '@/lib/database.types'
 import { buildDeadlineRollups } from '@/lib/deadlineRollup'
 import { createClient } from '@/lib/supabase/server'
@@ -147,7 +148,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     )
   const deliverableIds = deliverables.map((deliverable) => deliverable.id)
   const deliverableIdSet = new Set(deliverableIds)
-  const approvals = (requireRows('phê duyệt', approvalsRes) as RawCommandCenterData['approvals'])
+  let approvals = (requireRows('phê duyệt', approvalsRes) as RawCommandCenterData['approvals'])
     .filter((approval) =>
       approval.status !== 'CANCELLED' &&
       (!approval.project_id || projectIds.has(approval.project_id)) &&
@@ -205,6 +206,13 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       attachments = requireRows('attachment', attachmentsRes) as RawCommandCenterData['attachments']
     }
   }
+
+  approvals = withSyntheticPendingApprovals({
+    approvals,
+    deliverables,
+    versions: deliverableVersions,
+    tasks,
+  })
 
   return {
     people: requireRows('nhân sự', peopleRes) as RawCommandCenterData['people'],
