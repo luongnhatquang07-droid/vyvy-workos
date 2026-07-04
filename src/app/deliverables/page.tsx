@@ -97,6 +97,7 @@ export default function DeliverablesPage() {
   const [draft, setDraft] = React.useState<CreateDraft>(createDraft)
   const [formError, setFormError] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  const selectedIdRef = React.useRef<string | null>(null)
 
   const deliverables = React.useMemo(() => data?.deliverables ?? [], [data?.deliverables])
   const people = React.useMemo(() => data?.people ?? [], [data?.people])
@@ -113,10 +114,13 @@ export default function DeliverablesPage() {
 
   const selected = React.useMemo(() => {
     if (!selectedId) return null
-    const fromList = deliverables.find((item) => item.id === selectedId)
-    if (fromList) return fromList
-    return detail?.deliverable?.id === selectedId ? detail.deliverable : null
+    if (detail?.deliverable?.id === selectedId) return detail.deliverable
+    return deliverables.find((item) => item.id === selectedId) ?? null
   }, [deliverables, detail?.deliverable, selectedId])
+
+  React.useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
 
   const filtered = React.useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -167,11 +171,14 @@ export default function DeliverablesPage() {
       const response = await fetch(`/api/deliverables?${params}`)
       const payload = (await response.json()) as DetailPayload
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết bàn giao.')
-      setDetail(payload)
+      if (!payload.deliverable?.id) throw new Error('Không tìm thấy bàn giao.')
+      if (selectedIdRef.current === id) setDetail(payload)
     } catch (err) {
+      if (selectedIdRef.current !== id) return
       setDetail(null)
       setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết bàn giao.')
     } finally {
+      if (selectedIdRef.current !== id) return
       setDetailLoading(false)
     }
   }
@@ -394,7 +401,7 @@ export default function DeliverablesPage() {
         )}
       </section>
 
-      <Drawer open={Boolean(selectedId)} onClose={() => { setSelectedId(null); setDetail(null); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
+      <Drawer open={Boolean(selectedId)} onClose={() => { setSelectedId(null); setDetail(null); setDetailError(''); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
         {!selected ? (
           <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : 'Không tìm thấy bàn giao.'}</div>
         ) : (
