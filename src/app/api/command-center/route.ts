@@ -3,6 +3,7 @@ import { getCommandCenterData } from '@/lib/db/commandCenter'
 import { resyncCompletedTasks } from '@/lib/db/taskCompletionSync'
 import { isLocalProductionDatabaseRequest } from '@/lib/localQaGuard'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export async function GET(request: Request) {
   const sb = await createClient()
@@ -53,7 +54,8 @@ export async function GET(request: Request) {
 
   try {
     if (!isLocalProductionDatabaseRequest(request)) {
-      await resyncCompletedTasks(sb, workspaceId)
+      const syncClient = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : sb
+      await resyncCompletedTasks(syncClient, workspaceId)
     }
     const data = await getCommandCenterData(workspaceId)
     return NextResponse.json({ ...data, workspaceId })
