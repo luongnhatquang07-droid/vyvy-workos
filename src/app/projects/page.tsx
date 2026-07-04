@@ -4018,6 +4018,7 @@ function deriveWorkstreamStatus(subtasks: SubtaskItem[]): TaskStatus {
 }
 
 function getSubtaskProgress(subtask: SubtaskItem) {
+  if (subtask.status === 'COMPLETED') return 100
   if (!subtask.steps.length) return 0
   const requiredSteps = subtask.steps.filter((step) => step.isRequired)
   const progressSteps = requiredSteps.length ? requiredSteps : subtask.steps
@@ -4027,6 +4028,14 @@ function getSubtaskProgress(subtask: SubtaskItem) {
 function getRequiredStepStats(subtask: SubtaskItem) {
   const requiredSteps = subtask.steps.filter((step) => step.isRequired)
   const progressSteps = requiredSteps.length ? requiredSteps : subtask.steps
+  if (subtask.status === 'COMPLETED') {
+    return {
+      completed: progressSteps.length,
+      total: progressSteps.length,
+      requiredCompleted: requiredSteps.length,
+      requiredTotal: requiredSteps.length,
+    }
+  }
   return {
     completed: progressSteps.filter((step) => step.status === 'COMPLETED').length,
     total: progressSteps.length,
@@ -4213,6 +4222,7 @@ function getCompactBlockerText(subtask: SubtaskItem) {
 }
 
 function getCompletionBlockers(subtask: SubtaskItem) {
+  if (subtask.status === 'COMPLETED') return []
   const blockers: string[] = []
   if (!subtask.reportText.trim()) {
     blockers.push('nhập báo cáo/kết quả đầu việc')

@@ -24,6 +24,16 @@ type WorkspaceContext =
 
 type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'MISSING_INFORMATION' | 'REVISION_REQUIRED' | 'APPROVED'
 type ReviewStatus = VersionReviewStatus
+type ServiceClient = ReturnType<typeof createServiceClient>
+type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
+
+interface TaskSyncResult {
+  taskId: string | null
+  status: TaskStatus | null
+  completed: boolean
+  blockers: string[]
+  autoCompletedStepIds: string[]
+}
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status })
@@ -300,7 +310,7 @@ async function logActivity(
 }
 
 async function recomputeDeliverableStatus(
-  client: ReturnType<typeof createServiceClient>,
+  client: ServiceClient,
   workspaceId: string,
   actorId: string | null,
   deliverableId: string,
@@ -347,6 +357,203 @@ async function recomputeDeliverableStatus(
   return { status, approvedVersionId }
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return (value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function isDefaultCompletionStep(step: { title?: string | null; description?: string | null }) {
+  const text = normalizeSearchText(`${step.title ?? ''} ${step.description ?? ''}`)
+  return [
+    'nhan viec',
+    'xac nhan yeu cau',
+    'thuc hien cong viec',
+    'hoan thanh phan xu ly chinh',
+    'nop ket qua',
+    'file',
+    'bao cao',
+    'cho duyet ket qua',
+    'nguoi duyet kiem tra',
+  ].some((pattern) => text.includes(pattern))
+}
+
+function isDeliverableApproved(deliverable: { status: string | null; approved_version_id: string | null }) {
+  return deliverable.status === 'APPROVED' && Boolean(deliverable.approved_version_id)
+}
+
+function taskStatusForOpenDeliverables(deliverables: Array<{ status: string | null }>): TaskStatus {
+  if (deliverables.some((deliverable) => deliverable.status === 'SUBMITTED')) return 'PENDING_APPROVAL'
+  if (deliverables.some((deliverable) => deliverable.status === 'REVISION_REQUIRED' || deliverable.status === 'MISSING_INFORMATION' || deliverable.status === 'NOT_SUBMITTED')) {
+    return 'REVISION_REQUIRED'
+  }
+  return 'IN_PROGRESS'
+}
+
+async function syncTaskAfterDeliverableReview(
+  client: ServiceClient,
+  workspaceId: string,
+  deliverableId: string,
+): Promise<TaskSyncResult> {
+  const deliverableRes = await client
+    .from('deliverables')
+    .select('id,task_id,step_id,status,is_required,approved_version_id')
+    .eq('workspace_id', workspaceId)
+    .eq('id', deliverableId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (deliverableRes.error) throw deliverableRes.error
+  const deliverable = deliverableRes.data as {
+    id: string
+    task_id: string | null
+    step_id: string | null
+    status: DeliverableStatus | null
+    is_required: boolean | null
+    approved_version_id: string | null
+  } | null
+  if (!deliverable?.task_id) {
+    return { taskId: null, status: null, completed: false, blockers: ['deliverable khong gan voi task'], autoCompletedStepIds: [] }
+  }
+
+  const taskRes = await client
+    .from('tasks')
+    .select('id,status')
+    .eq('workspace_id', workspaceId)
+    .eq('id', deliverable.task_id)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (taskRes.error) throw taskRes.error
+  const task = taskRes.data as { id: string; status: TaskStatus | null } | null
+  if (!task) return { taskId: deliverable.task_id, status: null, completed: false, blockers: ['task da bi xoa hoac khong ton tai'], autoCompletedStepIds: [] }
+
+  const [deliverablesRes, stepsRes] = await Promise.all([
+    client
+      .from('deliverables')
+      .select('id,step_id,status,is_required,approved_version_id')
+      .eq('workspace_id', workspaceId)
+      .eq('task_id', deliverable.task_id)
+      .is('deleted_at', null),
+    client
+      .from('task_steps')
+      .select('id,title,description,status,is_required')
+      .eq('workspace_id', workspaceId)
+      .eq('task_id', deliverable.task_id)
+      .is('deleted_at', null),
+  ])
+  if (deliverablesRes.error) throw deliverablesRes.error
+  if (stepsRes.error) throw stepsRes.error
+
+  const taskDeliverables = (deliverablesRes.data ?? []) as Array<{
+    id: string
+    step_id: string | null
+    status: DeliverableStatus | null
+    is_required: boolean | null
+    approved_version_id: string | null
+  }>
+  const steps = (stepsRes.data ?? []) as Array<{
+    id: string
+    title: string | null
+    description: string | null
+    status: TaskStatus | null
+    is_required: boolean | null
+  }>
+  const requiredDeliverables = taskDeliverables.filter((item) => item.is_required !== false)
+  const approvedRequiredDeliverables = requiredDeliverables.filter(isDeliverableApproved)
+  const openRequiredDeliverables = requiredDeliverables.filter((item) => !isDeliverableApproved(item))
+  const approvedLinkedStepIds = new Set(approvedRequiredDeliverables.map((item) => item.step_id).filter(Boolean) as string[])
+  const autoCompletedStepIds: string[] = []
+
+  if (approvedLinkedStepIds.size) {
+    const updateStepRes = await client
+      .from('task_steps')
+      .update({ status: 'COMPLETED' })
+      .eq('workspace_id', workspaceId)
+      .in('id', Array.from(approvedLinkedStepIds))
+    if (updateStepRes.error) throw updateStepRes.error
+    autoCompletedStepIds.push(...Array.from(approvedLinkedStepIds))
+  }
+
+  if (deliverable.step_id && deliverable.status !== 'APPROVED') {
+    const stepStatus: TaskStatus = deliverable.status === 'SUBMITTED' ? 'PENDING_APPROVAL' : 'REVISION_REQUIRED'
+    const updateStepRes = await client
+      .from('task_steps')
+      .update({ status: stepStatus })
+      .eq('workspace_id', workspaceId)
+      .eq('id', deliverable.step_id)
+    if (updateStepRes.error) throw updateStepRes.error
+  }
+
+  if (!requiredDeliverables.length) {
+    return {
+      taskId: task.id,
+      status: task.status,
+      completed: false,
+      blockers: ['task chua co deliverable bat buoc'],
+      autoCompletedStepIds,
+    }
+  }
+
+  if (openRequiredDeliverables.length) {
+    const nextStatus = taskStatusForOpenDeliverables(openRequiredDeliverables)
+    if (task.status === 'COMPLETED' || task.status === 'PENDING_APPROVAL' || deliverable.status !== 'APPROVED') {
+      const updateTaskRes = await client
+        .from('tasks')
+        .update({ status: nextStatus })
+        .eq('workspace_id', workspaceId)
+        .eq('id', task.id)
+      if (updateTaskRes.error) throw updateTaskRes.error
+    }
+    return {
+      taskId: task.id,
+      status: nextStatus,
+      completed: false,
+      blockers: [`${openRequiredDeliverables.length} deliverable bat buoc chua duoc duyet`],
+      autoCompletedStepIds,
+    }
+  }
+
+  const incompleteRequiredSteps = steps.filter((step) => step.is_required !== false && step.status !== 'COMPLETED' && !approvedLinkedStepIds.has(step.id))
+  const defaultStepIds = incompleteRequiredSteps.filter(isDefaultCompletionStep).map((step) => step.id)
+  const realStepBlockers = incompleteRequiredSteps.filter((step) => !defaultStepIds.includes(step.id))
+
+  if (defaultStepIds.length) {
+    const updateDefaultStepsRes = await client
+      .from('task_steps')
+      .update({ status: 'COMPLETED' })
+      .eq('workspace_id', workspaceId)
+      .in('id', defaultStepIds)
+    if (updateDefaultStepsRes.error) throw updateDefaultStepsRes.error
+    autoCompletedStepIds.push(...defaultStepIds)
+  }
+
+  if (realStepBlockers.length) {
+    return {
+      taskId: task.id,
+      status: task.status,
+      completed: false,
+      blockers: realStepBlockers.map((step) => step.title ?? 'Buoc bat buoc chua hoan thanh'),
+      autoCompletedStepIds,
+    }
+  }
+
+  const updateTaskRes = await client
+    .from('tasks')
+    .update({ status: 'COMPLETED' })
+    .eq('workspace_id', workspaceId)
+    .eq('id', task.id)
+  if (updateTaskRes.error) throw updateTaskRes.error
+
+  await client
+    .from('reminders')
+    .update({ status: 'closed', response_status: 'CLOSED', updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('task_id', task.id)
+
+  return { taskId: task.id, status: 'COMPLETED', completed: true, blockers: [], autoCompletedStepIds }
+}
+
 async function markVersionLifecycleStatus({
   client,
   workspaceId,
@@ -357,7 +564,7 @@ async function markVersionLifecycleStatus({
   reason,
   action,
 }: {
-  client: ReturnType<typeof createServiceClient>
+  client: ServiceClient
   workspaceId: string
   actorId: string | null
   deliverableId: string
@@ -716,6 +923,7 @@ export async function PATCH(req: NextRequest) {
       }
 
       await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
+      const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
       await closeRelatedReminders(context.workspaceId, deliverableId)
 
       await ensureApproval({
@@ -736,7 +944,7 @@ export async function PATCH(req: NextRequest) {
         before: null,
         after: 'PENDING_REVIEW',
       })
-      return NextResponse.json({ ok: true, versionId: versionRes.data.id, versionNumber })
+      return NextResponse.json({ ok: true, versionId: versionRes.data.id, versionNumber, taskSync })
     }
 
     if (action === 'approve' || action === 'requestRevision' || action === 'reject' || action === 'markMissing') {
@@ -817,7 +1025,8 @@ export async function PATCH(req: NextRequest) {
         before: previousReviewStatus,
         after: reviewStatus,
       })
-      return NextResponse.json({ ok: true })
+      const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
+      return NextResponse.json({ ok: true, taskSync })
     }
 
     if (action === 'deleteVersion') {
@@ -847,7 +1056,8 @@ export async function PATCH(req: NextRequest) {
         action: 'deliverable.version.deleted_soft',
       })
       await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
-      return NextResponse.json({ ok: true })
+      const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
+      return NextResponse.json({ ok: true, taskSync })
     }
 
     if (action === 'markVersionMistake' || action === 'supersedeVersion') {
@@ -885,7 +1095,8 @@ export async function PATCH(req: NextRequest) {
         action: action === 'supersedeVersion' ? 'deliverable.version.superseded' : 'deliverable.version.marked_mistake',
       })
       await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
-      return NextResponse.json({ ok: true })
+      const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
+      return NextResponse.json({ ok: true, taskSync })
     }
 
     if (action === 'confirmReminder') {
