@@ -165,7 +165,7 @@ export async function PATCH(request: Request) {
     let updated: unknown = null
     if (body.type === 'project') updated = await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status']))
     else if (body.type === 'workstream') updated = await updateEntity(auth, 'workstreams', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'priority']))
-    else if (body.type === 'task') updated = await updateEntity(auth, 'tasks', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult', 'priority']))
+    else if (body.type === 'task') updated = await updateEntity(auth, 'tasks', body.id, mapTaskPatch(patch))
     else if (body.type === 'step') {
       updated = await updateEntity(auth, 'task_steps', body.id, mapPatch(patch, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'isRequired', 'priority']))
       if (patch.requiresDeliverable === true) await ensureStepDeliverable(auth, body.id)
@@ -590,6 +590,12 @@ function mapPatch(input: Record<string, unknown>, allowed: string[]) {
   if (allowed.includes('status') && input.status !== undefined) out.status = text(input.status)
   if (allowed.includes('isRequired') && input.isRequired !== undefined) out.is_required = input.isRequired !== false
   if (allowed.includes('priority') && input.priority !== undefined) out.priority = text(input.priority)
+  return out
+}
+
+function mapTaskPatch(input: Record<string, unknown>) {
+  const out = mapPatch(input, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult', 'priority'])
+  if (input.name !== undefined) out.title = text(input.name)
   return out
 }
 

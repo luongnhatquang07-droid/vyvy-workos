@@ -310,6 +310,7 @@ const TASK_STATUS_ORDER: TaskStatus[] = [
   'CANCELLED',
 ]
 const TASK_STATUS_OPTIONS = TASK_STATUS_ORDER.map((value) => ({ value, ...STATUS_META[value] }))
+const STEP_EXPECTED_RESULT_MARKER = '\n\n[step-expected-result]\n'
 const FLOWCHART_FILTER_OPTIONS: Array<{ value: FlowchartFilter; label: string; shortLabel?: string; tone?: BadgeTone }> = [
   { value: 'all', label: 'Tất cả' },
   { value: 'active', label: 'Đang thực hiện', shortLabel: 'Đang làm' },
@@ -1208,7 +1209,17 @@ function ProjectsPageContent() {
             <div style={sectionTitle}>{subtask.title}</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <GhostButton icon="ti-pencil" onClick={() => setEditTarget({ kind: 'subtask', projectId: selectedProject.id, subtaskId: subtask.id })}>Sửa</GhostButton>
+            <GhostButton
+              icon="ti-pencil"
+              onClick={() => setEditTarget({
+                kind: 'subtask',
+                projectId: selectedProject.id,
+                workstreamId: findWorkstreamForSubtask(selectedProject, subtask.id)?.id,
+                subtaskId: subtask.id,
+              })}
+            >
+              Sửa
+            </GhostButton>
             <DangerButton icon="ti-trash" onClick={() => deleteSubtask(selectedProject.id, subtask.id)}>Xóa đầu việc con</DangerButton>
             <select value={subtask.status} onChange={(e) => requestStatusChange(e.target.value as TaskStatus)} style={selectStyle}>
               {TASK_STATUS_OPTIONS.map((option) => (
@@ -2260,11 +2271,23 @@ function EditWorkItemDrawerBody({
         </Field>
         {showStartDate ? (
           <Field label="Ngày bắt đầu">
-            <input type="date" value={draft.startDate} onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))} style={inputStyle} />
+            <input
+              type="date"
+              value={draft.startDate}
+              onInput={(event) => setDraft((current) => ({ ...current, startDate: event.currentTarget.value }))}
+              onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))}
+              style={inputStyle}
+            />
           </Field>
         ) : null}
         <Field label="Deadline">
-          <input type="date" value={draft.dueDate} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} style={inputStyle} />
+          <input
+            type="date"
+            value={draft.dueDate}
+            onInput={(event) => setDraft((current) => ({ ...current, dueDate: event.currentTarget.value }))}
+            onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))}
+            style={inputStyle}
+          />
         </Field>
         <Field label="Trạng thái">
           <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))} style={inputStyle}>
@@ -3840,7 +3863,9 @@ function FlowchartDetailDrawer({
 
       <div style={flowchartPanelActions}>
         <button type="button" onClick={onClose} style={ghostBtnStyle}>Đóng</button>
-        <GhostButton icon="ti-pencil" onClick={() => onEditNode(flowchartNodeToEditTarget(node))}>Sửa</GhostButton>
+        {node.kind !== 'stepGroup' ? (
+          <GhostButton icon="ti-pencil" onClick={() => onEditNode(flowchartNodeToEditTarget(node))}>Sửa</GhostButton>
+        ) : null}
         {subtask ? (
           <PrimaryButton icon="ti-external-link" onClick={() => onOpenSubtask(subtask.id)}>
             Mở trong Tổng quan
@@ -4650,15 +4675,16 @@ function toSeedSubtask(
       const linkedDeliverable = taskDeliverables.find((deliverable) => deliverable.step_id === step.id)
       const evidence = getDeliverableEvidenceState(linkedDeliverable, deliverableVersions)
       const stepStatus = normalizeStatus(step.status)
+      const stepText = parseStepText(step.description)
       return {
         id: step.id,
         title: step.title,
-        description: step.description ?? '',
+        description: stepText.description,
         ownerId: step.owner_id,
         dueDate: step.due_date ?? dueDate,
         missingDueDate: !step.due_date,
         status: evidence.valid ? 'COMPLETED' : stepStatus,
-        note: step.description ?? '',
+        note: stepText.expectedResult,
         isRequired: step.is_required !== false,
         requiresDeliverable: Boolean(linkedDeliverable),
         deliverableId: linkedDeliverable?.id ?? null,
@@ -4817,6 +4843,24 @@ function isTaskStatus(value: string | null | undefined): value is TaskStatus {
   return Boolean(value && TASK_STATUS_ORDER.includes(value as TaskStatus))
 }
 
+function parseStepText(value: string | null | undefined) {
+  const raw = value?.trim() ?? ''
+  const markerIndex = raw.indexOf(STEP_EXPECTED_RESULT_MARKER)
+  if (markerIndex === -1) return { description: raw, expectedResult: raw }
+  return {
+    description: raw.slice(0, markerIndex).trim(),
+    expectedResult: raw.slice(markerIndex + STEP_EXPECTED_RESULT_MARKER.length).trim(),
+  }
+}
+
+function serializeStepText(description: string, expectedResult: string) {
+  const cleanDescription = description.trim()
+  const cleanExpectedResult = expectedResult.trim()
+  if (!cleanExpectedResult || cleanExpectedResult === cleanDescription) return cleanDescription
+  if (!cleanDescription) return cleanExpectedResult
+  return `${cleanDescription}${STEP_EXPECTED_RESULT_MARKER}${cleanExpectedResult}`
+}
+
 function makeStep(title: string, ownerId: string | null, dueDate: string): StepItem {
   return {
     id: makeId('step'),
@@ -4957,7 +5001,7 @@ function buildEditPatch(kind: EditableKind, draft: EditDraft): Record<string, un
   if (kind === 'step') {
     return {
       title: draft.title.trim(),
-      description: (draft.expectedResult || draft.description).trim(),
+      description: serializeStepText(draft.description, draft.expectedResult),
       ownerId: draft.ownerId || null,
       dueDate: draft.dueDate || null,
       status: draft.status,
@@ -5035,8 +5079,8 @@ function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTa
                   : {
                       ...step,
                       title: draft.title.trim(),
-                      description: draft.expectedResult || draft.description,
-                      note: draft.expectedResult || draft.description,
+                      description: draft.description,
+                      note: draft.expectedResult,
                       ownerId: draft.ownerId || null,
                       dueDate: draft.dueDate,
                       status: draft.status,
