@@ -7,6 +7,8 @@ import {
   isLocalProductionDatabaseRequest,
   localQaGuardResponse,
 } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { canSubmitToDeliverable, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
 type FollowUpAction = 'markSent' | 'schedule' | 'escalate'
 
@@ -26,7 +28,7 @@ interface FollowUpPostBody {
 }
 
 type WorkspaceContext =
-  | { ok: true; workspaceId: string; profileId: string; personId: string | null }
+  | { ok: true; workspaceId: string; profileId: string; personId: string | null; actor: RbacUserContext }
   | { ok: false; response: NextResponse }
 
 export async function GET(request: NextRequest) {
@@ -80,6 +82,8 @@ export async function POST(request: NextRequest) {
 
   const guard = await guardFollowUpWrite(request, auth.workspaceId, body, items)
   if (guard) return guard
+  const rbacGuard = await guardFollowUpPermission(auth, items)
+  if (rbacGuard) return rbacGuard
 
   const client = createServiceClient()
   const results: Array<{ reminderId: string; reminderLevel: number }> = []
@@ -203,6 +207,37 @@ async function guardFollowUpWrite(
   return ensureLocalQaWriteAllowed(request, body, 'Muon ghi follow-up QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
+async function guardFollowUpPermission(
+  auth: Extract<WorkspaceContext, { ok: true }>,
+  items: ReturnType<typeof normalizeItems>,
+) {
+  const client = createServiceClient()
+  for (const item of items) {
+    let taskId = item.taskId
+    let deliverableId = item.deliverableId
+    let personId = item.personId
+
+    if (item.reminderId) {
+      const reminder = await client
+        .from('reminders')
+        .select('task_id,deliverable_id,person_id')
+        .eq('workspace_id', auth.workspaceId)
+        .eq('id', item.reminderId)
+        .maybeSingle()
+      if (reminder.error || !reminder.data) return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+      taskId = reminder.data.task_id
+      deliverableId = reminder.data.deliverable_id
+      personId = reminder.data.person_id
+    }
+
+    if (personId && personId === auth.personId) continue
+    if (await canSubmitToDeliverable(auth.actor, auth.workspaceId, deliverableId, { taskId })) continue
+    return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+  }
+
+  return null
+}
+
 async function guardFollowUpTarget(
   request: Request,
   workspaceId: string,
@@ -297,11 +332,17 @@ async function getWorkspaceContext(): Promise<WorkspaceContext> {
     .is('deleted_at', null)
     .maybeSingle()
 
+  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
+  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
+    return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+  }
+
   return {
     ok: true,
     workspaceId: membershipRes.data.workspace_id,
     profileId: profileRes.data.id,
     personId: personRes.data?.id ?? null,
+    actor,
   }
 }
 

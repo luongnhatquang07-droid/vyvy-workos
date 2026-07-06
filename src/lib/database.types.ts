@@ -220,6 +220,8 @@ export interface CommandCenterTaskRow {
   waiting_for_content: string | null
   expected_result: string | null
   deleted_at: string | null
+  assignee_ids?: string[] | null
+  supporter_ids?: string[] | null
 }
 
 export interface CommandCenterWorkstreamRow {

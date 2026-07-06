@@ -3,6 +3,8 @@ import 'server-only'
 import { withSyntheticPendingApprovals } from '@/lib/approvalQueue'
 import type { RawCommandCenterData } from '@/lib/database.types'
 import { buildDeadlineRollups } from '@/lib/deadlineRollup'
+import { filterCommandCenterDataByUser } from '@/lib/rbac/commandDataFilter'
+import type { RbacUserContext } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 
 const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
@@ -20,7 +22,10 @@ const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
   'escalation.created',
 ])
 
-export async function getCommandCenterData(workspaceId: string): Promise<RawCommandCenterData> {
+export async function getCommandCenterData(
+  workspaceId: string,
+  userContext?: RbacUserContext | null,
+): Promise<RawCommandCenterData> {
   const sb = await createClient()
 
   const [
@@ -98,6 +103,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
   ])
 
   let projects = requireRows('dự án', projectsRes) as RawCommandCenterData['projects']
+  const allPeople = requireRows('nhan su', peopleRes) as RawCommandCenterData['people']
   const projectIds = new Set(projects.map((project) => project.id))
   let workstreams = (requireRows('đầu việc lớn', workstreamsRes) as RawCommandCenterData['workstreams'])
     .filter((workstream) => projectIds.has(workstream.project_id))
@@ -108,6 +114,35 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
       (!task.workstream_id || workstreamIds.has(task.workstream_id)),
     )
   const taskIds = new Set(tasks.map((task) => task.id))
+  if (taskIds.size) {
+    const assigneesRes = await sb
+      .from('task_assignees')
+      .select('task_id,person_id,assignment_role')
+      .in('task_id', Array.from(taskIds))
+
+    if (assigneesRes.error) throw new Error(`Khong doc duoc task assignees: ${assigneesRes.error.message}`)
+
+    const assigneesByTask = new Map<string, string[]>()
+    const supportersByTask = new Map<string, string[]>()
+    for (const row of assigneesRes.data ?? []) {
+      if (!row.task_id || !row.person_id) continue
+      const assigneeIds = assigneesByTask.get(row.task_id) ?? []
+      assigneeIds.push(row.person_id)
+      assigneesByTask.set(row.task_id, assigneeIds)
+
+      if (row.assignment_role === 'SUPPORTER') {
+        const supporterIds = supportersByTask.get(row.task_id) ?? []
+        supporterIds.push(row.person_id)
+        supportersByTask.set(row.task_id, supporterIds)
+      }
+    }
+
+    tasks = tasks.map((task) => ({
+      ...task,
+      assignee_ids: assigneesByTask.get(task.id) ?? [],
+      supporter_ids: supportersByTask.get(task.id) ?? [],
+    }))
+  }
   let taskSteps = (requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'])
     .filter((step) => taskIds.has(step.task_id))
   const stepIds = new Set(taskSteps.map((step) => step.id))
@@ -214,6 +249,25 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     tasks,
     taskSteps,
   })
+
+  if (userContext !== undefined) {
+    return filterCommandCenterDataByUser({
+      people: allPeople,
+      projects,
+      workstreams,
+      tasks,
+      taskSteps,
+      meetings,
+      taskDrafts,
+      deliverables,
+      deliverableVersions,
+      attachments,
+      approvals,
+      reminders,
+      ceoRequests,
+      activityLogs,
+    }, userContext)
+  }
 
   return {
     people: requireRows('nhân sự', peopleRes) as RawCommandCenterData['people'],

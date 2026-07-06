@@ -4,6 +4,7 @@ import { CommandCenterView } from '@/features/command-center/CommandCenterView'
 import { DEFAULT_COMMAND_CENTER_TIMEZONE, formatCommandCenterDateTime } from '@/features/command-center/greeting'
 import { getCommandCenterData } from '@/lib/db/commandCenter'
 import { toCommandCenterVM } from '@/lib/mappers'
+import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = { title: 'Trung tâm điều hành - VyVy WorkOS' }
@@ -103,6 +104,7 @@ export default async function CommandCenterPage() {
   }
 
   const workspaceId = membershipRes.data.workspace_id
+  const userContext = await getCurrentUserProfile(sb as unknown as RbacClient)
   let workspaceTimezone = DEFAULT_COMMAND_CENTER_TIMEZONE
   let userName = profileRes.data.display_name || 'Quang'
 
@@ -132,7 +134,7 @@ export default async function CommandCenterPage() {
   let dataIssue: { title: string; description: string } | undefined
 
   try {
-    const raw = await getCommandCenterData(workspaceId)
+    const raw = await getCommandCenterData(workspaceId, userContext)
     data = toCommandCenterVM(raw)
   } catch (error) {
     dataIssue = {

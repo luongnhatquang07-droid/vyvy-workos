@@ -36,7 +36,10 @@ export function Sidebar({
   const pathname = usePathname()
   const collapsed = isOverlayMode ? false : desktopCollapsed
   const badgeCounts = useSidebarCounts()
-  const [canManageUsers, setCanManageUsers] = React.useState(false)
+  const [access, setAccess] = React.useState<{ canManageUsers: boolean; role: string | null }>({
+    canManageUsers: false,
+    role: null,
+  })
 
   React.useEffect(() => {
     if (!isOverlayMode || !overlayOpen) return
@@ -54,14 +57,14 @@ export function Sidebar({
       try {
         const response = await fetch('/api/admin/users/access', { cache: 'no-store' })
         if (!response.ok) {
-          if (!cancelled) setCanManageUsers(false)
+          if (!cancelled) setAccess({ canManageUsers: false, role: null })
           return
         }
 
-        const data = (await response.json()) as { canManageUsers?: boolean }
-        if (!cancelled) setCanManageUsers(data.canManageUsers === true)
+        const data = (await response.json()) as { canManageUsers?: boolean; role?: string | null }
+        if (!cancelled) setAccess({ canManageUsers: data.canManageUsers === true, role: data.role ?? null })
       } catch {
-        if (!cancelled) setCanManageUsers(false)
+        if (!cancelled) setAccess({ canManageUsers: false, role: null })
       }
     }
 
@@ -74,7 +77,7 @@ export function Sidebar({
   const groups = React.useMemo(() => {
     const nextGroups: Array<{ label: string; items: typeof NAV_ITEMS }> = []
     NAV_ITEMS
-      .filter((item) => !item.permission || (item.permission === 'manage-users' && canManageUsers))
+      .filter((item) => canShowNavItem(item.key, item.permission, access))
       .forEach((item) => {
       const label = item.group ?? ''
       let group = nextGroups.find((entry) => entry.label === label)
@@ -85,7 +88,7 @@ export function Sidebar({
       group.items.push(item)
     })
     return nextGroups
-  }, [canManageUsers])
+  }, [access])
 
   function handleNavClick() {
     if (isOverlayMode) onOverlayClose()
@@ -198,6 +201,19 @@ export function Sidebar({
       {sidebarContent}
     </aside>
   )
+}
+
+function canShowNavItem(
+  key: string,
+  permission: (typeof NAV_ITEMS)[number]['permission'],
+  access: { canManageUsers: boolean; role: string | null },
+) {
+  if (permission === 'manage-users') return access.canManageUsers
+  if (key === 'ceo-reports' || key === 'team-workload') {
+    const role = access.role?.trim().toUpperCase()
+    return role === 'ADMIN' || role === 'CEO' || role === 'COO' || role === 'DEPARTMENT_HEAD' || role === 'PROJECT_COORDINATOR' || role === 'CEO_READONLY'
+  }
+  return true
 }
 
 function badgeStyleFor(variant?: string): React.CSSProperties {

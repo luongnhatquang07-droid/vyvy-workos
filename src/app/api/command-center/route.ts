@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCommandCenterData } from '@/lib/db/commandCenter'
 import { resyncCompletedTasks } from '@/lib/db/taskCompletionSync'
 import { isLocalProductionDatabaseRequest } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -48,8 +49,13 @@ export async function GET(request: Request) {
   }
 
   const workspaceId = membershipRes.data?.workspace_id
+  const userContext = await getCurrentUserProfile(sb as unknown as RbacClient)
   if (!workspaceId) {
     return NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 })
+  }
+
+  if (!userContext || userContext.workspaceId !== workspaceId) {
+    return NextResponse.json({ error: 'Ban khong co quyen xem du lieu workspace nay.' }, { status: 403 })
   }
 
   try {
@@ -64,7 +70,7 @@ export async function GET(request: Request) {
         )
       }
     }
-    const data = await getCommandCenterData(workspaceId)
+    const data = await getCommandCenterData(workspaceId, userContext)
     return NextResponse.json({ ...data, workspaceId })
   } catch (error) {
     return NextResponse.json(

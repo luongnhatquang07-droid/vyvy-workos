@@ -5,6 +5,13 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
+import {
+  canCreateWorkspaceEntity,
+  canEditWorkspaceEntity,
+  RBAC_FORBIDDEN_MESSAGE,
+} from '@/lib/rbac/workspaceResourceAccess'
+import { createServiceClient } from '@/lib/supabase/service'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -21,6 +28,8 @@ export async function POST(request: Request) {
   try {
     const guard = await guardWorkspaceCreate(request, auth, body.type, payload)
     if (guard) return guard
+    const rbacGuard = await guardWorkspaceCreatePermission(auth, body.type, payload)
+    if (rbacGuard) return rbacGuard
 
     if (body.type === 'project') {
       const result = await auth.sb.from('projects').insert({
@@ -161,6 +170,8 @@ export async function PATCH(request: Request) {
   try {
     const guard = await guardWorkspaceExistingWrite(request, auth, body.type, body.id)
     if (guard) return guard
+    const rbacGuard = await guardWorkspaceExistingPermission(auth, body.type, body.id)
+    if (rbacGuard) return rbacGuard
 
     let updated: unknown = null
     if (body.type === 'project') updated = await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status']))
@@ -190,6 +201,8 @@ export async function DELETE(request: Request) {
   try {
     const guard = await guardWorkspaceExistingWrite(request, auth, body.type, body.id)
     if (guard) return guard
+    const rbacGuard = await guardWorkspaceExistingPermission(auth, body.type, body.id)
+    if (rbacGuard) return rbacGuard
 
     if (body.type === 'project') await softDeleteProject(auth, body.id)
     else if (body.type === 'workstream') await softDeleteWorkstream(auth, body.id)
@@ -287,6 +300,24 @@ async function guardWorkspaceExistingWrite(
   })
 }
 
+async function guardWorkspaceCreatePermission(
+  auth: WorkspaceAuth,
+  type: EntityType | undefined,
+  payload: Record<string, unknown>,
+) {
+  const allowed = await canCreateWorkspaceEntity(auth.actor, auth.workspaceId, type, payload)
+  return allowed ? null : NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 })
+}
+
+async function guardWorkspaceExistingPermission(
+  auth: WorkspaceAuth,
+  type: EntityType,
+  id: string,
+) {
+  const allowed = await canEditWorkspaceEntity(auth.actor, auth.workspaceId, type, id)
+  return allowed ? null : NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 })
+}
+
 function workspaceEntityGuardConfig(type: EntityType) {
   if (type === 'project') return { table: 'projects', fields: ['name', 'code'], label: 'dự án' } as const
   if (type === 'workstream') return { table: 'workstreams', fields: ['name'], label: 'đầu việc lớn' } as const
@@ -321,7 +352,12 @@ async function getWorkspace() {
     return { response: NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 }) }
   }
 
-  return { sb, workspaceId: membershipRes.data.workspace_id }
+  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
+  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
+    return { response: NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 }) }
+  }
+
+  return { sb: createServiceClient(), workspaceId: membershipRes.data.workspace_id, actor }
 }
 
 async function updateEntity(

@@ -13,13 +13,15 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { canSubmitToDeliverable, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
 const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
 
 type UploadContext =
-  | { ok: true; workspaceId: string; uploaderId: string | null }
+  | { ok: true; workspaceId: string; uploaderId: string | null; actor: RbacUserContext }
   | { ok: false; status: number; message: string }
 
 function errorMessage(error: unknown) {
@@ -124,10 +126,16 @@ async function getUploadContext(workspaceId: string): Promise<UploadContext> {
     .is('deleted_at', null)
     .maybeSingle()
 
+  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
+  if (!actor || actor.workspaceId !== workspaceId) {
+    return { ok: false, status: 403, message: RBAC_FORBIDDEN_MESSAGE }
+  }
+
   return {
     ok: true,
     workspaceId,
     uploaderId: personRes.data?.id ?? null,
+    actor,
   }
 }
 
@@ -515,6 +523,13 @@ export async function POST(req: NextRequest) {
       deliverable,
     })
     if (guard) return guard
+    if (!(await canSubmitToDeliverable(context.actor, workspaceId, deliverableId, {
+      projectId: deliverable?.project_id ?? projectId,
+      taskId: deliverable?.task_id ?? taskId,
+      stepId: deliverable?.step_id ?? null,
+    }))) {
+      return NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 })
+    }
 
     const finalApproverId = requestedApproverId ?? deliverable?.reviewer_id ?? null
     if (finalApproverId && !(await belongsToWorkspace('people', finalApproverId, workspaceId))) {
@@ -672,6 +687,9 @@ export async function GET(req: NextRequest) {
   const scopeError = await validateEntityScope({ workspaceId, projectId, taskId, deliverableId: null })
   if (scopeError) {
     return NextResponse.json({ error: scopeError, files: [] }, { status: 403 })
+  }
+  if (!(await canSubmitToDeliverable(context.actor, workspaceId, null, { projectId, taskId }))) {
+    return NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE, files: [] }, { status: 403 })
   }
 
   const client = createServiceClient()

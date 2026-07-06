@@ -5,6 +5,7 @@ import {
   ensureLocalQaWriteAllowed,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, normalizeUserRole, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   type BulkImportRow,
   type ImportIssue,
@@ -20,7 +21,7 @@ import {
 } from '@/lib/taskImport'
 
 type WorkspaceContext =
-  | { ok: true; sb: Awaited<ReturnType<typeof createClient>>; workspaceId: string; actorId: string | null }
+  | { ok: true; sb: Awaited<ReturnType<typeof createClient>>; workspaceId: string; actorId: string | null; actor: RbacUserContext }
   | { ok: false; response: NextResponse }
 
 interface PersonLite {
@@ -66,6 +67,8 @@ export async function POST(request: Request) {
 
   const guard = guardBulkImportWrite(request, incomingRows)
   if (guard) return guard
+  const rbacGuard = guardBulkImportPermission(auth.actor)
+  if (rbacGuard) return rbacGuard
 
   const context = await loadImportContext(auth)
   const validatedRows = validateRows(incomingRows, context)
@@ -223,6 +226,13 @@ function guardBulkImportWrite(request: Request, rows: BulkImportRow[]) {
   return ensureLocalQaWriteAllowed(request, rows, 'Muon import QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
+function guardBulkImportPermission(actor: RbacUserContext) {
+  const role = normalizeUserRole(actor)
+  return role === 'ADMIN' || role === 'COO'
+    ? null
+    : NextResponse.json({ error: 'Ban khong co quyen thuc hien thao tac nay.' }, { status: 403 })
+}
+
 async function getWorkspace(): Promise<WorkspaceContext> {
   const sb = await createClient()
   const {
@@ -261,7 +271,12 @@ async function getWorkspace(): Promise<WorkspaceContext> {
     .is('deleted_at', null)
     .maybeSingle()
 
-  return { ok: true, sb, workspaceId: membershipRes.data.workspace_id, actorId: personRes.data?.id ?? null }
+  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
+  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
+    return { ok: false, response: NextResponse.json({ error: 'Ban khong co quyen thuc hien thao tac nay.' }, { status: 403 }) }
+  }
+
+  return { ok: true, sb, workspaceId: membershipRes.data.workspace_id, actorId: personRes.data?.id ?? null, actor }
 }
 
 async function loadImportContext(auth: Extract<WorkspaceContext, { ok: true }>) {

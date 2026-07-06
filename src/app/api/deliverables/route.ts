@@ -13,11 +13,19 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import {
+  canCreateDeliverable,
+  canReviewDeliverable,
+  canSubmitToDeliverable,
+  canViewDeliverable,
+  RBAC_FORBIDDEN_MESSAGE,
+} from '@/lib/rbac/workspaceResourceAccess'
 
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
 
 type WorkspaceContext =
-  | { ok: true; workspaceId: string; profileId: string; personId: string | null }
+  | { ok: true; workspaceId: string; profileId: string; personId: string | null; actor: RbacUserContext }
   | { ok: false; response: NextResponse }
 
 type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'MISSING_INFORMATION' | 'REVISION_REQUIRED' | 'APPROVED'
@@ -88,11 +96,17 @@ async function getWorkspaceContext(workspaceId: string): Promise<WorkspaceContex
     .is('deleted_at', null)
     .maybeSingle()
 
+  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
+  if (!actor || actor.workspaceId !== workspaceId) {
+    return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+  }
+
   return {
     ok: true,
     workspaceId,
     profileId: profileRes.data.id,
     personId: personRes.data?.id ?? null,
+    actor,
   }
 }
 
@@ -740,6 +754,9 @@ export async function GET(req: NextRequest) {
   try {
     const detail = await loadDeliverableDetail(context.workspaceId, deliverableId)
     if (!detail) return jsonError('Không tìm thấy hạng mục bàn giao.', 404)
+    if (!(await canViewDeliverable(context.actor, context.workspaceId, deliverableId))) {
+      return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+    }
     return NextResponse.json(detail)
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : 'Không tải được chi tiết bàn giao.', 500)
@@ -767,6 +784,9 @@ export async function POST(req: NextRequest) {
       stepId,
     })
     if (createGuard) return createGuard
+    if (!(await canCreateDeliverable(context.actor, context.workspaceId, { projectId, taskId, stepId }))) {
+      return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+    }
 
     const checks = await Promise.all([
       ensureEntityInWorkspace('projects', projectId, context.workspaceId),
@@ -850,6 +870,15 @@ export async function PATCH(req: NextRequest) {
     }
     const guard = await guardDeliverableTargetWrite(req, context.workspaceId, deliverable)
     if (guard) return guard
+    const isReviewAction = ['setReviewer', 'approve', 'requestRevision', 'reject', 'markMissing'].includes(action)
+    const allowed = isReviewAction
+      ? await canReviewDeliverable(context.actor, context.workspaceId, deliverableId)
+      : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
+          projectId: deliverable.project_id,
+          taskId: deliverable.task_id,
+          stepId: deliverable.step_id,
+        })
+    if (!allowed) return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
 
     if (action === 'setReviewer') {
       const reviewerId = cleanId(body.reviewerId)
