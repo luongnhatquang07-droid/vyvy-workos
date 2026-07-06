@@ -13,4 +13,5 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'ceo-reports',    label: 'Báo cáo CEO',          href: '/ceo-reports',    icon: 'ti-presentation-analytics', group: 'Tổng hợp', badge: { count: 0, variant: 'lime' } },
   { key: 'team-workload',  label: 'Nhân sự & Tải việc',   href: '/team-workload',  icon: 'ti-users-group',     group: 'Tổng hợp' },
   { key: 'settings',       label: 'Cài đặt',              href: '/settings',       icon: 'ti-settings',        group: 'Tổng hợp' },
+  { key: 'settings-users', label: 'Quản lý tài khoản', href: '/settings/users', icon: 'ti-user-cog', group: 'Tổng hợp', permission: 'manage-users' },
 ]

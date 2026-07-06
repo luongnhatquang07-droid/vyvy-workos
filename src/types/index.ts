@@ -7,6 +7,7 @@ export type NavItem = {
   icon: string   // tabler icon class e.g. "ti-layout-dashboard"
   group?: string // group label for sidebar section headers
   badge?: NavBadge
+  permission?: 'manage-users'
 }
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error'

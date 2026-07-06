@@ -36,6 +36,7 @@ export function Sidebar({
   const pathname = usePathname()
   const collapsed = isOverlayMode ? false : desktopCollapsed
   const badgeCounts = useSidebarCounts()
+  const [canManageUsers, setCanManageUsers] = React.useState(false)
 
   React.useEffect(() => {
     if (!isOverlayMode || !overlayOpen) return
@@ -46,9 +47,35 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', handler)
   }, [isOverlayMode, overlayOpen, onOverlayClose])
 
+  React.useEffect(() => {
+    let cancelled = false
+
+    async function loadAccess() {
+      try {
+        const response = await fetch('/api/admin/users/access', { cache: 'no-store' })
+        if (!response.ok) {
+          if (!cancelled) setCanManageUsers(false)
+          return
+        }
+
+        const data = (await response.json()) as { canManageUsers?: boolean }
+        if (!cancelled) setCanManageUsers(data.canManageUsers === true)
+      } catch {
+        if (!cancelled) setCanManageUsers(false)
+      }
+    }
+
+    loadAccess()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const groups = React.useMemo(() => {
     const nextGroups: Array<{ label: string; items: typeof NAV_ITEMS }> = []
-    NAV_ITEMS.forEach((item) => {
+    NAV_ITEMS
+      .filter((item) => !item.permission || (item.permission === 'manage-users' && canManageUsers))
+      .forEach((item) => {
       const label = item.group ?? ''
       let group = nextGroups.find((entry) => entry.label === label)
       if (!group) {
@@ -58,7 +85,7 @@ export function Sidebar({
       group.items.push(item)
     })
     return nextGroups
-  }, [])
+  }, [canManageUsers])
 
   function handleNavClick() {
     if (isOverlayMode) onOverlayClose()
