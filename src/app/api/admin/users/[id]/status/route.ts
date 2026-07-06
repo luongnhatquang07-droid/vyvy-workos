@@ -7,6 +7,8 @@ import {
 } from '@/lib/admin/userManagement'
 import { adminAuthErrorMessage, loadUserManagementData } from '@/lib/admin/userManagementData'
 
+export const runtime = 'nodejs'
+
 interface RouteContext {
   params: Promise<{ id: string }>
 }

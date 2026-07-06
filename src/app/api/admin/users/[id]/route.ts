@@ -15,6 +15,8 @@ import {
   updateMembershipRole,
 } from '@/lib/admin/userManagementData'
 
+export const runtime = 'nodejs'
+
 interface RouteContext {
   params: Promise<{ id: string }>
 }

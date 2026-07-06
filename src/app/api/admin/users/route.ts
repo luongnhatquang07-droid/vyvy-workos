@@ -17,6 +17,8 @@ import {
   loadUserManagementData,
 } from '@/lib/admin/userManagementData'
 
+export const runtime = 'nodejs'
+
 export async function GET() {
   const auth = await requireUserManagementAccess()
   if (!auth.ok) return auth.response

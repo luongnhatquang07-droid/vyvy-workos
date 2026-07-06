@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { cleanText, jsonError, requireUserManagementAccess } from '@/lib/admin/userManagement'
 import { adminAuthErrorMessage } from '@/lib/admin/userManagementData'
 
+export const runtime = 'nodejs'
+
 interface RouteContext {
   params: Promise<{ id: string }>
 }

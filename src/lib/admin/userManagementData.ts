@@ -58,6 +58,22 @@ interface AuthUserRow {
   last_sign_in_at?: string | null
 }
 
+export interface AuthAdminErrorDetails {
+  name: string | null
+  status: number | null
+  code: string | null
+  messageSafe: string
+}
+
+export interface AuthAdminDiagnostics {
+  supabaseJsListUsersOk: boolean
+  supabaseJsError: AuthAdminErrorDetails | null
+  directFetchListUsersOk: boolean
+  directFetchStatus: number | null
+  directFetchError: AuthAdminErrorDetails | null
+  returnedUserCount: number
+}
+
 export async function loadUserManagementData(service: ServiceClient, workspaceId: string) {
   const [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes, authUsersResult] = await Promise.all([
     service
@@ -234,14 +250,106 @@ export async function listAuthUsers(service: ServiceClient) {
   let page = 1
 
   while (page <= 10) {
-    const result = await service.auth.admin.listUsers({ page, perPage: 100 })
-    if (result.error) throw result.error
-    users.push(...((result.data.users ?? []) as AuthUserRow[]))
-    if ((result.data.users ?? []).length < 100) break
+    const pageUsers = await listAuthUsersPage(service, page, 100)
+    users.push(...pageUsers)
+    if (pageUsers.length < 100) break
     page += 1
   }
 
   return users
+}
+
+export async function diagnoseAuthAdminListUsers(service: ServiceClient): Promise<AuthAdminDiagnostics> {
+  let supabaseJsListUsersOk = false
+  let supabaseJsError: AuthAdminErrorDetails | null = null
+  let directFetchListUsersOk = false
+  let directFetchStatus: number | null = null
+  let directFetchError: AuthAdminErrorDetails | null = null
+  let returnedUserCount = 0
+
+  try {
+    const result = await service.auth.admin.listUsers({ page: 1, perPage: 1 })
+    if (result.error) throw result.error
+    supabaseJsListUsersOk = true
+    returnedUserCount = result.data.users?.length ?? 0
+  } catch (error) {
+    supabaseJsError = authAdminErrorDetails(error)
+  }
+
+  try {
+    const direct = await fetchAuthAdminUsersPage(1, 1)
+    directFetchListUsersOk = true
+    directFetchStatus = direct.status
+    returnedUserCount = Math.max(returnedUserCount, direct.users.length)
+  } catch (error) {
+    directFetchError = authAdminErrorDetails(error)
+    directFetchStatus = directFetchError.status
+  }
+
+  return {
+    supabaseJsListUsersOk,
+    supabaseJsError,
+    directFetchListUsersOk,
+    directFetchStatus,
+    directFetchError,
+    returnedUserCount,
+  }
+}
+
+async function listAuthUsersPage(service: ServiceClient, page: number, perPage: number) {
+  try {
+    const result = await service.auth.admin.listUsers({ page, perPage })
+    if (result.error) throw result.error
+    return (result.data.users ?? []) as AuthUserRow[]
+  } catch (supabaseJsError) {
+    try {
+      const direct = await fetchAuthAdminUsersPage(page, perPage)
+      return direct.users
+    } catch (directError) {
+      throw directError ?? supabaseJsError
+    }
+  }
+}
+
+async function fetchAuthAdminUsersPage(page: number, perPage: number) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw authAdminSafeError('missing_service_role', 500, 'Thiếu cấu hình Supabase service role server-side.')
+  }
+
+  const url = new URL('/auth/v1/admin/users', supabaseUrl)
+  url.searchParams.set('page', String(page))
+  url.searchParams.set('per_page', String(perPage))
+
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    },
+  })
+  const payload = await response.json().catch(() => null) as {
+    users?: AuthUserRow[]
+    code?: string
+    error_code?: string
+    error?: string
+    msg?: string
+    message?: string
+  } | null
+
+  if (!response.ok) {
+    throw authAdminSafeError(
+      payload?.code ?? payload?.error_code ?? payload?.error ?? `http_${response.status}`,
+      response.status,
+      payload?.message ?? payload?.msg ?? response.statusText,
+    )
+  }
+
+  return {
+    status: response.status,
+    users: (payload?.users ?? []) as AuthUserRow[],
+  }
 }
 
 async function listAuthUsersForDisplay(service: ServiceClient) {
@@ -272,6 +380,30 @@ export function adminAuthErrorMessage(error: unknown) {
   return raw && !raw.includes('/auth/v1/admin')
     ? raw
     : 'Không tải được danh sách Auth users từ Supabase Auth Admin. Thao tác tài khoản đang bị khóa.'
+}
+
+export function authAdminErrorDetails(error: unknown): AuthAdminErrorDetails {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : {}
+  return {
+    name: safeString(record.name),
+    status: safeNumber(record.status),
+    code: safeString(record.code),
+    messageSafe: adminAuthErrorMessage(error),
+  }
+}
+
+function authAdminSafeError(code: string, status: number, message: string) {
+  const error = new Error(message)
+  Object.assign(error, { code, status, name: 'AuthAdminSafeError' })
+  return error
+}
+
+function safeString(value: unknown) {
+  return typeof value === 'string' && value.length <= 80 ? value : null
+}
+
+function safeNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function rawErrorMessage(error: unknown) {
