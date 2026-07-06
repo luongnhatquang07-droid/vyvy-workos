@@ -10,6 +10,7 @@ import {
 import { getRoleLabel, isWorkspaceRole } from '@/lib/rbac/roles'
 
 const PRODUCTION_SUPABASE_REF = 'tgmnkqcxucxpnhhsggug'
+const PROD_USER_MANAGEMENT_APPROVAL = 'YES_I_APPROVE_USER_ADMIN'
 
 export type AdminUserContext =
   | {
@@ -44,34 +45,51 @@ export function isStagingUserManagementEnabled() {
   )
 }
 
+export function isProductionUserManagementEnabled() {
+  return (
+    process.env.APP_ENV === 'production' &&
+    isProductionSupabaseRef() &&
+    process.env.ENABLE_PROD_USER_MANAGEMENT === PROD_USER_MANAGEMENT_APPROVAL &&
+    Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
+  )
+}
+
+export function isUserManagementEnabled() {
+  return isStagingUserManagementEnabled() || isProductionUserManagementEnabled()
+}
+
 export async function getUserManagementAccess() {
   const sb = await createServerClient()
   const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  const enabled = isStagingUserManagementEnabled()
+  const enabled = isUserManagementEnabled()
 
   return {
     enabled,
     supabaseRef: getConfiguredSupabaseRef(),
     canManageUsers: enabled && canManageUsers(actor),
     role: actor?.role ?? null,
+    roleLabel: actor?.role ? roleLabel(actor.role) : null,
+    displayName: actor?.displayName ?? null,
+    departmentName: actor?.departmentName ?? null,
     status: actor?.status ?? null,
   }
 }
 
 export async function requireUserManagementAccess(): Promise<AdminUserContext> {
   const supabaseRef = getConfiguredSupabaseRef()
+  const environmentEnabled = isUserManagementEnabled()
 
-  if (isProductionSupabaseRef()) {
+  if (!environmentEnabled && isProductionSupabaseRef()) {
     return {
       ok: false,
       response: jsonError('User Management đang bị khóa vì môi trường hiện trỏ production.', 403),
     }
   }
 
-  if (process.env.APP_ENV !== 'staging' || process.env.NEXT_PUBLIC_APP_ENV !== 'staging') {
+  if (!environmentEnabled) {
     return {
       ok: false,
-      response: jsonError('User Management Phase 2 chỉ được bật trên staging.', 403),
+      response: jsonError('User Management chỉ được bật trên staging hoặc production đã được phê duyệt bằng env server-side.', 403),
     }
   }
 

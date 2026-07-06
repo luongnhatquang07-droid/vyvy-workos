@@ -27,17 +27,20 @@ export interface RbacClient {
 export interface RbacUserContext {
   authUserId: string | null
   profileId: string | null
+  displayName: string | null
   personId: string | null
   workspaceId: string | null
   role: WorkspaceRole | string | null
   normalizedRole: CanonicalRole | null
   departmentId: string | null
+  departmentName: string | null
   managedDepartmentIds: string[]
   status: string | null
 }
 
 interface ProfileRecord {
   id: string
+  display_name: string | null
   status: string | null
 }
 
@@ -53,12 +56,14 @@ interface RoleRecord {
 
 interface PersonRecord {
   id: string
+  full_name: string | null
   department_id: string | null
   status: string | null
 }
 
 interface DepartmentRecord {
   id: string
+  name?: string | null
 }
 
 export interface RbacResource {
@@ -106,7 +111,7 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
 
   const profileResult = await client
     .from<ProfileRecord>('profiles')
-    .select('id,status')
+    .select('id,display_name,status')
     .eq('auth_user_id', authUserId)
     .maybeSingle()
 
@@ -130,7 +135,7 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
 
   const personResult = await client
     .from<PersonRecord>('people')
-    .select('id,department_id,status')
+    .select('id,full_name,department_id,status')
     .eq('workspace_id', membershipResult.data.workspace_id)
     .eq('profile_id', profileResult.data.id)
     .is('deleted_at', null)
@@ -138,16 +143,28 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
 
   const role = roleResult.data?.code ?? null
   const person = personResult.data ?? null
+  let departmentName: string | null = null
+  if (person?.department_id) {
+    const departmentResult = await client
+      .from<DepartmentRecord>('departments')
+      .select('id,name')
+      .eq('id', person.department_id)
+      .maybeSingle()
+
+    if (!departmentResult.error) departmentName = departmentResult.data?.name ?? null
+  }
   const managedDepartmentIds = await getManagedDepartmentIds(client, membershipResult.data.workspace_id, person?.id ?? null)
 
   return {
     authUserId,
     profileId: profileResult.data.id,
+    displayName: person?.full_name ?? profileResult.data.display_name ?? null,
     personId: person?.id ?? null,
     workspaceId: membershipResult.data.workspace_id,
     role,
     normalizedRole: normalizeRole(role),
     departmentId: person?.department_id ?? null,
+    departmentName,
     managedDepartmentIds,
     status: person?.status ?? profileResult.data.status ?? null,
   }

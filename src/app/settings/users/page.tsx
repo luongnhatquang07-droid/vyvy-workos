@@ -239,7 +239,7 @@ export default function UserManagementPage() {
       <PageHead
         icon="ti-user-cog"
         title="Quản lý tài khoản"
-        desc="Tạo, phân quyền và khóa/mở tài khoản trên staging. Phase 2 chưa enforce toàn app."
+        desc="Tạo, phân quyền và khóa/mở tài khoản trên staging hoặc production đã bật env phê duyệt. Phase 2 chưa enforce toàn app."
         actions={!forbidden ? <Button variant="primary" onClick={openCreate}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
       />
 
@@ -260,7 +260,7 @@ export default function UserManagementPage() {
           <div>
             <div style={{ fontWeight: 750, color: 'var(--color-text)' }}>Bạn không có quyền truy cập trang này.</div>
             <div style={{ marginTop: 5, fontSize: 13, color: 'var(--color-text-muted)' }}>
-              Chỉ tài khoản ADMIN trên staging mới được quản lý người dùng trong Phase 2.
+              Chỉ tài khoản ADMIN trên staging hoặc production đã bật env phê duyệt mới được quản lý người dùng trong Phase 2.
             </div>
           </div>
         </section>

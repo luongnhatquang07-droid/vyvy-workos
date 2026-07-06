@@ -12,6 +12,7 @@ import {
   getSidebarCounts,
   type SidebarCounts,
 } from '@/lib/data/queries/sidebarCounts'
+import { getRoleLabel } from '@/lib/rbac/roles'
 
 interface SidebarProps {
   isOverlayMode: boolean
@@ -21,9 +22,25 @@ interface SidebarProps {
   onDesktopCollapse: (value: boolean) => void
 }
 
+interface SidebarAccess {
+  canManageUsers: boolean
+  role: string | null
+  roleLabel: string | null
+  displayName: string | null
+  departmentName: string | null
+}
+
 function useSidebarCounts(): SidebarCounts {
   const { data } = useCommandData()
   return React.useMemo(() => (data ? getSidebarCounts(data) : EMPTY_SIDEBAR_COUNTS), [data])
+}
+
+const DEFAULT_ACCESS: SidebarAccess = {
+  canManageUsers: false,
+  role: null,
+  roleLabel: null,
+  displayName: null,
+  departmentName: null,
 }
 
 export function Sidebar({
@@ -36,10 +53,7 @@ export function Sidebar({
   const pathname = usePathname()
   const collapsed = isOverlayMode ? false : desktopCollapsed
   const badgeCounts = useSidebarCounts()
-  const [access, setAccess] = React.useState<{ canManageUsers: boolean; role: string | null }>({
-    canManageUsers: false,
-    role: null,
-  })
+  const [access, setAccess] = React.useState<SidebarAccess>(DEFAULT_ACCESS)
 
   React.useEffect(() => {
     if (!isOverlayMode || !overlayOpen) return
@@ -57,14 +71,22 @@ export function Sidebar({
       try {
         const response = await fetch('/api/admin/users/access', { cache: 'no-store' })
         if (!response.ok) {
-          if (!cancelled) setAccess({ canManageUsers: false, role: null })
+          if (!cancelled) setAccess(DEFAULT_ACCESS)
           return
         }
 
-        const data = (await response.json()) as { canManageUsers?: boolean; role?: string | null }
-        if (!cancelled) setAccess({ canManageUsers: data.canManageUsers === true, role: data.role ?? null })
+        const data = (await response.json()) as Partial<SidebarAccess>
+        if (!cancelled) {
+          setAccess({
+            canManageUsers: data.canManageUsers === true,
+            role: data.role ?? null,
+            roleLabel: data.roleLabel ?? null,
+            displayName: data.displayName ?? null,
+            departmentName: data.departmentName ?? null,
+          })
+        }
       } catch {
-        if (!cancelled) setAccess({ canManageUsers: false, role: null })
+        if (!cancelled) setAccess(DEFAULT_ACCESS)
       }
     }
 
@@ -93,6 +115,10 @@ export function Sidebar({
   function handleNavClick() {
     if (isOverlayMode) onOverlayClose()
   }
+
+  const displayName = formatUserName(access)
+  const roleLine = formatUserRole(access)
+  const tooltipLabel = `${displayName} · ${roleLine}`
 
   const sidebarContent = (
     <div style={sidebarFrameStyle(collapsed)}>
@@ -167,17 +193,17 @@ export function Sidebar({
 
       <div style={userSectionStyle(collapsed)}>
         {collapsed ? (
-          <Tooltip content="Quang · CEO Office" placement="right">
+          <Tooltip content={tooltipLabel} placement="right">
             <div>
-              <Avatar name="Nhật Quang" size={32} />
+              <Avatar name={displayName} size={32} />
             </div>
           </Tooltip>
         ) : (
           <>
-            <Avatar name="Nhật Quang" size={32} />
+            <Avatar name={displayName} size={32} />
             <div style={{ overflow: 'hidden', flex: 1 }}>
-              <div style={userNameStyle}>Quang</div>
-              <div style={userRoleStyle}>Project Coordinator · CEO Office</div>
+              <div style={userNameStyle}>{displayName}</div>
+              <div style={userRoleStyle}>{roleLine}</div>
             </div>
           </>
         )}
@@ -206,7 +232,7 @@ export function Sidebar({
 function canShowNavItem(
   key: string,
   permission: (typeof NAV_ITEMS)[number]['permission'],
-  access: { canManageUsers: boolean; role: string | null },
+  access: SidebarAccess,
 ) {
   if (permission === 'manage-users') return access.canManageUsers
   if (key === 'ceo-reports' || key === 'team-workload') {
@@ -214,6 +240,17 @@ function canShowNavItem(
     return role === 'ADMIN' || role === 'CEO' || role === 'COO' || role === 'DEPARTMENT_HEAD' || role === 'PROJECT_COORDINATOR' || role === 'CEO_READONLY'
   }
   return true
+}
+
+function formatUserName(access: SidebarAccess) {
+  const name = access.displayName?.trim()
+  return name && name.length > 0 ? name : 'Người dùng'
+}
+
+function formatUserRole(access: SidebarAccess) {
+  const roleLabel = access.roleLabel?.trim() || (access.role ? getRoleLabel(access.role) : 'Chưa xác định quyền')
+  const departmentName = access.departmentName?.trim()
+  return departmentName ? `${roleLabel} · ${departmentName}` : roleLabel
 }
 
 function badgeStyleFor(variant?: string): React.CSSProperties {
