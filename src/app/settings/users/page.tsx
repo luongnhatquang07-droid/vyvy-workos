@@ -38,10 +38,13 @@ interface LookupData {
 interface UsersPayload {
   users: ManagedUser[]
   lookups: LookupData
-  source?: 'auth_admin_profiles' | 'profiles_only'
+  source?: 'auth_admin_profiles' | 'auth_admin_profiles_partial' | 'auth_admin_only' | 'profiles_only'
   total?: number
   authAdminAvailable?: boolean
   authAdminError?: string | null
+  writeActionsAvailable?: boolean
+  warnings?: string[]
+  profileMergeWarning?: string | null
   meta?: {
     supabaseRef?: string | null
     appEnv?: string | null
@@ -81,8 +84,9 @@ export default function UserManagementPage() {
   const [error, setError] = React.useState('')
   const [forbidden, setForbidden] = React.useState(false)
   const [notice, setNotice] = React.useState('')
-  const [authAdminAvailable, setAuthAdminAvailable] = React.useState(true)
   const [authAdminError, setAuthAdminError] = React.useState('')
+  const [warnings, setWarnings] = React.useState<string[]>([])
+  const [writeActionsAvailable, setWriteActionsAvailable] = React.useState(false)
   const [users, setUsers] = React.useState<ManagedUser[]>([])
   const [lookups, setLookups] = React.useState<LookupData>({ roles: [], departments: [], managers: [] })
   const [meta, setMeta] = React.useState<UsersPayload['meta']>(undefined)
@@ -107,11 +111,13 @@ export default function UserManagementPage() {
       setUsers(payload.users ?? [])
       setLookups(payload.lookups ?? { roles: [], departments: [], managers: [] })
       setMeta(payload.meta)
-      setAuthAdminAvailable(payload.authAdminAvailable !== false)
       setAuthAdminError(payload.authAdminError ?? '')
+      setWarnings(Array.isArray(payload.warnings) ? payload.warnings : [])
+      setWriteActionsAvailable(payload.writeActionsAvailable === true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được danh sách tài khoản.')
-      setAuthAdminAvailable(false)
+      setWarnings([])
+      setWriteActionsAvailable(false)
       setAuthAdminError('Không tải được danh sách tài khoản. Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
     } finally {
       setLoading(false)
@@ -193,7 +199,7 @@ export default function UserManagementPage() {
     successMessage: string,
     options?: { keepPanelOpen?: boolean; clearPassword?: boolean },
   ) {
-    if (!authAdminAvailable || error) {
+    if (!writeActionsAvailable || error) {
       setNotice('')
       setError('Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
       return
@@ -240,6 +246,9 @@ export default function UserManagementPage() {
     })
   }, [departmentFilter, query, roleFilter, statusFilter, users])
 
+  const warningMessages = React.useMemo(() => {
+    return Array.from(new Set([authAdminError, ...warnings].filter(Boolean)))
+  }, [authAdminError, warnings])
   const formRoleOptions = lookups.roles.map((role) => ({ value: role.code, label: role.label }))
   const departmentOptions = [{ value: '', label: 'Chưa gán phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: department.name }))]
   const managerOptions = [
@@ -248,7 +257,7 @@ export default function UserManagementPage() {
       .filter((manager) => manager.id !== selected?.personId)
       .map((manager) => ({ value: manager.id, label: manager.name })),
   ]
-  const writeActionsDisabled = loading || saving || Boolean(error) || !authAdminAvailable
+  const writeActionsDisabled = loading || saving || Boolean(error) || !writeActionsAvailable
 
   return (
     <div style={pageStyle}>
@@ -268,7 +277,11 @@ export default function UserManagementPage() {
       ) : null}
 
       {error && !forbidden ? <div style={alertStyle('error')}>{error}</div> : null}
-      {!forbidden && authAdminError ? <div style={alertStyle('warning')}>{authAdminError}</div> : null}
+      {!forbidden && warningMessages.length ? (
+        <div style={alertStyle('warning')}>
+          {warningMessages.map((message) => <div key={message}>{message}</div>)}
+        </div>
+      ) : null}
       {notice ? <div style={alertStyle('success')}>{notice}</div> : null}
 
       {forbidden ? (

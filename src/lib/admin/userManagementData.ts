@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   isActiveAccountStatus,
   roleLabel,
+  usernameFromEmail,
   userStatusLabel,
 } from '@/lib/admin/userManagement'
 
@@ -58,6 +59,12 @@ interface AuthUserRow {
   last_sign_in_at?: string | null
 }
 
+export type UserManagementSource =
+  | 'auth_admin_profiles'
+  | 'auth_admin_profiles_partial'
+  | 'auth_admin_only'
+  | 'profiles_only'
+
 export interface AuthAdminErrorDetails {
   name: string | null
   status: number | null
@@ -75,47 +82,67 @@ export interface AuthAdminDiagnostics {
 }
 
 export async function loadUserManagementData(service: ServiceClient, workspaceId: string) {
-  const [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes, authUsersResult] = await Promise.all([
-    service
-      .from('profiles')
-      .select('id,auth_user_id,display_name,username,status,created_at,updated_at')
-      .eq('workspace_id', workspaceId),
-    service
-      .from('people')
-      .select('id,profile_id,full_name,email,department_id,manager_id,status,created_at,updated_at')
-      .eq('workspace_id', workspaceId)
-      .is('deleted_at', null),
-    service
-      .from('workspace_memberships')
-      .select('id,profile_id,role_id,is_active,joined_at')
-      .eq('workspace_id', workspaceId),
-    service.from('roles').select('id,code,name').order('code', { ascending: true }),
-    service
-      .from('departments')
-      .select('id,name,code,head_person_id,status')
-      .eq('workspace_id', workspaceId)
-      .is('deleted_at', null)
-      .order('name', { ascending: true }),
+  const [authUsersResult, profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes] = await Promise.all([
     listAuthUsersForDisplay(service),
+    safeRows<ProfileRow>(
+      'profiles',
+      service
+        .from('profiles')
+        .select('id,auth_user_id,display_name,username,status,created_at,updated_at')
+        .eq('workspace_id', workspaceId),
+    ),
+    safeRows<PersonRow>(
+      'people',
+      service
+        .from('people')
+        .select('id,profile_id,full_name,email,department_id,manager_id,status,created_at,updated_at')
+        .eq('workspace_id', workspaceId)
+        .is('deleted_at', null),
+    ),
+    safeRows<MembershipRow>(
+      'workspace_memberships',
+      service
+        .from('workspace_memberships')
+        .select('id,profile_id,role_id,is_active,joined_at')
+        .eq('workspace_id', workspaceId),
+    ),
+    safeRows<RoleRow>('roles', service.from('roles').select('id,code,name').order('code', { ascending: true })),
+    safeRows<DepartmentRow>(
+      'departments',
+      service
+        .from('departments')
+        .select('id,name,code,head_person_id,status')
+        .eq('workspace_id', workspaceId)
+        .is('deleted_at', null)
+        .order('name', { ascending: true }),
+    ),
   ])
 
-  for (const result of [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes]) {
-    if (result.error) throw result.error
-  }
-
-  const profiles = (profilesRes.data ?? []) as ProfileRow[]
-  const people = (peopleRes.data ?? []) as PersonRow[]
-  const memberships = (membershipsRes.data ?? []) as MembershipRow[]
-  const roles = (rolesRes.data ?? []) as RoleRow[]
-  const departments = (departmentsRes.data ?? []) as DepartmentRow[]
+  const profiles = profilesRes.data
+  const people = peopleRes.data
+  const memberships = membershipsRes.data
+  const roles = rolesRes.data
+  const departments = departmentsRes.data
   const authUsers = authUsersResult.users
 
-  const peopleByProfile = new Map(people.map((person) => [person.profile_id, person]))
+  const peopleByProfile = new Map<string, PersonRow>()
+  for (const person of people) {
+    if (!person.profile_id) continue
+    const existing = peopleByProfile.get(person.profile_id)
+    peopleByProfile.set(person.profile_id, choosePerson(existing, person))
+  }
+
   const peopleById = new Map(people.map((person) => [person.id, person]))
-  const membershipsByProfile = new Map(memberships.map((membership) => [membership.profile_id, membership]))
   const rolesById = new Map(roles.map((role) => [role.id, role]))
+  const membershipsByProfile = new Map<string, MembershipRow>()
+  for (const membership of memberships) {
+    const existing = membershipsByProfile.get(membership.profile_id)
+    membershipsByProfile.set(membership.profile_id, chooseMembership(existing, membership, rolesById))
+  }
+
   const departmentsById = new Map(departments.map((department) => [department.id, department]))
   const authById = new Map(authUsers.map((user) => [user.id, user]))
+  const profilesByAuthId = new Set(profiles.map((profile) => profile.auth_user_id).filter(Boolean))
 
   const users = profiles.map((profile) => {
     const person = peopleByProfile.get(profile.id) ?? null
@@ -149,12 +176,59 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     }
   })
 
+  if (authUsersResult.available) {
+    for (const authUser of authUsers) {
+      if (profilesByAuthId.has(authUser.id)) continue
+      users.push({
+        profileId: `auth:${authUser.id}`,
+        personId: null,
+        authUserId: authUser.id,
+        displayName: authUser.email ?? 'Auth user',
+        fullName: authUser.email ?? 'Auth user',
+        email: authUser.email ?? null,
+        username: authUser.email ? usernameFromEmail(authUser.email) : null,
+        roleCode: null,
+        roleLabel: roleLabel(null),
+        departmentId: null,
+        departmentName: null,
+        managerId: null,
+        managerName: null,
+        status: 'active',
+        statusLabel: userStatusLabel('active'),
+        authLinked: true,
+        isActiveMembership: false,
+        createdAt: authUser.created_at ?? null,
+        updatedAt: authUser.last_sign_in_at ?? authUser.created_at ?? null,
+      })
+    }
+  }
+
+  const warnings = [
+    ...authUsersResult.warnings,
+    profilesRes.warning,
+    peopleRes.warning,
+    membershipsRes.warning,
+    rolesRes.warning,
+    departmentsRes.warning,
+  ].filter(Boolean) as string[]
+
+  const source = resolveUserManagementSource({
+    authAvailable: authUsersResult.available,
+    authPartial: authUsersResult.partial,
+    profilesOk: profilesRes.ok,
+    mergeWarnings: warnings.length > authUsersResult.warnings.length,
+  })
+  const writeActionsAvailable = authUsersResult.available && source === 'auth_admin_profiles'
+
   return {
     users,
-    source: authUsersResult.error ? 'profiles_only' : 'auth_admin_profiles',
+    source,
     total: users.length,
-    authAdminAvailable: !authUsersResult.error,
-    authAdminError: authUsersResult.error,
+    authAdminAvailable: authUsersResult.available,
+    authAdminError: authUsersResult.available ? null : authUsersResult.error,
+    writeActionsAvailable,
+    warnings,
+    profileMergeWarning: warnings.length ? warnings.join(' ') : null,
     lookups: {
       roles: roles.map((role) => ({ id: role.id, code: role.code, label: roleLabel(role.code), name: role.name })),
       departments: departments.map((department) => ({
@@ -246,17 +320,12 @@ export async function updateMembershipRole(
 }
 
 export async function listAuthUsers(service: ServiceClient) {
-  const users: AuthUserRow[] = []
-  let page = 1
-
-  while (page <= 10) {
-    const pageUsers = await listAuthUsersPage(service, page, 100)
-    users.push(...pageUsers)
-    if (pageUsers.length < 100) break
-    page += 1
+  const result = await listAuthUsersResilient(service)
+  if (!result.available || result.error) throw new Error(result.error ?? 'Auth Admin unavailable.')
+  if (result.partial) {
+    throw new Error('Auth Admin returned a partial user list. User write actions are locked until the full list is available.')
   }
-
-  return users
+  return result.users
 }
 
 export async function diagnoseAuthAdminListUsers(service: ServiceClient): Promise<AuthAdminDiagnostics> {
@@ -353,16 +422,155 @@ async function fetchAuthAdminUsersPage(page: number, perPage: number) {
 }
 
 async function listAuthUsersForDisplay(service: ServiceClient) {
+  return listAuthUsersResilient(service)
+}
+
+async function listAuthUsersResilient(service: ServiceClient) {
   try {
-    return { users: await listAuthUsers(service), error: null as string | null }
-  } catch (error) {
-    return { users: [] as AuthUserRow[], error: adminAuthErrorMessage(error) }
+    return {
+      users: await listAuthUsersWithPageSize(service, 100, 10),
+      error: null as string | null,
+      available: true,
+      partial: false,
+      warnings: [] as string[],
+    }
+  } catch (bulkError) {
+    const fallback = await listAuthUsersBySinglePages(service, 100)
+    if (fallback.available) {
+      return {
+        users: fallback.users,
+        error: null as string | null,
+        available: true,
+        partial: fallback.partial,
+        warnings: [
+          'Auth Admin bulk list failed; loaded users with a safer small-page fallback.',
+          ...fallback.warnings,
+        ],
+      }
+    }
+
+    return {
+      users: [] as AuthUserRow[],
+      error: adminAuthErrorMessage(bulkError),
+      available: false,
+      partial: false,
+      warnings: [] as string[],
+    }
   }
+}
+
+async function listAuthUsersWithPageSize(service: ServiceClient, perPage: number, maxPages: number) {
+  const users: AuthUserRow[] = []
+  let page = 1
+
+  while (page <= maxPages) {
+    const pageUsers = await listAuthUsersPage(service, page, perPage)
+    users.push(...pageUsers)
+    if (pageUsers.length < perPage) break
+    page += 1
+  }
+
+  return users
+}
+
+async function listAuthUsersBySinglePages(service: ServiceClient, maxPages: number) {
+  const users: AuthUserRow[] = []
+  const warnings: string[] = []
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    try {
+      const pageUsers = await listAuthUsersPage(service, page, 1)
+      users.push(...pageUsers)
+      if (pageUsers.length < 1) {
+        return { users, available: true, partial: false, warnings }
+      }
+    } catch (error) {
+      if (users.length > 0) {
+        warnings.push(adminAuthErrorMessage(error))
+        return { users, available: true, partial: true, warnings }
+      }
+
+      return { users, available: false, partial: false, warnings: [adminAuthErrorMessage(error)] }
+    }
+  }
+
+  warnings.push('Auth Admin user list hit the safety page limit and may be incomplete.')
+  return { users, available: true, partial: true, warnings }
+}
+
+async function safeRows<T>(
+  label: string,
+  query: PromiseLike<{ data: T[] | null; error: unknown }>,
+) {
+  const result = await query
+  if (result.error) {
+    return {
+      data: [] as T[],
+      ok: false,
+      warning: safeDataLoadWarning(label),
+    }
+  }
+
+  return {
+    data: result.data ?? [],
+    ok: true,
+    warning: null as string | null,
+  }
+}
+
+function safeDataLoadWarning(label: string) {
+  return `Dang tai duoc danh sach nguoi dung, nhung chua dong bo duoc bang ${label}.`
+}
+
+function resolveUserManagementSource(input: {
+  authAvailable: boolean
+  authPartial: boolean
+  profilesOk: boolean
+  mergeWarnings: boolean
+}): UserManagementSource {
+  if (!input.authAvailable) return 'profiles_only'
+  if (!input.profilesOk) return 'auth_admin_only'
+  if (input.authPartial || input.mergeWarnings) return 'auth_admin_profiles_partial'
+  return 'auth_admin_profiles'
+}
+
+function choosePerson(current: PersonRow | undefined, next: PersonRow) {
+  if (!current) return next
+  if (current.status !== 'active' && next.status === 'active') return next
+  if (!current.email && next.email) return next
+  return current
+}
+
+function chooseMembership(
+  current: MembershipRow | undefined,
+  next: MembershipRow,
+  rolesById: Map<string, RoleRow>,
+) {
+  if (!current) return next
+  if (current.is_active === false && next.is_active !== false) return next
+  if (current.is_active !== false && next.is_active === false) return current
+  return rolePriority(next.role_id, rolesById) > rolePriority(current.role_id, rolesById) ? next : current
+}
+
+function rolePriority(roleId: string, rolesById: Map<string, RoleRow>) {
+  const code = rolesById.get(roleId)?.code
+  if (code === 'ADMIN') return 100
+  if (code === 'CEO') return 80
+  if (code === 'COO') return 70
+  if (code === 'DEPARTMENT_HEAD') return 50
+  if (code === 'PROJECT_COORDINATOR') return 40
+  if (code === 'EMPLOYEE') return 10
+  if (code === 'CEO_READONLY') return 5
+  return 0
 }
 
 export function adminAuthErrorMessage(error: unknown) {
   const raw = rawErrorMessage(error)
   const normalized = raw.toLowerCase()
+
+  if (normalized.includes('database error finding users')) {
+    return 'Dang tai duoc danh sach ho so, nhung chua dong bo duoc day du Auth users.'
+  }
 
   if (normalized.includes('invalid') || normalized.includes('jwt') || normalized.includes('api key')) {
     return 'Supabase Auth Admin từ chối service role key. Kiểm tra lại Production service role key trước khi thao tác tài khoản.'
