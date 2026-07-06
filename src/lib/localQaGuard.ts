@@ -3,9 +3,10 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const PRODUCTION_SUPABASE_REF = 'tgmnkqcxucxpnhhsggug'
 export const LOCAL_QA_GUARD_MESSAGE =
-  'LOCAL_QA_GUARD: không được ghi vào dữ liệu thật từ localhost.'
+  'LOCAL_QA_GUARD: localhost dang tro production DB, chan moi ghi du lieu ke ca QA.'
 
 const QA_PREFIXES = ['CLAUDE_QA_', 'CODEX_QA_', 'TEST_'] as const
+const LOCAL_PROD_QA_WRITE_OVERRIDE = 'YES_I_UNDERSTAND_THIS_WRITES_TO_PRODUCTION'
 
 export function getConfiguredSupabaseRef() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
@@ -16,6 +17,10 @@ export function getConfiguredSupabaseRef() {
 export function isLocalProductionDatabaseRequest(request: Request) {
   if (getConfiguredSupabaseRef() !== PRODUCTION_SUPABASE_REF) return false
   return getRequestHosts(request).some(isLocalHost)
+}
+
+export function isLocalProductionWriteOverrideEnabled() {
+  return process.env.ALLOW_LOCAL_PROD_QA_WRITES === LOCAL_PROD_QA_WRITE_OVERRIDE
 }
 
 export function qaPrefixFound(value: unknown, depth = 0): boolean {
@@ -45,8 +50,9 @@ export function localQaGuardResponse(detail?: string) {
 }
 
 export function ensureLocalQaWriteAllowed(request: Request, payload: unknown, detail?: string) {
+  void payload
   if (!isLocalProductionDatabaseRequest(request)) return null
-  if (qaPrefixFound(payload)) return null
+  if (isLocalProductionWriteOverrideEnabled()) return null
   return localQaGuardResponse(detail)
 }
 
@@ -67,17 +73,13 @@ export async function guardExistingEntityWrite({
   fields: readonly string[]
   detail?: string
 }) {
+  void client
+  void table
+  void workspaceId
+  void fields
   if (!isLocalProductionDatabaseRequest(request)) return null
+  if (isLocalProductionWriteOverrideEnabled()) return null
   if (!id) return localQaGuardResponse(detail)
-
-  const { data, error } = await client
-    .from(table)
-    .select(['id', ...fields].join(','))
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle()
-
-  if (!error && data && qaPrefixFound(data)) return null
   return localQaGuardResponse(detail)
 }
 

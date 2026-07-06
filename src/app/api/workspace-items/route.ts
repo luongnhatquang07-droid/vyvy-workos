@@ -213,7 +213,7 @@ async function guardWorkspaceCreate(
   if (!isLocalProductionDatabaseRequest(request)) return null
 
   if (type === 'project') {
-    return ensureLocalQaWriteAllowed(request, payload, 'Chỉ được tạo dữ liệu QA có prefix CLAUDE_QA_, CODEX_QA_ hoặc TEST_.')
+    return ensureLocalQaWriteAllowed(request, payload, 'Muon ghi QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
   }
 
   if (type === 'workstream') {

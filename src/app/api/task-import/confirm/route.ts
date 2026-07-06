@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import {
+  ensureLocalQaWriteAllowed,
   isLocalProductionDatabaseRequest,
-  localQaGuardResponse,
-  qaPrefixFound,
 } from '@/lib/localQaGuard'
 import {
   type BulkImportRow,
@@ -221,11 +220,7 @@ export async function POST(request: Request) {
 
 function guardBulkImportWrite(request: Request, rows: BulkImportRow[]) {
   if (!isLocalProductionDatabaseRequest(request)) return null
-
-  const allRowsTargetQaProject = rows.every((row) => qaPrefixFound(row.projectName))
-  if (allRowsTargetQaProject) return null
-
-  return localQaGuardResponse('Import hàng loạt từ localhost chỉ được phép vào project có prefix CLAUDE_QA_, CODEX_QA_ hoặc TEST_.')
+  return ensureLocalQaWriteAllowed(request, rows, 'Muon import QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
 async function getWorkspace(): Promise<WorkspaceContext> {

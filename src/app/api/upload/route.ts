@@ -12,7 +12,6 @@ import {
   ensureLocalQaWriteAllowed,
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
-  qaPrefixFound,
 } from '@/lib/localQaGuard'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -470,8 +469,7 @@ async function guardUploadTarget({
     })
   }
 
-  if (deliverable && qaPrefixFound(deliverable)) return null
-  return ensureLocalQaWriteAllowed(request, { fileName }, 'Chỉ được upload file QA có prefix rõ ràng từ localhost.')
+  return ensureLocalQaWriteAllowed(request, { fileName }, 'Muon upload QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
 export async function POST(req: NextRequest) {

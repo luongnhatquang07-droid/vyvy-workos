@@ -12,8 +12,6 @@ import {
   ensureLocalQaWriteAllowed,
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
-  localQaGuardResponse,
-  qaPrefixFound,
 } from '@/lib/localQaGuard'
 
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
@@ -676,7 +674,7 @@ async function guardDeliverableCreate(
     })
   }
 
-  return ensureLocalQaWriteAllowed(request, { name: target.name }, 'Chỉ được tạo bàn giao QA có prefix rõ ràng.')
+  return ensureLocalQaWriteAllowed(request, { name: target.name }, 'Muon ghi QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
 async function guardDeliverableTargetWrite(
@@ -728,8 +726,7 @@ async function guardDeliverableTargetWrite(
     })
   }
 
-  if (qaPrefixFound(deliverable)) return null
-  return localQaGuardResponse('Không được thay đổi file/bàn giao thật từ localhost.')
+  return ensureLocalQaWriteAllowed(request, deliverable, 'Muon thay doi file/ban giao QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
 export async function GET(req: NextRequest) {

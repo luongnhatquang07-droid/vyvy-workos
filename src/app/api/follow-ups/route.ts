@@ -6,7 +6,6 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
   localQaGuardResponse,
-  qaPrefixFound,
 } from '@/lib/localQaGuard'
 
 type FollowUpAction = 'markSent' | 'schedule' | 'escalate'
@@ -201,7 +200,7 @@ async function guardFollowUpWrite(
     if (guard) return guard
   }
 
-  return ensureLocalQaWriteAllowed(request, body, 'Chỉ được tạo hoặc cập nhật follow-up QA có prefix rõ ràng.')
+  return ensureLocalQaWriteAllowed(request, body, 'Muon ghi follow-up QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
 async function guardFollowUpTarget(
@@ -244,8 +243,7 @@ async function guardFollowUpTarget(
       })
     }
 
-    if (qaPrefixFound(deliverable.data)) return null
-    return localQaGuardResponse('Không được nhắc file/bàn giao thật từ localhost.')
+    return ensureLocalQaWriteAllowed(request, deliverable.data, 'Muon nhac file/ban giao QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
   }
 
   if (taskId) {
