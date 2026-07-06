@@ -68,6 +68,8 @@ export function versionReviewTone(status: VersionReviewStatus | null | undefined
 }
 
 export function normalizeVersionReviewStatus(status: string | null | undefined): VersionReviewStatus {
+  if (status === 'PENDING_APPROVAL' || status === 'SUBMITTED' || status === 'WAITING_APPROVAL') return 'PENDING_REVIEW'
+  if (status === 'REVISION_REQUIRED') return 'REVISION_REQUESTED'
   if (status === 'PENDING_REVIEW') return 'PENDING_REVIEW'
   if (status === 'APPROVED') return 'APPROVED'
   if (status === 'REJECTED') return 'REJECTED'

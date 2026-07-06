@@ -5,6 +5,7 @@ import { DataErrorState } from '@/components/ui/DataErrorState'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
+import { isOpenApprovalStatus } from '@/lib/approvalQueue'
 import type {
   CommandCenterApprovalRow,
   CommandCenterAttachmentRow,
@@ -13,6 +14,7 @@ import type {
   CommandCenterPersonRow,
   CommandCenterTaskRow,
 } from '@/lib/database.types'
+import { isVersionInvalid, normalizeVersionReviewStatus } from '@/lib/deliverableVersionStatus'
 
 type ReviewAction = 'approve' | 'requestRevision' | 'reject'
 
@@ -81,7 +83,7 @@ export default function ApprovalsPage() {
     const task = approval.task_id ? tasks[approval.task_id] : null
     const deliverable = approval.deliverable_id ? deliverables[approval.deliverable_id] : null
     const versions = approval.deliverable_id ? versionsByDeliverable[approval.deliverable_id] ?? [] : []
-    const latestVersion = versions[0] ?? null
+    const latestVersion = getLatestRelevantApprovalVersion(versions)
     const attachment = latestVersion?.attachment_id ? attachments[latestVersion.attachment_id] : null
     const projectId = approval.project_id ?? task?.project_id ?? deliverable?.project_id ?? null
     const workstreamId = task?.workstream_id ?? null
@@ -499,7 +501,11 @@ function resolveApprovalState(approval: CommandCenterApprovalRow, today: string)
 }
 
 function isPendingApproval(approval: CommandCenterApprovalRow) {
-  return approval.status === 'NOT_REQUESTED' || approval.status === 'PENDING' || approval.status === 'PENDING_REVIEW'
+  return isOpenApprovalStatus(approval.status)
+}
+
+function getLatestRelevantApprovalVersion(versions: CommandCenterDeliverableVersionRow[]) {
+  return versions.find((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status))) ?? versions[0] ?? null
 }
 
 function canManualApprove(approval: CommandCenterApprovalRow) {

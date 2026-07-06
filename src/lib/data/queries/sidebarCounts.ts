@@ -4,6 +4,7 @@ import type {
   CommandCenterTaskRow,
   RawCommandCenterData,
 } from '@/lib/database.types'
+import { isOpenApprovalStatus } from '@/lib/approvalQueue'
 
 export interface SidebarCounts {
   'command-center': number
@@ -29,7 +30,7 @@ export const EMPTY_SIDEBAR_COUNTS: SidebarCounts = {
 
 export function getSidebarCounts(data: RawCommandCenterData, today = todayKey()): SidebarCounts {
   const pendingDrafts = data.taskDrafts.filter((draft) => draft.import_status !== 'imported').length
-  const pendingApprovals = getPendingApprovals(data.approvals, today).length
+  const pendingApprovals = getPendingApprovals(data.approvals).length
   const remindersDue = getDueReminders(data.reminders, today).length
   const overdueTasks = getOverdueTasks(data.tasks, today).length
   const overdueDeliverables = data.deliverables.filter(
@@ -53,13 +54,8 @@ export function getSidebarCounts(data: RawCommandCenterData, today = todayKey())
   }
 }
 
-function getPendingApprovals(approvals: CommandCenterApprovalRow[], today: string) {
-  return approvals.filter((approval) => (
-    approval.status === 'NOT_REQUESTED' ||
-    approval.status === 'PENDING' ||
-    approval.status === 'PENDING_REVIEW' ||
-    Boolean(approval.due_at && approval.due_at < today)
-  ))
+function getPendingApprovals(approvals: CommandCenterApprovalRow[]) {
+  return approvals.filter((approval) => isOpenApprovalStatus(approval.status))
 }
 
 function getDueReminders(reminders: CommandCenterReminderRow[], today: string) {

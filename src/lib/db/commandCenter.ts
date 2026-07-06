@@ -212,6 +212,7 @@ export async function getCommandCenterData(workspaceId: string): Promise<RawComm
     deliverables,
     versions: deliverableVersions,
     tasks,
+    taskSteps,
   })
 
   return {
