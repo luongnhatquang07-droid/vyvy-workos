@@ -8,6 +8,7 @@ import {
   requireUserManagementAccess,
 } from '@/lib/admin/userManagement'
 import {
+  adminAuthErrorMessage,
   entityExists,
   findRoleByCode,
   loadUserManagementData,
@@ -101,7 +102,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         user_metadata: { display_name: fullName, account_status: status },
         ban_duration: isActiveAccountStatus(status) ? 'none' : '876000h',
       })
-      if (authUpdate.error) throw authUpdate.error
+      if (authUpdate.error) return jsonError(adminAuthErrorMessage(authUpdate.error), 400)
     }
 
     const data = await loadUserManagementData(auth.service, auth.workspaceId)
@@ -116,6 +117,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 function errorMessage(error: unknown) {
+  const authMessage = adminAuthErrorMessage(error)
+  if (authMessage) return authMessage
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error && 'message' in error) return String(error.message)
   return 'Có lỗi xảy ra khi cập nhật tài khoản.'

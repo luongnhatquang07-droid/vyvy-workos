@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { cleanText, jsonError, requireUserManagementAccess } from '@/lib/admin/userManagement'
+import { adminAuthErrorMessage } from '@/lib/admin/userManagementData'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -29,7 +30,7 @@ export async function POST(request: Request, context: RouteContext) {
       password,
       email_confirm: true,
     })
-    if (authUpdate.error) return jsonError(authUpdate.error.message, 400)
+    if (authUpdate.error) return jsonError(adminAuthErrorMessage(authUpdate.error), 400)
 
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -38,6 +39,8 @@ export async function POST(request: Request, context: RouteContext) {
 }
 
 function errorMessage(error: unknown) {
+  const authMessage = adminAuthErrorMessage(error)
+  if (authMessage) return authMessage
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error && 'message' in error) return String(error.message)
   return 'Có lỗi xảy ra khi reset mật khẩu.'

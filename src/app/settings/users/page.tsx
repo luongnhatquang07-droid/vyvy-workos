@@ -38,6 +38,10 @@ interface LookupData {
 interface UsersPayload {
   users: ManagedUser[]
   lookups: LookupData
+  source?: 'auth_admin_profiles' | 'profiles_only'
+  total?: number
+  authAdminAvailable?: boolean
+  authAdminError?: string | null
   meta?: {
     supabaseRef?: string | null
     appEnv?: string | null
@@ -77,6 +81,8 @@ export default function UserManagementPage() {
   const [error, setError] = React.useState('')
   const [forbidden, setForbidden] = React.useState(false)
   const [notice, setNotice] = React.useState('')
+  const [authAdminAvailable, setAuthAdminAvailable] = React.useState(true)
+  const [authAdminError, setAuthAdminError] = React.useState('')
   const [users, setUsers] = React.useState<ManagedUser[]>([])
   const [lookups, setLookups] = React.useState<LookupData>({ roles: [], departments: [], managers: [] })
   const [meta, setMeta] = React.useState<UsersPayload['meta']>(undefined)
@@ -101,8 +107,12 @@ export default function UserManagementPage() {
       setUsers(payload.users ?? [])
       setLookups(payload.lookups ?? { roles: [], departments: [], managers: [] })
       setMeta(payload.meta)
+      setAuthAdminAvailable(payload.authAdminAvailable !== false)
+      setAuthAdminError(payload.authAdminError ?? '')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được danh sách tài khoản.')
+      setAuthAdminAvailable(false)
+      setAuthAdminError('Không tải được danh sách tài khoản. Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
     } finally {
       setLoading(false)
     }
@@ -183,6 +193,11 @@ export default function UserManagementPage() {
     successMessage: string,
     options?: { keepPanelOpen?: boolean; clearPassword?: boolean },
   ) {
+    if (!authAdminAvailable || error) {
+      setNotice('')
+      setError('Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
+      return
+    }
     setSaving(true)
     setError('')
     setNotice('')
@@ -233,6 +248,7 @@ export default function UserManagementPage() {
       .filter((manager) => manager.id !== selected?.personId)
       .map((manager) => ({ value: manager.id, label: manager.name })),
   ]
+  const writeActionsDisabled = loading || saving || Boolean(error) || !authAdminAvailable
 
   return (
     <div style={pageStyle}>
@@ -240,7 +256,7 @@ export default function UserManagementPage() {
         icon="ti-user-cog"
         title="Quản lý tài khoản"
         desc="Tạo, phân quyền và khóa/mở tài khoản trên staging hoặc production đã bật env phê duyệt. Phase 2 chưa enforce toàn app."
-        actions={!forbidden ? <Button variant="primary" onClick={openCreate}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
+        actions={!forbidden ? <Button variant="primary" onClick={openCreate} disabled={writeActionsDisabled}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
       />
 
       {!forbidden ? (
@@ -252,6 +268,7 @@ export default function UserManagementPage() {
       ) : null}
 
       {error && !forbidden ? <div style={alertStyle('error')}>{error}</div> : null}
+      {!forbidden && authAdminError ? <div style={alertStyle('warning')}>{authAdminError}</div> : null}
       {notice ? <div style={alertStyle('success')}>{notice}</div> : null}
 
       {forbidden ? (
@@ -317,13 +334,13 @@ export default function UserManagementPage() {
                       <Td>{user.authLinked ? 'Có' : 'Không'}</Td>
                       <Td>
                         <div style={actionStack}>
-                          <button type="button" style={textButton} onClick={() => openEdit(user)}>Sửa</button>
-                          <button type="button" style={textButton} onClick={() => openReset(user)}>Reset mật khẩu</button>
+                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={writeActionsDisabled}>Sửa</button>
+                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={writeActionsDisabled}>Reset mật khẩu</button>
                           <button
                             type="button"
                             style={active ? dangerTextButton : textButton}
                             onClick={() => handleStatus(user, active ? 'suspended' : 'active')}
-                            disabled={saving}
+                            disabled={writeActionsDisabled}
                           >
                             {active ? 'Khóa' : 'Mở'}
                           </button>
@@ -609,10 +626,10 @@ const smallNote: React.CSSProperties = {
   color: 'var(--color-text-muted)',
 }
 
-const alertStyle = (tone: 'error' | 'success'): React.CSSProperties => ({
-  border: `1px solid ${tone === 'error' ? 'rgba(184,64,64,0.28)' : 'rgba(74,140,92,0.28)'}`,
-  background: tone === 'error' ? 'rgba(184,64,64,0.08)' : 'rgba(74,140,92,0.08)',
-  color: tone === 'error' ? 'var(--color-danger)' : '#3A7A4A',
+const alertStyle = (tone: 'error' | 'success' | 'warning'): React.CSSProperties => ({
+  border: `1px solid ${tone === 'error' ? 'rgba(184,64,64,0.28)' : tone === 'warning' ? 'rgba(168,98,26,0.26)' : 'rgba(74,140,92,0.28)'}`,
+  background: tone === 'error' ? 'rgba(184,64,64,0.08)' : tone === 'warning' ? '#FEF0DC' : 'rgba(74,140,92,0.08)',
+  color: tone === 'error' ? 'var(--color-danger)' : tone === 'warning' ? '#A8621A' : '#3A7A4A',
   borderRadius: 9,
   padding: '10px 12px',
   fontSize: 13,

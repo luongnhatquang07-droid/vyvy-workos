@@ -59,7 +59,7 @@ interface AuthUserRow {
 }
 
 export async function loadUserManagementData(service: ServiceClient, workspaceId: string) {
-  const [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes, authUsers] = await Promise.all([
+  const [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes, authUsersResult] = await Promise.all([
     service
       .from('profiles')
       .select('id,auth_user_id,display_name,username,status,created_at,updated_at')
@@ -80,7 +80,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('name', { ascending: true }),
-    listAuthUsers(service),
+    listAuthUsersForDisplay(service),
   ])
 
   for (const result of [profilesRes, peopleRes, membershipsRes, rolesRes, departmentsRes]) {
@@ -92,6 +92,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
   const memberships = (membershipsRes.data ?? []) as MembershipRow[]
   const roles = (rolesRes.data ?? []) as RoleRow[]
   const departments = (departmentsRes.data ?? []) as DepartmentRow[]
+  const authUsers = authUsersResult.users
 
   const peopleByProfile = new Map(people.map((person) => [person.profile_id, person]))
   const peopleById = new Map(people.map((person) => [person.id, person]))
@@ -134,6 +135,10 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
 
   return {
     users,
+    source: authUsersResult.error ? 'profiles_only' : 'auth_admin_profiles',
+    total: users.length,
+    authAdminAvailable: !authUsersResult.error,
+    authAdminError: authUsersResult.error,
     lookups: {
       roles: roles.map((role) => ({ id: role.id, code: role.code, label: roleLabel(role.code), name: role.name })),
       departments: departments.map((department) => ({
@@ -237,4 +242,41 @@ export async function listAuthUsers(service: ServiceClient) {
   }
 
   return users
+}
+
+async function listAuthUsersForDisplay(service: ServiceClient) {
+  try {
+    return { users: await listAuthUsers(service), error: null as string | null }
+  } catch (error) {
+    return { users: [] as AuthUserRow[], error: adminAuthErrorMessage(error) }
+  }
+}
+
+export function adminAuthErrorMessage(error: unknown) {
+  const raw = rawErrorMessage(error)
+  const normalized = raw.toLowerCase()
+
+  if (normalized.includes('invalid') || normalized.includes('jwt') || normalized.includes('api key')) {
+    return 'Supabase Auth Admin từ chối service role key. Kiểm tra lại Production service role key trước khi thao tác tài khoản.'
+  }
+
+  if (
+    normalized.includes('fetch') ||
+    normalized.includes('network') ||
+    normalized.includes('"url"') ||
+    normalized.includes('/auth/v1/admin')
+  ) {
+    return 'Không kết nối được Supabase Auth Admin. Danh sách hồ sơ vẫn có thể xem, nhưng thao tác tài khoản đang bị khóa.'
+  }
+
+  return raw && !raw.includes('/auth/v1/admin')
+    ? raw
+    : 'Không tải được danh sách Auth users từ Supabase Auth Admin. Thao tác tài khoản đang bị khóa.'
+}
+
+function rawErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'object' && error && 'message' in error) return String(error.message)
+  if (typeof error === 'string') return error
+  return ''
 }

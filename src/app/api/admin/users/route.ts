@@ -10,6 +10,7 @@ import {
   usernameFromEmail,
 } from '@/lib/admin/userManagement'
 import {
+  adminAuthErrorMessage,
   entityExists,
   findDuplicateEmail,
   findRoleByCode,
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
       email_confirm: true,
       user_metadata: { display_name: fullName },
     })
-    if (authRes.error) return jsonError(authRes.error.message, 400)
+    if (authRes.error) return jsonError(adminAuthErrorMessage(authRes.error), 400)
     const authUserId = authRes.data.user?.id
     if (!authUserId) return jsonError('Không tạo được Auth user staging.', 500)
 
@@ -140,6 +141,8 @@ export async function POST(request: Request) {
 }
 
 function errorMessage(error: unknown) {
+  const authMessage = adminAuthErrorMessage(error)
+  if (authMessage) return authMessage
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error && 'message' in error) return String(error.message)
   return 'Có lỗi xảy ra khi quản lý tài khoản.'

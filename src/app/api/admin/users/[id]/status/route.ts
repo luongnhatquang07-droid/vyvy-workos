@@ -5,7 +5,7 @@ import {
   jsonError,
   requireUserManagementAccess,
 } from '@/lib/admin/userManagement'
-import { loadUserManagementData } from '@/lib/admin/userManagementData'
+import { adminAuthErrorMessage, loadUserManagementData } from '@/lib/admin/userManagementData'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -56,7 +56,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         user_metadata: { account_status: status },
         ban_duration: isActiveAccountStatus(status) ? 'none' : '876000h',
       })
-      if (authUpdate.error) throw authUpdate.error
+      if (authUpdate.error) return jsonError(adminAuthErrorMessage(authUpdate.error), 400)
     }
 
     const data = await loadUserManagementData(auth.service, auth.workspaceId)
@@ -71,6 +71,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 function errorMessage(error: unknown) {
+  const authMessage = adminAuthErrorMessage(error)
+  if (authMessage) return authMessage
   if (error instanceof Error) return error.message
   if (typeof error === 'object' && error && 'message' in error) return String(error.message)
   return 'Có lỗi xảy ra khi đổi trạng thái tài khoản.'
