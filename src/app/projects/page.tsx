@@ -322,9 +322,8 @@ const KANBAN_COLUMNS = TASK_STATUS_ORDER
 const CORE_KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
 const STEP_STATUSES: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'WAITING', 'BLOCKED', 'PENDING_APPROVAL', 'REVISION_REQUIRED', 'COMPLETED']
 const DAY_MS = 24 * 60 * 60 * 1000
-const FLOWCHART_MIN_ZOOM = 0.5
-const FLOWCHART_MAX_ZOOM = 1.6
-const FLOWCHART_ZOOM_STEP = 0.1
+const FLOWCHART_MAX_ZOOM = 1.5
+const FLOWCHART_ZOOM_LEVELS = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const
 const FLOWCHART_STEP_GROUP_THRESHOLD = 8
 const FLOWCHART_GROUP_STEP_PREVIEW_LIMIT = 10
 const FLOWCHART_PROJECT_COLOR = '#DADF21'
@@ -3105,7 +3104,7 @@ function FlowchartTab({
   }
 
   function setFlowchartZoom(nextZoom: number, origin?: { x: number; y: number }) {
-    const clampedZoom = clampZoom(nextZoom)
+    const clampedZoom = snapFlowchartZoom(nextZoom)
     if (zoom === clampedZoom) return
     const viewport = flowchartScrollRef.current
     const defaultOrigin = viewport
@@ -3133,7 +3132,7 @@ function FlowchartTab({
     const safeHeight = Math.max(260, viewport.clientHeight - 64)
     const boardWidth = Math.max(1, board.offsetWidth)
     const boardHeight = Math.max(1, board.offsetHeight)
-    const nextZoom = clampZoom(Math.min(1.15, safeWidth / boardWidth, safeHeight / boardHeight))
+    const nextZoom = snapFlowchartZoom(Math.min(1.15, safeWidth / boardWidth, safeHeight / boardHeight), 'floor')
     setZoom(nextZoom)
     setPan({
       x: Math.max(24, (viewport.clientWidth - boardWidth * nextZoom) / 2),
@@ -3161,7 +3160,7 @@ function FlowchartTab({
     const origin = rect
       ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
       : undefined
-    setFlowchartZoom(zoom + (event.deltaY > 0 ? -FLOWCHART_ZOOM_STEP : FLOWCHART_ZOOM_STEP), origin)
+    setFlowchartZoom(getNextFlowchartZoom(zoom, event.deltaY > 0 ? -1 : 1), origin)
   }
 
   function selectFlowchartNodeByKey(nodeKey: string) {
@@ -3278,9 +3277,9 @@ function FlowchartTab({
             <button type="button" onClick={() => setCollapsedIds(new Set())} style={filterChipStyle(false)}>
               Mở rộng
             </button>
-            <button type="button" onClick={() => setFlowchartZoom(zoom - FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>-</button>
+            <button type="button" aria-label="Thu nhỏ Flowchart" onClick={() => setFlowchartZoom(getNextFlowchartZoom(zoom, -1))} style={flowchartIconButton}>-</button>
             <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
-            <button type="button" onClick={() => setFlowchartZoom(zoom + FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>+</button>
+            <button type="button" aria-label="Phóng to Flowchart" onClick={() => setFlowchartZoom(getNextFlowchartZoom(zoom, 1))} style={flowchartIconButton}>+</button>
             <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
             <button type="button" onClick={() => setDetailVisible((value) => !value)} style={filterChipStyle(false)}>
               {detailVisible ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
@@ -3305,9 +3304,9 @@ function FlowchartTab({
               </div>
             </div>
             <div style={flowchartZoomControls}>
-              <button type="button" onClick={() => setFlowchartZoom(zoom - FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>-</button>
+              <button type="button" aria-label="Thu nhỏ Flowchart" onClick={() => setFlowchartZoom(getNextFlowchartZoom(zoom, -1))} style={flowchartIconButton}>-</button>
               <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
-              <button type="button" onClick={() => setFlowchartZoom(zoom + FLOWCHART_ZOOM_STEP)} style={flowchartIconButton}>+</button>
+              <button type="button" aria-label="Phóng to Flowchart" onClick={() => setFlowchartZoom(getNextFlowchartZoom(zoom, 1))} style={flowchartIconButton}>+</button>
               <button type="button" onClick={fitFlowchartView} style={filterChipStyle(false)}>Fit view</button>
               <button type="button" onClick={() => setIsFullscreen(true)} style={flowchartFullscreenButton}>
                 <i className="ti ti-maximize" />
@@ -5727,7 +5726,31 @@ function flowchartColorAlpha(hex: string, alpha: number) {
 }
 
 function clampZoom(value: number) {
-  return Math.min(FLOWCHART_MAX_ZOOM, Math.max(FLOWCHART_MIN_ZOOM, Number(value.toFixed(2))))
+  const minZoom = FLOWCHART_ZOOM_LEVELS[0]
+  return Math.min(FLOWCHART_MAX_ZOOM, Math.max(minZoom, Number(value.toFixed(2))))
+}
+
+function snapFlowchartZoom(value: number, mode: 'nearest' | 'floor' | 'ceil' = 'nearest') {
+  const clamped = clampZoom(value)
+  if (mode === 'floor') {
+    for (let index = FLOWCHART_ZOOM_LEVELS.length - 1; index >= 0; index -= 1) {
+      if (FLOWCHART_ZOOM_LEVELS[index] <= clamped + Number.EPSILON) return FLOWCHART_ZOOM_LEVELS[index]
+    }
+    return FLOWCHART_ZOOM_LEVELS[0]
+  }
+  if (mode === 'ceil') {
+    return FLOWCHART_ZOOM_LEVELS.find((level) => level >= clamped - Number.EPSILON) ?? FLOWCHART_ZOOM_LEVELS[FLOWCHART_ZOOM_LEVELS.length - 1]
+  }
+  return FLOWCHART_ZOOM_LEVELS.reduce((closest, level) => (
+    Math.abs(level - clamped) < Math.abs(closest - clamped) ? level : closest
+  ), FLOWCHART_ZOOM_LEVELS[0])
+}
+
+function getNextFlowchartZoom(currentZoom: number, direction: -1 | 1) {
+  const currentLevel = snapFlowchartZoom(currentZoom)
+  const currentIndex = FLOWCHART_ZOOM_LEVELS.indexOf(currentLevel)
+  const nextIndex = Math.max(0, Math.min(FLOWCHART_ZOOM_LEVELS.length - 1, currentIndex + direction))
+  return FLOWCHART_ZOOM_LEVELS[nextIndex]
 }
 
 function isFlowchartPanBlocked(target: EventTarget | null) {
