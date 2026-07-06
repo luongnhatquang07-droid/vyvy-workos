@@ -11,6 +11,7 @@ interface ManagedUser {
   profileId: string
   personId: string | null
   authUserId: string | null
+  membershipId: string | null
   displayName: string
   fullName: string
   email: string | null
@@ -25,14 +26,36 @@ interface ManagedUser {
   statusLabel: string
   authLinked: boolean
   isActiveMembership: boolean
+  mappingStatus?: UserMappingStatus
+  actionCapabilities?: {
+    canEdit?: boolean
+    canResetPassword?: boolean
+    canSuspend?: boolean
+  }
   createdAt: string | null
   updatedAt: string | null
 }
+
+type UserMappingStatus =
+  | 'complete'
+  | 'auth_only'
+  | 'profile_only'
+  | 'duplicate'
+  | 'missing_membership'
+  | 'missing_role'
+  | 'missing_department'
 
 interface LookupData {
   roles: Array<{ id: string; code: string; label: string; name: string }>
   departments: Array<{ id: string; name: string; code: string | null; status: string | null }>
   managers: Array<{ id: string; name: string; email: string | null; departmentId: string | null }>
+}
+
+interface UserActionCapabilities {
+  canCreateUser: boolean
+  canEditMappedUser: boolean
+  canResetMappedUser: boolean
+  canSuspendMappedUser: boolean
 }
 
 interface UsersPayload {
@@ -43,8 +66,19 @@ interface UsersPayload {
   authAdminAvailable?: boolean
   authAdminError?: string | null
   writeActionsAvailable?: boolean
+  capabilities?: Partial<UserActionCapabilities>
   warnings?: string[]
   profileMergeWarning?: string | null
+  diagnostics?: {
+    authUsersCount?: number
+    profilesCount?: number
+    peopleCount?: number
+    membershipsCount?: number
+    rolesCount?: number
+    departmentsCount?: number
+    completeRows?: number
+    partialRows?: number
+  }
   meta?: {
     supabaseRef?: string | null
     appEnv?: string | null
@@ -86,7 +120,14 @@ export default function UserManagementPage() {
   const [notice, setNotice] = React.useState('')
   const [authAdminError, setAuthAdminError] = React.useState('')
   const [warnings, setWarnings] = React.useState<string[]>([])
-  const [writeActionsAvailable, setWriteActionsAvailable] = React.useState(false)
+  const [source, setSource] = React.useState<UsersPayload['source']>('profiles_only')
+  const [capabilities, setCapabilities] = React.useState<UserActionCapabilities>({
+    canCreateUser: false,
+    canEditMappedUser: false,
+    canResetMappedUser: false,
+    canSuspendMappedUser: false,
+  })
+  const [diagnostics, setDiagnostics] = React.useState<UsersPayload['diagnostics']>(undefined)
   const [users, setUsers] = React.useState<ManagedUser[]>([])
   const [lookups, setLookups] = React.useState<LookupData>({ roles: [], departments: [], managers: [] })
   const [meta, setMeta] = React.useState<UsersPayload['meta']>(undefined)
@@ -113,11 +154,25 @@ export default function UserManagementPage() {
       setMeta(payload.meta)
       setAuthAdminError(payload.authAdminError ?? '')
       setWarnings(Array.isArray(payload.warnings) ? payload.warnings : [])
-      setWriteActionsAvailable(payload.writeActionsAvailable === true)
+      setSource(payload.source ?? 'profiles_only')
+      setCapabilities({
+        canCreateUser: payload.capabilities?.canCreateUser === true,
+        canEditMappedUser: payload.capabilities?.canEditMappedUser === true,
+        canResetMappedUser: payload.capabilities?.canResetMappedUser === true,
+        canSuspendMappedUser: payload.capabilities?.canSuspendMappedUser === true,
+      })
+      setDiagnostics(payload.diagnostics)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không tải được danh sách tài khoản.')
       setWarnings([])
-      setWriteActionsAvailable(false)
+      setSource('profiles_only')
+      setCapabilities({
+        canCreateUser: false,
+        canEditMappedUser: false,
+        canResetMappedUser: false,
+        canSuspendMappedUser: false,
+      })
+      setDiagnostics(undefined)
       setAuthAdminError('Không tải được danh sách tài khoản. Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
     } finally {
       setLoading(false)
@@ -159,6 +214,28 @@ export default function UserManagementPage() {
     setMode('reset')
   }
 
+  function canEditUser(user: ManagedUser) {
+    return capabilities.canEditMappedUser && user.actionCapabilities?.canEdit === true
+  }
+
+  function canResetUser(user: ManagedUser) {
+    return capabilities.canResetMappedUser && user.actionCapabilities?.canResetPassword === true
+  }
+
+  function canSuspendUser(user: ManagedUser) {
+    return capabilities.canSuspendMappedUser && user.actionCapabilities?.canSuspend === true
+  }
+
+  function inferActionAllowed(url: string, method: 'POST' | 'PATCH') {
+    if (url === '/api/admin/users' && method === 'POST') return capabilities.canCreateUser
+
+    const targetUser = users.find((user) => url.includes(`/api/admin/users/${user.profileId}`))
+    if (!targetUser) return false
+    if (url.includes('/reset-password')) return canResetUser(targetUser)
+    if (url.includes('/status')) return canSuspendUser(targetUser)
+    return canEditUser(targetUser)
+  }
+
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault()
     await submitJson('/api/admin/users', 'POST', form, 'Đã tạo tài khoản staging.')
@@ -197,9 +274,10 @@ export default function UserManagementPage() {
     method: 'POST' | 'PATCH',
     body: unknown,
     successMessage: string,
-    options?: { keepPanelOpen?: boolean; clearPassword?: boolean },
+    options?: { keepPanelOpen?: boolean; clearPassword?: boolean; actionAllowed?: boolean },
   ) {
-    if (!writeActionsAvailable || error) {
+    const actionAllowed = options?.actionAllowed ?? inferActionAllowed(url, method)
+    if (!actionAllowed || error) {
       setNotice('')
       setError('Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
       return
@@ -247,8 +325,13 @@ export default function UserManagementPage() {
   }, [departmentFilter, query, roleFilter, statusFilter, users])
 
   const warningMessages = React.useMemo(() => {
-    return Array.from(new Set([authAdminError, ...warnings].filter(Boolean)))
-  }, [authAdminError, warnings])
+    const partialActionMessage = source === 'auth_admin_profiles_partial'
+      ? capabilities.canCreateUser
+        ? 'Auth Admin da san sang de tao tai khoan moi. Mot so ho so cu chua lien ket day du nen thao tac tren tung dong do dang bi khoa.'
+        : 'Danh sach tai khoan chi tai duoc mot phan; thao tac ghi dang bi khoa.'
+      : ''
+    return Array.from(new Set([partialActionMessage, authAdminError, ...warnings].filter(Boolean)))
+  }, [authAdminError, capabilities.canCreateUser, source, warnings])
   const formRoleOptions = lookups.roles.map((role) => ({ value: role.code, label: role.label }))
   const departmentOptions = [{ value: '', label: 'Chưa gán phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: department.name }))]
   const managerOptions = [
@@ -257,7 +340,7 @@ export default function UserManagementPage() {
       .filter((manager) => manager.id !== selected?.personId)
       .map((manager) => ({ value: manager.id, label: manager.name })),
   ]
-  const writeActionsDisabled = loading || saving || Boolean(error) || !writeActionsAvailable
+  const createActionDisabled = loading || saving || Boolean(error) || !capabilities.canCreateUser
 
   return (
     <div style={pageStyle}>
@@ -265,7 +348,7 @@ export default function UserManagementPage() {
         icon="ti-user-cog"
         title="Quản lý tài khoản"
         desc="Tạo, phân quyền và khóa/mở tài khoản trên staging hoặc production đã bật env phê duyệt. Phase 2 chưa enforce toàn app."
-        actions={!forbidden ? <Button variant="primary" onClick={openCreate} disabled={writeActionsDisabled}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
+        actions={!forbidden ? <Button variant="primary" onClick={openCreate} disabled={createActionDisabled}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
       />
 
       {!forbidden ? (
@@ -273,6 +356,12 @@ export default function UserManagementPage() {
           <span>Env: <strong>{meta?.appEnv ?? 'staging'}</strong></span>
           <span>Ref: <strong>{meta?.supabaseRef ?? 'unknown'}</strong></span>
           <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'ADMIN'}</strong></span>
+          <span>Source: <strong>{source}</strong></span>
+          {diagnostics ? (
+            <span>
+              Mapping: <strong>{diagnostics.completeRows ?? 0}/{(diagnostics.completeRows ?? 0) + (diagnostics.partialRows ?? 0)}</strong>
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -330,6 +419,9 @@ export default function UserManagementPage() {
               <tbody>
                 {filteredUsers.map((user) => {
                   const active = normalizeStatus(user.status) === 'active'
+                  const editActionDisabled = loading || saving || Boolean(error) || !canEditUser(user)
+                  const resetActionDisabled = loading || saving || Boolean(error) || !canResetUser(user)
+                  const statusActionDisabled = loading || saving || Boolean(error) || !canSuspendUser(user)
                   return (
                     <tr key={user.profileId}>
                       <Td>
@@ -344,16 +436,19 @@ export default function UserManagementPage() {
                       <Td>{user.departmentName ?? 'Chưa gán'}</Td>
                       <Td>{user.managerName ?? 'Chưa gán'}</Td>
                       <Td><BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike></Td>
-                      <Td>{user.authLinked ? 'Có' : 'Không'}</Td>
+                      <Td>
+                        <div style={primaryText}>{user.authLinked ? 'Có' : 'Không'}</div>
+                        <div style={mutedText}>{mappingStatusLabel(user.mappingStatus)}</div>
+                      </Td>
                       <Td>
                         <div style={actionStack}>
-                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={writeActionsDisabled}>Sửa</button>
-                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={writeActionsDisabled}>Reset mật khẩu</button>
+                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={editActionDisabled}>Sửa</button>
+                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={resetActionDisabled}>Reset mật khẩu</button>
                           <button
                             type="button"
                             style={active ? dangerTextButton : textButton}
                             onClick={() => handleStatus(user, active ? 'suspended' : 'active')}
-                            disabled={writeActionsDisabled}
+                            disabled={statusActionDisabled}
                           >
                             {active ? 'Khóa' : 'Mở'}
                           </button>
@@ -474,6 +569,16 @@ function BadgeLike({ children, tone }: { children: React.ReactNode; tone: 'lime'
 function normalizeStatus(value: string | null | undefined): AccountStatus {
   if (value === 'inactive' || value === 'suspended') return value
   return 'active'
+}
+
+function mappingStatusLabel(value: UserMappingStatus | undefined) {
+  if (value === 'complete') return 'Liên kết đầy đủ'
+  if (value === 'auth_only') return 'Chỉ có Auth'
+  if (value === 'duplicate') return 'Trùng hồ sơ'
+  if (value === 'missing_membership') return 'Thiếu membership'
+  if (value === 'missing_role') return 'Thiếu vai trò'
+  if (value === 'missing_department') return 'Thiếu phòng ban'
+  return 'Hồ sơ cũ / chưa liên kết'
 }
 
 function formatDate(value: string | null) {

@@ -65,6 +65,28 @@ export type UserManagementSource =
   | 'auth_admin_only'
   | 'profiles_only'
 
+export type UserMappingStatus =
+  | 'complete'
+  | 'auth_only'
+  | 'profile_only'
+  | 'duplicate'
+  | 'missing_membership'
+  | 'missing_role'
+  | 'missing_department'
+
+interface RowActionCapabilities {
+  canEdit: boolean
+  canResetPassword: boolean
+  canSuspend: boolean
+}
+
+interface UserManagementCapabilities {
+  canCreateUser: boolean
+  canEditMappedUser: boolean
+  canResetMappedUser: boolean
+  canSuspendMappedUser: boolean
+}
+
 export interface AuthAdminErrorDetails {
   name: string | null
   status: number | null
@@ -143,6 +165,11 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
   const departmentsById = new Map(departments.map((department) => [department.id, department]))
   const authById = new Map(authUsers.map((user) => [user.id, user]))
   const profilesByAuthId = new Set(profiles.map((profile) => profile.auth_user_id).filter(Boolean))
+  const profileCountByAuthId = new Map<string, number>()
+  for (const profile of profiles) {
+    if (!profile.auth_user_id) continue
+    profileCountByAuthId.set(profile.auth_user_id, (profileCountByAuthId.get(profile.auth_user_id) ?? 0) + 1)
+  }
 
   const users = profiles.map((profile) => {
     const person = peopleByProfile.get(profile.id) ?? null
@@ -152,11 +179,23 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     const manager = person?.manager_id ? peopleById.get(person.manager_id) ?? null : null
     const authUser = profile.auth_user_id ? authById.get(profile.auth_user_id) ?? null : null
     const status = person?.status ?? profile.status ?? (membership?.is_active === false ? 'inactive' : 'active')
+    const authLinked = Boolean(profile.auth_user_id && authUser)
+    const mappingStatus = resolveProfileMappingStatus({
+      profile,
+      person,
+      membership,
+      role,
+      department,
+      authLinked,
+      duplicateAuthId: Boolean(profile.auth_user_id && (profileCountByAuthId.get(profile.auth_user_id) ?? 0) > 1),
+    })
+    const actionCapabilities = rowActionCapabilities(mappingStatus)
 
     return {
       profileId: profile.id,
       personId: person?.id ?? null,
       authUserId: profile.auth_user_id,
+      membershipId: membership?.id ?? null,
       displayName: profile.display_name,
       fullName: person?.full_name ?? profile.display_name,
       email: person?.email ?? authUser?.email ?? null,
@@ -169,8 +208,10 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
       managerName: manager?.full_name ?? null,
       status,
       statusLabel: userStatusLabel(status),
-      authLinked: Boolean(profile.auth_user_id && authUser),
+      authLinked,
       isActiveMembership: membership?.is_active !== false,
+      mappingStatus,
+      actionCapabilities,
       createdAt: person?.created_at ?? profile.created_at,
       updatedAt: person?.updated_at ?? profile.updated_at,
     }
@@ -183,6 +224,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         profileId: `auth:${authUser.id}`,
         personId: null,
         authUserId: authUser.id,
+        membershipId: null,
         displayName: authUser.email ?? 'Auth user',
         fullName: authUser.email ?? 'Auth user',
         email: authUser.email ?? null,
@@ -197,6 +239,8 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         statusLabel: userStatusLabel('active'),
         authLinked: true,
         isActiveMembership: false,
+        mappingStatus: 'auth_only' as UserMappingStatus,
+        actionCapabilities: rowActionCapabilities('auth_only'),
         createdAt: authUser.created_at ?? null,
         updatedAt: authUser.last_sign_in_at ?? authUser.created_at ?? null,
       })
@@ -218,7 +262,15 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     profilesOk: profilesRes.ok,
     mergeWarnings: warnings.length > authUsersResult.warnings.length,
   })
-  const writeActionsAvailable = authUsersResult.available && source === 'auth_admin_profiles'
+  const capabilities = resolveCapabilities({
+    authAvailable: authUsersResult.available,
+    profilesOk: profilesRes.ok,
+    peopleOk: peopleRes.ok,
+    membershipsOk: membershipsRes.ok,
+    rolesOk: rolesRes.ok,
+    departmentsOk: departmentsRes.ok,
+  })
+  const writeActionsAvailable = Object.values(capabilities).some(Boolean)
 
   return {
     users,
@@ -227,8 +279,19 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     authAdminAvailable: authUsersResult.available,
     authAdminError: authUsersResult.available ? null : authUsersResult.error,
     writeActionsAvailable,
+    capabilities,
     warnings,
     profileMergeWarning: warnings.length ? warnings.join(' ') : null,
+    diagnostics: {
+      authUsersCount: authUsers.length,
+      profilesCount: profiles.length,
+      peopleCount: people.length,
+      membershipsCount: memberships.length,
+      rolesCount: roles.length,
+      departmentsCount: departments.length,
+      completeRows: users.filter((user) => user.mappingStatus === 'complete').length,
+      partialRows: users.filter((user) => user.mappingStatus !== 'complete').length,
+    },
     lookups: {
       roles: roles.map((role) => ({ id: role.id, code: role.code, label: roleLabel(role.code), name: role.name })),
       departments: departments.map((department) => ({
@@ -270,6 +333,57 @@ export async function entityExists(
   return Boolean(result.data)
 }
 
+export async function requireCompleteManagedUserRow(
+  service: ServiceClient,
+  workspaceId: string,
+  profileId: string,
+) {
+  const profileRes = await service
+    .from('profiles')
+    .select('id,auth_user_id')
+    .eq('workspace_id', workspaceId)
+    .eq('id', profileId)
+    .maybeSingle()
+  if (profileRes.error) throw profileRes.error
+  if (!profileRes.data) {
+    return { ok: false as const, status: 404, message: 'Khong tim thay tai khoan.' }
+  }
+  if (!profileRes.data.auth_user_id) {
+    return { ok: false as const, status: 400, message: 'Tai khoan chua lien ket Auth user.' }
+  }
+
+  const [personRes, membershipRes] = await Promise.all([
+    service
+      .from('people')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('profile_id', profileId)
+      .is('deleted_at', null)
+      .maybeSingle(),
+    service
+      .from('workspace_memberships')
+      .select('id,role_id')
+      .eq('workspace_id', workspaceId)
+      .eq('profile_id', profileId)
+      .maybeSingle(),
+  ])
+  if (personRes.error) throw personRes.error
+  if (membershipRes.error) throw membershipRes.error
+  if (!personRes.data?.id) {
+    return { ok: false as const, status: 400, message: 'Tai khoan chua co ho so nhan su hop le.' }
+  }
+  if (!membershipRes.data?.id || !membershipRes.data.role_id) {
+    return { ok: false as const, status: 400, message: 'Tai khoan chua co membership hop le.' }
+  }
+
+  return {
+    ok: true as const,
+    profile: profileRes.data,
+    person: personRes.data,
+    membership: membershipRes.data,
+  }
+}
+
 export async function findDuplicateEmail(service: ServiceClient, workspaceId: string, email: string) {
   const peopleRes = await service
     .from('people')
@@ -281,7 +395,8 @@ export async function findDuplicateEmail(service: ServiceClient, workspaceId: st
   if (peopleRes.error) throw peopleRes.error
   if (peopleRes.data) return true
 
-  const authUsers = await listAuthUsers(service)
+  const authUsersResult = await listAuthUsersResilient(service)
+  const authUsers = authUsersResult.users
   return authUsers.some((user) => user.email?.toLowerCase() === email)
 }
 
@@ -532,6 +647,51 @@ function resolveUserManagementSource(input: {
   if (!input.profilesOk) return 'auth_admin_only'
   if (input.authPartial || input.mergeWarnings) return 'auth_admin_profiles_partial'
   return 'auth_admin_profiles'
+}
+
+function resolveCapabilities(input: {
+  authAvailable: boolean
+  profilesOk: boolean
+  peopleOk: boolean
+  membershipsOk: boolean
+  rolesOk: boolean
+  departmentsOk: boolean
+}): UserManagementCapabilities {
+  const canCreateUser = input.authAvailable && input.profilesOk && input.rolesOk
+  const canOperateMappedRows = canCreateUser && input.peopleOk && input.membershipsOk && input.departmentsOk
+
+  return {
+    canCreateUser,
+    canEditMappedUser: canOperateMappedRows,
+    canResetMappedUser: canOperateMappedRows,
+    canSuspendMappedUser: canOperateMappedRows,
+  }
+}
+
+function resolveProfileMappingStatus(input: {
+  profile: ProfileRow
+  person: PersonRow | null
+  membership: MembershipRow | null
+  role: RoleRow | null
+  department: DepartmentRow | null
+  authLinked: boolean
+  duplicateAuthId: boolean
+}): UserMappingStatus {
+  if (input.duplicateAuthId) return 'duplicate'
+  if (!input.profile.auth_user_id || !input.authLinked || !input.person) return 'profile_only'
+  if (!input.membership) return 'missing_membership'
+  if (!input.role) return 'missing_role'
+  if (input.person.department_id && !input.department) return 'missing_department'
+  return 'complete'
+}
+
+function rowActionCapabilities(mappingStatus: UserMappingStatus): RowActionCapabilities {
+  const complete = mappingStatus === 'complete'
+  return {
+    canEdit: complete,
+    canResetPassword: complete,
+    canSuspend: complete,
+  }
 }
 
 function choosePerson(current: PersonRow | undefined, next: PersonRow) {

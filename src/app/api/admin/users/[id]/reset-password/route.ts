@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { cleanText, jsonError, requireUserManagementAccess } from '@/lib/admin/userManagement'
-import { adminAuthErrorMessage } from '@/lib/admin/userManagementData'
+import { adminAuthErrorMessage, requireCompleteManagedUserRow } from '@/lib/admin/userManagementData'
 
 export const runtime = 'nodejs'
 
@@ -27,6 +27,9 @@ export async function POST(request: Request, context: RouteContext) {
     if (profileRes.error) throw profileRes.error
     if (!profileRes.data) return jsonError('Không tìm thấy tài khoản.', 404)
     if (!profileRes.data.auth_user_id) return jsonError('Tài khoản chưa liên kết Auth user.', 400)
+
+    const rowReady = await requireCompleteManagedUserRow(auth.service, auth.workspaceId, profileId)
+    if (!rowReady.ok) return jsonError(rowReady.message, rowReady.status)
 
     const authUpdate = await auth.service.auth.admin.updateUserById(profileRes.data.auth_user_id, {
       password,

@@ -5,7 +5,7 @@ import {
   jsonError,
   requireUserManagementAccess,
 } from '@/lib/admin/userManagement'
-import { adminAuthErrorMessage, loadUserManagementData } from '@/lib/admin/userManagementData'
+import { adminAuthErrorMessage, loadUserManagementData, requireCompleteManagedUserRow } from '@/lib/admin/userManagementData'
 
 export const runtime = 'nodejs'
 
@@ -30,6 +30,9 @@ export async function PATCH(request: Request, context: RouteContext) {
       .maybeSingle()
     if (profileRes.error) throw profileRes.error
     if (!profileRes.data) return jsonError('Không tìm thấy tài khoản.', 404)
+
+    const rowReady = await requireCompleteManagedUserRow(auth.service, auth.workspaceId, profileId)
+    if (!rowReady.ok) return jsonError(rowReady.message, rowReady.status)
 
     const profileUpdate = await auth.service
       .from('profiles')

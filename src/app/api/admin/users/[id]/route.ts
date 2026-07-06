@@ -51,6 +51,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (profileRes.error) throw profileRes.error
     if (!profileRes.data) return jsonError('Không tìm thấy tài khoản.', 404)
 
+    if (!profileRes.data.auth_user_id) return jsonError('Tai khoan chua lien ket Auth user.', 400)
+
     const personRes = await auth.service
       .from('people')
       .select('id')
@@ -59,6 +61,14 @@ export async function PATCH(request: Request, context: RouteContext) {
       .is('deleted_at', null)
       .maybeSingle()
     if (personRes.error) throw personRes.error
+    const membershipRes = await auth.service
+      .from('workspace_memberships')
+      .select('id')
+      .eq('workspace_id', auth.workspaceId)
+      .eq('profile_id', profileId)
+      .maybeSingle()
+    if (membershipRes.error) throw membershipRes.error
+    if (!membershipRes.data?.id) return jsonError('Tài khoản chưa có membership hợp lệ.', 400)
     if (!personRes.data?.id) return jsonError('Tài khoản chưa có hồ sơ nhân sự.', 404)
 
     if (departmentId) {
