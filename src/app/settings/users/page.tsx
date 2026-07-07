@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { PageHead } from '@/components/ui/PageHead'
@@ -170,6 +171,7 @@ export default function UserManagementPage() {
   const [permissionState, setPermissionState] = React.useState<PermissionState | null>(null)
   const [permissionDraft, setPermissionDraft] = React.useState<PermissionMatrixRow[]>(buildDefaultPermissionMatrix(emptyForm.roleCode))
   const [resetPassword, setResetPassword] = React.useState('')
+  const [statusDialog, setStatusDialog] = React.useState<{ user: ManagedUser; nextStatus: AccountStatus } | null>(null)
 
   const loadUsers = React.useCallback(async () => {
     setLoading(true)
@@ -259,10 +261,15 @@ export default function UserManagementPage() {
     setMode('reset')
   }
 
+  function openStatusDialog(user: ManagedUser, nextStatus: AccountStatus) {
+    setStatusDialog({ user, nextStatus })
+  }
+
   function closePanel() {
     setPermissionModalOpen(false)
     setMode(null)
     setSelected(null)
+    setStatusDialog(null)
   }
 
   function resetPermissionDraftToRoleDefault() {
@@ -398,8 +405,9 @@ export default function UserManagementPage() {
       'PATCH',
       { status: nextStatus },
       nextStatus === 'active' ? 'Đã mở tài khoản.' : 'Đã khóa tài khoản.',
-      { keepPanelOpen: true },
+      { keepPanelOpen: true, actionAllowed: canSuspendUser(user) },
     )
+    setStatusDialog(null)
   }
 
   async function submitJson(
@@ -545,15 +553,16 @@ export default function UserManagementPage() {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <Th>Họ tên</Th>
-                  <Th>Tên đăng nhập / Email nội bộ</Th>
-                  <Th>Role</Th>
-                  <Th>Phòng ban</Th>
-                  <Th>Quản lý</Th>
-                  <Th>Người duyệt</Th>
-                  <Th>Trạng thái</Th>
-                  <Th>Auth</Th>
-                  <Th>Thao tác</Th>
+                  <Th style={{ minWidth: 210 }}>Họ tên</Th>
+                  <Th style={{ minWidth: 240 }}>Tên đăng nhập / Email nội bộ</Th>
+                  <Th style={{ minWidth: 170 }}>Role</Th>
+                  <Th style={{ minWidth: 170 }}>Phòng ban</Th>
+                  <Th style={{ minWidth: 180 }}>Quản lý</Th>
+                  <Th style={{ minWidth: 200 }}>Người duyệt</Th>
+                  <Th style={{ minWidth: 140 }}>Trạng thái</Th>
+                  <Th style={{ minWidth: 110 }}>Auth linked</Th>
+                  <Th style={{ minWidth: 170 }}>Mapping status</Th>
+                  <ActionTh>Thao tác</ActionTh>
                 </tr>
               </thead>
               <tbody>
@@ -579,23 +588,26 @@ export default function UserManagementPage() {
                       <Td><BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike></Td>
                       <Td>
                         <div style={primaryText}>{user.authLinked ? 'Có' : 'Không'}</div>
-                        <div style={mutedText}>{mappingStatusLabel(user.mappingStatus)}</div>
                       </Td>
                       <Td>
+                        <div style={primaryText}>{mappingStatusLabel(user.mappingStatus)}</div>
+                        <div style={mutedText}>{user.mappingStatus ?? 'profile_only'}</div>
+                      </Td>
+                      <ActionTd>
                         <div style={actionStack}>
-                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={editActionDisabled} title={editActionDisabled ? disabledActionReason(user) : undefined}>Sửa</button>
-                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={resetActionDisabled} title={resetActionDisabled ? disabledActionReason(user) : undefined}>Reset mật khẩu</button>
+                          <button type="button" style={actionButtonStyle('normal', editActionDisabled)} onClick={() => openEdit(user)} disabled={editActionDisabled} title={editActionDisabled ? disabledActionReason(user) : undefined}>Sửa</button>
+                          <button type="button" style={actionButtonStyle('normal', resetActionDisabled)} onClick={() => openReset(user)} disabled={resetActionDisabled} title={resetActionDisabled ? disabledActionReason(user) : undefined}>Reset mật khẩu</button>
                           <button
                             type="button"
-                            style={active ? dangerTextButton : textButton}
-                            onClick={() => handleStatus(user, active ? 'suspended' : 'active')}
+                            style={actionButtonStyle(active ? 'danger' : 'normal', statusActionDisabled)}
+                            onClick={() => openStatusDialog(user, active ? 'suspended' : 'active')}
                             disabled={statusActionDisabled}
                             title={statusActionDisabled ? disabledActionReason(user) : undefined}
                           >
                             {active ? 'Khóa' : 'Mở'}
                           </button>
                         </div>
-                      </Td>
+                      </ActionTd>
                     </tr>
                   )
                 })}
@@ -606,22 +618,30 @@ export default function UserManagementPage() {
           )}
         </div>
 
-        {mode ? (
-          <aside style={panelStyle}>
+        {mode && typeof document !== 'undefined' ? createPortal((
+          <aside style={panelStyle} role="presentation">
             {mode === 'reset' && selected ? (
-              <form onSubmit={handleReset} style={panelFormStyle}>
+              <form onSubmit={handleReset} style={resetPanelFormStyle}>
                 <PanelHead title="Reset mật khẩu tạm" onClose={closePanel} />
-                <div style={smallNote}>Tài khoản: <strong>{selected.fullName}</strong></div>
-                <Input
-                  label="Mật khẩu tạm mới"
-                  type="password"
-                  minLength={8}
-                  value={resetPassword}
-                  onChange={(event) => setResetPassword(event.target.value)}
-                  required
-                  helpText="Mật khẩu chỉ dùng để gửi cho người dùng, không được lưu trong app."
-                />
-                <Button type="submit" variant="primary" loading={saving}>Reset mật khẩu</Button>
+                <div style={panelBodyStyle}>
+                  <div style={confirmBoxStyle}>
+                    <div style={primaryText}>Tài khoản: {selected.fullName}</div>
+                    <div style={smallNote}>Chỉ reset user QA/staging khi đã được xác nhận. Mật khẩu tạm không được lưu trong app.</div>
+                  </div>
+                  <Input
+                    label="Mật khẩu tạm mới"
+                    type="password"
+                    minLength={8}
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                    required
+                    helpText="Mật khẩu chỉ dùng để gửi cho người dùng, không được lưu trong app."
+                  />
+                </div>
+                <div style={panelFooterStyle}>
+                  <button type="button" style={modalSecondaryButtonStyle} onClick={closePanel}>Hủy</button>
+                  <Button type="submit" variant="primary" loading={saving}>Reset mật khẩu</Button>
+                </div>
               </form>
             ) : (
               <form onSubmit={mode === 'create' ? handleCreate : handleEdit} style={panelFormStyle}>
@@ -632,96 +652,128 @@ export default function UserManagementPage() {
                     <button type="button" style={tabButtonStyle(panelTab === 'permissions')} onClick={() => setPanelTab('permissions')}>Phân quyền</button>
                   </div>
                 ) : null}
+                <div style={mode === 'create' ? createPanelBodyStyle : panelBodyStyle}>
+                  {(mode === 'create' || panelTab === 'account') ? (
+                    <section style={accountFieldsStyle}>
+                      <Input
+                        label="Họ tên"
+                        value={form.fullName}
+                        onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))}
+                        required
+                      />
+                      {mode === 'create' ? (
+                        <>
+                          <Input
+                            label="Tên đăng nhập"
+                            placeholder="nhung"
+                            autoComplete="username"
+                            value={form.username}
+                            onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+                            required
+                            helpText="Người dùng sẽ đăng nhập bằng tên này. Email nội bộ sẽ tự tạo dạng username@vyvystore.vn."
+                          />
+                          <Input
+                            label="Mật khẩu tạm"
+                            type="password"
+                            minLength={8}
+                            value={form.password}
+                            onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+                            required
+                            helpText="Chỉ hiển thị trong form này, không lưu vào DB/code/docs."
+                          />
+                        </>
+                      ) : (
+                        <div style={readOnlyGridStyle}>
+                          <div style={readOnlyInfoStyle}>
+                            <span>Tên đăng nhập</span>
+                            <strong>{form.username || 'Chưa có'}</strong>
+                          </div>
+                          <div style={readOnlyInfoStyle}>
+                            <span>Email nội bộ hiện tại</span>
+                            <strong>{selected?.email ?? 'Chưa có'}</strong>
+                          </div>
+                          <div style={readOnlyInfoStyle}>
+                            <span>Auth linked</span>
+                            <strong>{selected?.authLinked ? 'Có' : 'Không'}</strong>
+                          </div>
+                          <div style={readOnlyInfoStyle}>
+                            <span>Mapping status</span>
+                            <strong>{mappingStatusLabel(selected?.mappingStatus)}</strong>
+                          </div>
+                        </div>
+                      )}
+                      <FormSelect label="Role" value={form.roleCode} onChange={handleRoleChange} options={formRoleOptions} />
+                      <FormSelect label="Phòng ban" value={form.departmentId} onChange={(value) => setForm((prev) => ({ ...prev, departmentId: value }))} options={departmentOptions} />
+                      <FormSelect label="Người quản lý" value={form.managerId} onChange={(value) => setForm((prev) => ({ ...prev, managerId: value }))} options={managerOptions} />
+                      <FormSelect label="Người duyệt mặc định" value={form.defaultApproverId} onChange={(value) => setForm((prev) => ({ ...prev, defaultApproverId: value }))} options={defaultApproverOptions} />
+                      <FormSelect label="Trạng thái" value={form.status} onChange={(value) => setForm((prev) => ({ ...prev, status: normalizeStatus(value) }))} options={statusOptions} />
+                    </section>
+                  ) : null}
+                  {(mode === 'create' || panelTab === 'permissions') ? (
+                    <PermissionMatrixPanel
+                      mode={mode}
+                      roleCode={form.roleCode}
+                      selected={selected}
+                      state={permissionState}
+                      rows={permissionDraft}
+                      useCustom={useCustomPermissions}
+                      saving={saving}
+                      open={permissionModalOpen}
+                      onOpen={() => setPermissionModalOpen(true)}
+                      onClose={() => setPermissionModalOpen(false)}
+                      onApply={() => setPermissionModalOpen(false)}
+                      onToggleCustom={(checked) => {
+                        setUseCustomPermissions(checked)
+                        if (!checked) setPermissionDraft(permissionState?.roleDefault ?? buildDefaultPermissionMatrix(form.roleCode))
+                      }}
+                      onActionChange={setPermissionAction}
+                      onScopeChange={setPermissionScope}
+                      onSave={handleSavePermissions}
+                      onReset={mode === 'create' ? resetPermissionDraftToRoleDefault : handleResetPermissions}
+                    />
+                  ) : null}
+                </div>
                 {(mode === 'create' || panelTab === 'account') ? (
-                  <>
-                <Input
-                  label="Họ tên"
-                  value={form.fullName}
-                  onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))}
-                  required
-                />
-                {mode === 'create' ? (
-                  <>
-                    <Input
-                      label="Tên đăng nhập"
-                      placeholder="nhung"
-                      autoComplete="username"
-                      value={form.username}
-                      onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
-                      required
-                      helpText="Người dùng sẽ đăng nhập bằng tên này. Email nội bộ sẽ tự tạo dạng username@vyvystore.vn."
-                    />
-                    <Input
-                      label="Mật khẩu tạm"
-                      type="password"
-                      minLength={8}
-                      value={form.password}
-                      onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-                      required
-                      helpText="Chỉ hiển thị trong form này, không lưu vào DB/code/docs."
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Input
-                      label="Tên đăng nhập"
-                      autoComplete="username"
-                      value={form.username}
-                      onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
-                      required
-                      helpText="Nếu đổi tên đăng nhập, hệ thống sẽ đổi email nội bộ tương ứng dạng username@vyvystore.vn."
-                    />
-                    <div style={readOnlyGridStyle}>
-                      <div style={readOnlyInfoStyle}>
-                        <span>Email nội bộ hiện tại</span>
-                        <strong>{selected?.email ?? 'Chưa có'}</strong>
-                      </div>
-                      <div style={readOnlyInfoStyle}>
-                        <span>Auth linked</span>
-                        <strong>{selected?.authLinked ? 'Có' : 'Không'}</strong>
-                      </div>
-                      <div style={readOnlyInfoStyle}>
-                        <span>Mapping status</span>
-                        <strong>{mappingStatusLabel(selected?.mappingStatus)}</strong>
-                      </div>
-                    </div>
-                  </>
-                )}
-                <FormSelect label="Role" value={form.roleCode} onChange={handleRoleChange} options={formRoleOptions} />
-                <FormSelect label="Phòng ban" value={form.departmentId} onChange={(value) => setForm((prev) => ({ ...prev, departmentId: value }))} options={departmentOptions} />
-                <FormSelect label="Người quản lý" value={form.managerId} onChange={(value) => setForm((prev) => ({ ...prev, managerId: value }))} options={managerOptions} />
-                <FormSelect label="Người duyệt mặc định" value={form.defaultApproverId} onChange={(value) => setForm((prev) => ({ ...prev, defaultApproverId: value }))} options={defaultApproverOptions} />
-                <FormSelect label="Trạng thái" value={form.status} onChange={(value) => setForm((prev) => ({ ...prev, status: normalizeStatus(value) }))} options={statusOptions} />
-                <Button type="submit" variant="primary" loading={saving}>{mode === 'create' ? 'Tạo tài khoản' : 'Lưu thay đổi'}</Button>
-                  </>
-                ) : null}
-                {(mode === 'create' || panelTab === 'permissions') ? (
-                  <PermissionMatrixPanel
-                    mode={mode}
-                    roleCode={form.roleCode}
-                    selected={selected}
-                    state={permissionState}
-                    rows={permissionDraft}
-                    useCustom={useCustomPermissions}
-                    saving={saving}
-                    open={permissionModalOpen}
-                    onOpen={() => setPermissionModalOpen(true)}
-                    onClose={() => setPermissionModalOpen(false)}
-                    onApply={() => setPermissionModalOpen(false)}
-                    onToggleCustom={(checked) => {
-                      setUseCustomPermissions(checked)
-                      if (!checked) setPermissionDraft(permissionState?.roleDefault ?? buildDefaultPermissionMatrix(form.roleCode))
-                    }}
-                    onActionChange={setPermissionAction}
-                    onScopeChange={setPermissionScope}
-                    onSave={handleSavePermissions}
-                    onReset={mode === 'create' ? resetPermissionDraftToRoleDefault : handleResetPermissions}
-                  />
+                  <div style={panelFooterStyle}>
+                    <button type="button" style={modalSecondaryButtonStyle} onClick={closePanel}>Hủy</button>
+                    <Button type="submit" variant="primary" loading={saving}>{mode === 'create' ? 'Tạo tài khoản' : 'Lưu thay đổi'}</Button>
+                  </div>
                 ) : null}
               </form>
             )}
           </aside>
-        ) : null}
+        ), document.body) : null}
+        {statusDialog && typeof document !== 'undefined' ? createPortal((
+          <aside style={panelStyle} role="presentation">
+            <section style={confirmPanelStyle} role="dialog" aria-modal="true" aria-label="Xác nhận đổi trạng thái tài khoản">
+              <PanelHead
+                title={statusDialog.nextStatus === 'active' ? 'Mở lại tài khoản' : 'Khóa tài khoản'}
+                onClose={() => setStatusDialog(null)}
+              />
+              <div style={panelBodyStyle}>
+                <div style={confirmBoxStyle}>
+                  <div style={primaryText}>{statusDialog.user.fullName}</div>
+                  <div style={smallNote}>
+                    {statusDialog.nextStatus === 'active'
+                      ? 'Bạn có chắc muốn mở lại tài khoản này không?'
+                      : 'Bạn có chắc muốn khóa tài khoản này không? User sẽ bị chặn đăng nhập hoặc chặn vào app.'}
+                  </div>
+                </div>
+              </div>
+              <div style={panelFooterStyle}>
+                <button type="button" style={modalSecondaryButtonStyle} onClick={() => setStatusDialog(null)}>Hủy</button>
+                <Button
+                  type="button"
+                  variant={statusDialog.nextStatus === 'active' ? 'primary' : 'danger'}
+                  loading={saving}
+                  onClick={() => void handleStatus(statusDialog.user, statusDialog.nextStatus)}
+                >
+                  {statusDialog.nextStatus === 'active' ? 'Mở lại tài khoản' : 'Khóa tài khoản'}
+                </Button>
+              </div>
+            </section>
+          </aside>
+        ), document.body) : null}
       </section>
       </>
       )}
@@ -938,12 +990,20 @@ function FormSelect({ label, value, onChange, options }: { label: string; value:
   )
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th style={thStyle}>{children}</th>
+function Th({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return <th style={{ ...thStyle, ...style }}>{children}</th>
 }
 
-function Td({ children }: { children: React.ReactNode }) {
-  return <td style={tdStyle}>{children}</td>
+function Td({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return <td style={{ ...tdStyle, ...style }}>{children}</td>
+}
+
+function ActionTh({ children }: { children: React.ReactNode }) {
+  return <th style={{ ...thStyle, ...actionHeaderCellStyle }}>{children}</th>
+}
+
+function ActionTd({ children }: { children: React.ReactNode }) {
+  return <td style={{ ...tdStyle, ...actionCellStyle }}>{children}</td>
 }
 
 function BadgeLike({ children, tone }: { children: React.ReactNode; tone: 'lime' | 'success' | 'warning' }) {
@@ -985,6 +1045,8 @@ const pageStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 16,
+  width: '100%',
+  maxWidth: 'none',
 }
 
 const metaRow: React.CSSProperties = {
@@ -1003,10 +1065,9 @@ const toolbarStyle: React.CSSProperties = {
 }
 
 const layoutStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) minmax(380px, 520px)',
-  gap: 16,
-  alignItems: 'start',
+  display: 'block',
+  width: '100%',
+  minWidth: 0,
 }
 
 const tableWrapStyle: React.CSSProperties = {
@@ -1014,15 +1075,22 @@ const tableWrapStyle: React.CSSProperties = {
   borderRadius: 10,
   background: 'var(--color-surface)',
   overflow: 'auto',
+  maxHeight: 'calc(100vh - 260px)',
+  width: '100%',
+  boxShadow: '0 12px 28px rgba(17,20,24,0.04)',
 }
 
 const tableStyle: React.CSSProperties = {
   width: '100%',
-  minWidth: 980,
-  borderCollapse: 'collapse',
+  minWidth: 1620,
+  borderCollapse: 'separate',
+  borderSpacing: 0,
 }
 
 const thStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
   textAlign: 'left',
   padding: '12px 14px',
   fontSize: 11,
@@ -1039,6 +1107,22 @@ const tdStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   borderBottom: '1px solid var(--color-border)',
   verticalAlign: 'top',
+  background: 'var(--color-surface)',
+}
+
+const actionHeaderCellStyle: React.CSSProperties = {
+  right: 0,
+  zIndex: 4,
+  minWidth: 260,
+  boxShadow: '-10px 0 18px rgba(17,20,24,0.06)',
+}
+
+const actionCellStyle: React.CSSProperties = {
+  position: 'sticky',
+  right: 0,
+  zIndex: 3,
+  minWidth: 260,
+  boxShadow: '-10px 0 18px rgba(17,20,24,0.04)',
 }
 
 const primaryText: React.CSSProperties = {
@@ -1053,18 +1137,79 @@ const mutedText: React.CSSProperties = {
 }
 
 const panelStyle: React.CSSProperties = {
-  border: '1px solid var(--color-border)',
-  borderRadius: 10,
-  background: 'var(--color-surface)',
-  padding: 16,
-  position: 'sticky',
-  top: 18,
+  position: 'fixed',
+  inset: 0,
+  zIndex: 70,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 24,
+  background: 'rgba(17, 20, 24, 0.62)',
 }
 
 const panelFormStyle: React.CSSProperties = {
+  width: '92vw',
+  maxWidth: 1180,
+  maxHeight: 'calc(100vh - 48px)',
+  display: 'grid',
+  gridTemplateRows: 'auto auto minmax(0, 1fr) auto',
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  background: 'var(--color-surface)',
+  boxShadow: '0 24px 60px rgba(0,0,0,0.24)',
+  overflow: 'hidden',
+}
+
+const resetPanelFormStyle: React.CSSProperties = {
+  width: 'min(560px, 92vw)',
+  maxHeight: 'calc(100vh - 48px)',
+  display: 'grid',
+  gridTemplateRows: 'auto minmax(0, 1fr) auto',
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  background: 'var(--color-surface)',
+  boxShadow: '0 24px 60px rgba(0,0,0,0.24)',
+  overflow: 'hidden',
+}
+
+const confirmPanelStyle: React.CSSProperties = {
+  ...resetPanelFormStyle,
+}
+
+const panelBodyStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
+  minHeight: 0,
+  overflow: 'auto',
+  padding: 18,
+}
+
+const createPanelBodyStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
+  gap: 18,
+  minHeight: 0,
+  overflow: 'auto',
+  padding: 18,
+}
+
+const accountFieldsStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  minWidth: 0,
+}
+
+const panelFooterStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+  gap: 12,
+  flexWrap: 'wrap',
+  padding: '14px 18px',
+  borderTop: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
 }
 
 const tabRowStyle: React.CSSProperties = {
@@ -1092,6 +1237,9 @@ const panelHeadStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 12,
+  padding: '16px 18px',
+  borderBottom: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
 }
 
 const iconButtonStyle: React.CSSProperties = {
@@ -1122,7 +1270,8 @@ const labelStyle: React.CSSProperties = {
 const actionStack: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 8,
+  gap: 10,
+  minWidth: 220,
 }
 
 const textButton: React.CSSProperties = {
@@ -1132,10 +1281,19 @@ const textButton: React.CSSProperties = {
   textDecoration: 'underline',
 }
 
-const dangerTextButton: React.CSSProperties = {
-  ...textButton,
-  color: 'var(--color-danger)',
-}
+const actionButtonStyle = (tone: 'normal' | 'danger', disabled: boolean): React.CSSProperties => ({
+  minHeight: 32,
+  borderRadius: 8,
+  border: `1px solid ${tone === 'danger' ? 'rgba(184,64,64,0.38)' : 'var(--color-border)'}`,
+  padding: '0 10px',
+  background: disabled ? 'var(--color-surface-2)' : 'var(--color-surface)',
+  color: disabled ? 'var(--color-text-muted)' : tone === 'danger' ? 'var(--color-danger)' : 'var(--color-charcoal)',
+  fontSize: 12,
+  fontWeight: 750,
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.55 : 1,
+  whiteSpace: 'nowrap',
+})
 
 const emptyState: React.CSSProperties = {
   padding: 28,
@@ -1171,8 +1329,15 @@ const readOnlyInfoStyle: React.CSSProperties = {
 
 const readOnlyGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '1fr',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
   gap: 8,
+}
+
+const confirmBoxStyle: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  borderRadius: 9,
+  padding: 12,
+  background: 'var(--color-surface-2)',
 }
 
 const permissionPanelStyle: React.CSSProperties = {
