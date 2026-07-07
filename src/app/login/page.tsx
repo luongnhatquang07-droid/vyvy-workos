@@ -4,8 +4,9 @@ import React, { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
-const APP_ENV = process.env.NEXT_PUBLIC_APP_ENV ?? 'unknown'
+const PRODUCTION_REF = 'tgmnkqcxucxpnhhsggug'
 const SUPABASE_REF = getSupabaseRef(process.env.NEXT_PUBLIC_SUPABASE_URL)
+const APP_ENV = getDisplayAppEnv(process.env.NEXT_PUBLIC_APP_ENV, SUPABASE_REF)
 const USERNAME_DOMAIN = 'vyvystore.vn'
 
 export default function LoginPage() {
@@ -25,6 +26,8 @@ function LoginContent() {
   const [password, setPassword] = React.useState('')
   const [error, setError] = React.useState('')
   const [loading, setLoading] = React.useState(false)
+  const loginFieldId = React.useId()
+  const passwordFieldId = React.useId()
 
   function toEmail(input: string): string {
     const normalized = input.trim().normalize('NFKC').toLowerCase()
@@ -55,19 +58,25 @@ function LoginContent() {
 
   return (
     <LoginShell>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <form
+        onSubmit={handleSubmit}
+        autoComplete="off"
+        style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+      >
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 5 }}>
             Tên đăng nhập
           </label>
           <input
+            id={loginFieldId}
+            name={`vyvy-account-${loginFieldId}`}
             type="text"
             required
-            autoComplete="username"
+            autoComplete="off"
             autoFocus
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="justinbiemap"
+            placeholder="ten_dang_nhap"
             style={inputStyle}
           />
         </div>
@@ -77,9 +86,11 @@ function LoginContent() {
             Mật khẩu
           </label>
           <input
+            id={passwordFieldId}
+            name={`vyvy-pass-${passwordFieldId}`}
             type="password"
             required
-            autoComplete="current-password"
+            autoComplete="new-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="••••••••"
@@ -162,6 +173,12 @@ async function resolveLoginErrorMessage(username: string, authMessage: string) {
 function getSupabaseRef(url?: string) {
   const match = url?.match(/^https:\/\/([^.]+)\.supabase\.co/)
   return match?.[1] ?? 'unknown'
+}
+
+function getDisplayAppEnv(publicEnv: string | undefined, ref: string) {
+  if (publicEnv && publicEnv !== 'unknown') return publicEnv
+  if (ref === PRODUCTION_REF) return 'production'
+  return 'unknown'
 }
 
 function LoginShell({ children }: { children?: React.ReactNode }) {
