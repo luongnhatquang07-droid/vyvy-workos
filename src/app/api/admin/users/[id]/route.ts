@@ -13,6 +13,7 @@ import {
 } from '@/lib/admin/userManagement'
 import {
   adminAuthErrorMessage,
+  defaultApproverColumnReady,
   entityExists,
   findRoleByCode,
   loadUserManagementData,
@@ -39,6 +40,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     const roleCode = cleanText(body.roleCode).toUpperCase()
     const departmentId = cleanNullableId(body.departmentId)
     const managerId = cleanNullableId(body.managerId)
+    const defaultApproverId = cleanNullableId(body.defaultApproverId)
     const status = cleanStatus(body.status)
     const email = loginInput.includes('@') ? cleanEmail(loginInput) : authEmailFromUsername(loginInput)
     const username = loginInput.includes('@') ? usernameFromEmail(email) : loginInput
@@ -114,6 +116,17 @@ export async function PATCH(request: Request, context: RouteContext) {
       if (!managerOk) return jsonError('Người quản lý không tồn tại.', 400)
     }
 
+    if (defaultApproverId) {
+      if (defaultApproverId === personRes.data.id) return jsonError('Người duyệt mặc định không được trùng chính tài khoản này.', 400)
+      const approverOk = await entityExists(auth.service, 'people', auth.workspaceId, defaultApproverId)
+      if (!approverOk) return jsonError('Người duyệt mặc định không tồn tại.', 400)
+    }
+
+    const approverColumnReady = await defaultApproverColumnReady(auth.service)
+    if (defaultApproverId && !approverColumnReady) {
+      return jsonError('Chưa có cột people.default_approver_id. Cần chạy migration additive trên staging trước khi lưu Người duyệt mặc định.', 409)
+    }
+
     const profileUpdate = await auth.service
       .from('profiles')
       .update({
@@ -126,16 +139,19 @@ export async function PATCH(request: Request, context: RouteContext) {
       .eq('id', profileId)
     if (profileUpdate.error) throw profileUpdate.error
 
+    const personPayload: Record<string, unknown> = {
+      full_name: fullName,
+      department_id: departmentId,
+      manager_id: managerId,
+      email,
+      status,
+      updated_at: new Date().toISOString(),
+    }
+    if (approverColumnReady) personPayload.default_approver_id = defaultApproverId
+
     const personUpdate = await auth.service
       .from('people')
-      .update({
-        full_name: fullName,
-        department_id: departmentId,
-        manager_id: managerId,
-        email,
-        status,
-        updated_at: new Date().toISOString(),
-      })
+      .update(personPayload)
       .eq('workspace_id', auth.workspaceId)
       .eq('profile_id', profileId)
       .is('deleted_at', null)

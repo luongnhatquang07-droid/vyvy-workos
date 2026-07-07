@@ -13,6 +13,7 @@ import {
 } from '@/lib/admin/userManagement'
 import {
   adminAuthErrorMessage,
+  defaultApproverColumnReady,
   entityExists,
   findDuplicateEmail,
   findRoleByCode,
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
     const roleCode = cleanText(body.roleCode).toUpperCase()
     const departmentId = cleanNullableId(body.departmentId)
     const managerId = cleanNullableId(body.managerId)
+    const defaultApproverId = cleanNullableId(body.defaultApproverId)
     const status = cleanStatus(body.status)
     const email = loginInput.includes('@') ? cleanEmail(loginInput) : authEmailFromUsername(loginInput)
     const username = loginInput.includes('@') ? usernameFromEmail(email) : loginInput
@@ -87,6 +89,16 @@ export async function POST(request: Request) {
       if (!managerOk) return jsonError('Người quản lý không tồn tại.', 400)
     }
 
+    if (defaultApproverId) {
+      const approverOk = await entityExists(auth.service, 'people', auth.workspaceId, defaultApproverId)
+      if (!approverOk) return jsonError('Người duyệt mặc định không tồn tại.', 400)
+    }
+
+    const approverColumnReady = await defaultApproverColumnReady(auth.service)
+    if (defaultApproverId && !approverColumnReady) {
+      return jsonError('Chưa có cột people.default_approver_id. Cần chạy migration additive trên staging trước khi lưu Người duyệt mặc định.', 409)
+    }
+
     const usernameRes = await auth.service
       .from('profiles')
       .select('id')
@@ -119,17 +131,20 @@ export async function POST(request: Request) {
       .single()
     if (profileRes.error) throw profileRes.error
 
+    const personPayload: Record<string, unknown> = {
+      workspace_id: auth.workspaceId,
+      profile_id: profileRes.data.id,
+      department_id: departmentId,
+      manager_id: managerId,
+      full_name: fullName,
+      email,
+      status,
+    }
+    if (approverColumnReady) personPayload.default_approver_id = defaultApproverId
+
     const personRes = await auth.service
       .from('people')
-      .insert({
-        workspace_id: auth.workspaceId,
-        profile_id: profileRes.data.id,
-        department_id: departmentId,
-        manager_id: managerId,
-        full_name: fullName,
-        email,
-        status,
-      })
+      .insert(personPayload)
       .select('id')
       .single()
     if (personRes.error) throw personRes.error

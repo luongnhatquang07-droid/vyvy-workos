@@ -32,6 +32,8 @@ interface ManagedUser {
   departmentName: string | null
   managerId: string | null
   managerName: string | null
+  defaultApproverId: string | null
+  defaultApproverName: string | null
   status: AccountStatus | string
   statusLabel: string
   authLinked: boolean
@@ -58,7 +60,7 @@ type UserMappingStatus =
 interface LookupData {
   roles: Array<{ id: string; code: string; label: string; name: string }>
   departments: Array<{ id: string; name: string; code: string | null; status: string | null }>
-  managers: Array<{ id: string; name: string; email: string | null; departmentId: string | null }>
+  managers: Array<{ id: string; name: string; email: string | null; departmentId: string | null; departmentName?: string | null; roleLabel?: string | null }>
 }
 
 interface UserActionCapabilities {
@@ -103,6 +105,7 @@ interface AccountForm {
   roleCode: string
   departmentId: string
   managerId: string
+  defaultApproverId: string
   status: AccountStatus
 }
 
@@ -125,6 +128,7 @@ const emptyForm: AccountForm = {
   roleCode: 'EMPLOYEE',
   departmentId: '',
   managerId: '',
+  defaultApproverId: '',
   status: 'active',
 }
 
@@ -241,6 +245,7 @@ export default function UserManagementPage() {
       roleCode: user.roleCode ?? 'EMPLOYEE',
       departmentId: user.departmentId ?? '',
       managerId: user.managerId ?? '',
+      defaultApproverId: user.defaultApproverId ?? '',
       status: normalizeStatus(user.status),
     })
     setMode('edit')
@@ -468,6 +473,12 @@ export default function UserManagementPage() {
       .filter((manager) => manager.id !== selected?.personId)
       .map((manager) => ({ value: manager.id, label: manager.name })),
   ]
+  const defaultApproverOptions = [
+    { value: '', label: 'Chưa gắn người duyệt' },
+    ...lookups.managers
+      .filter((person) => person.id !== selected?.personId)
+      .map((person) => ({ value: person.id, label: formatPersonOption(person) })),
+  ]
   const createActionDisabled = loading || saving || Boolean(error) || !capabilities.canCreateUser
 
   return (
@@ -539,6 +550,7 @@ export default function UserManagementPage() {
                   <Th>Role</Th>
                   <Th>Phòng ban</Th>
                   <Th>Quản lý</Th>
+                  <Th>Người duyệt</Th>
                   <Th>Trạng thái</Th>
                   <Th>Auth</Th>
                   <Th>Thao tác</Th>
@@ -563,6 +575,7 @@ export default function UserManagementPage() {
                       <Td><BadgeLike tone="lime">{user.roleLabel}</BadgeLike></Td>
                       <Td>{user.departmentName ?? 'Chưa gán'}</Td>
                       <Td>{user.managerName ?? 'Chưa gán'}</Td>
+                      <Td>{user.defaultApproverName ?? 'Chưa gắn'}</Td>
                       <Td><BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike></Td>
                       <Td>
                         <div style={primaryText}>{user.authLinked ? 'Có' : 'Không'}</div>
@@ -677,6 +690,7 @@ export default function UserManagementPage() {
                 <FormSelect label="Role" value={form.roleCode} onChange={handleRoleChange} options={formRoleOptions} />
                 <FormSelect label="Phòng ban" value={form.departmentId} onChange={(value) => setForm((prev) => ({ ...prev, departmentId: value }))} options={departmentOptions} />
                 <FormSelect label="Người quản lý" value={form.managerId} onChange={(value) => setForm((prev) => ({ ...prev, managerId: value }))} options={managerOptions} />
+                <FormSelect label="Người duyệt mặc định" value={form.defaultApproverId} onChange={(value) => setForm((prev) => ({ ...prev, defaultApproverId: value }))} options={defaultApproverOptions} />
                 <FormSelect label="Trạng thái" value={form.status} onChange={(value) => setForm((prev) => ({ ...prev, status: normalizeStatus(value) }))} options={statusOptions} />
                 <Button type="submit" variant="primary" loading={saving}>{mode === 'create' ? 'Tạo tài khoản' : 'Lưu thay đổi'}</Button>
                   </>
@@ -949,6 +963,10 @@ function mappingStatusLabel(value: UserMappingStatus | undefined) {
   if (value === 'missing_role') return 'Thiếu vai trò'
   if (value === 'missing_department') return 'Thiếu phòng ban'
   return 'Hồ sơ cũ / chưa liên kết'
+}
+
+function formatPersonOption(person: LookupData['managers'][number]) {
+  return [person.name, person.roleLabel, person.departmentName].filter(Boolean).join(' — ')
 }
 
 function disabledActionReason(user: ManagedUser) {

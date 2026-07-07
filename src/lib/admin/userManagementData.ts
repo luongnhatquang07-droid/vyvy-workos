@@ -25,6 +25,7 @@ interface PersonRow {
   email: string | null
   department_id: string | null
   manager_id: string | null
+  default_approver_id?: string | null
   status: string | null
   created_at: string | null
   updated_at: string | null
@@ -113,14 +114,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         .select('id,auth_user_id,display_name,username,status,created_at,updated_at')
         .eq('workspace_id', workspaceId),
     ),
-    safeRows<PersonRow>(
-      'people',
-      service
-        .from('people')
-        .select('id,profile_id,full_name,email,department_id,manager_id,status,created_at,updated_at')
-        .eq('workspace_id', workspaceId)
-        .is('deleted_at', null),
-    ),
+    loadPeopleRows(service, workspaceId),
     safeRows<MembershipRow>(
       'workspace_memberships',
       service
@@ -177,6 +171,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     const role = membership ? rolesById.get(membership.role_id) ?? null : null
     const department = person?.department_id ? departmentsById.get(person.department_id) ?? null : null
     const manager = person?.manager_id ? peopleById.get(person.manager_id) ?? null : null
+    const defaultApprover = person?.default_approver_id ? peopleById.get(person.default_approver_id) ?? null : null
     const authUser = profile.auth_user_id ? authById.get(profile.auth_user_id) ?? null : null
     const status = person?.status ?? profile.status ?? (membership?.is_active === false ? 'inactive' : 'active')
     const authLinked = Boolean(profile.auth_user_id && authUser)
@@ -206,6 +201,8 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
       departmentName: department?.name ?? null,
       managerId: person?.manager_id ?? null,
       managerName: manager?.full_name ?? null,
+      defaultApproverId: person?.default_approver_id ?? null,
+      defaultApproverName: defaultApprover?.full_name ?? null,
       status,
       statusLabel: userStatusLabel(status),
       authLinked,
@@ -235,6 +232,8 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         departmentName: null,
         managerId: null,
         managerName: null,
+        defaultApproverId: null,
+        defaultApproverName: null,
         status: 'active',
         statusLabel: userStatusLabel('active'),
         authLinked: true,
@@ -305,6 +304,10 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         name: person.full_name,
         email: person.email,
         departmentId: person.department_id,
+        departmentName: person.department_id ? departmentsById.get(person.department_id)?.name ?? null : null,
+        roleLabel: person.profile_id
+          ? roleLabel(rolesById.get(membershipsByProfile.get(person.profile_id)?.role_id ?? '')?.code)
+          : roleLabel(null),
       })),
     },
   }
@@ -331,6 +334,11 @@ export async function entityExists(
     .maybeSingle()
   if (result.error) throw result.error
   return Boolean(result.data)
+}
+
+export async function defaultApproverColumnReady(service: ServiceClient) {
+  const result = await service.from('people').select('id,default_approver_id').limit(1)
+  return !result.error
 }
 
 export async function requireCompleteManagedUserRow(
@@ -613,6 +621,50 @@ async function listAuthUsersBySinglePages(service: ServiceClient, maxPages: numb
   return { users, available: true, partial: true, warnings }
 }
 
+async function loadPeopleRows(service: ServiceClient, workspaceId: string) {
+  const withDefaultApprover = await service
+    .from('people')
+    .select('id,profile_id,full_name,email,department_id,manager_id,default_approver_id,status,created_at,updated_at')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+
+  if (!withDefaultApprover.error) {
+    return {
+      data: (withDefaultApprover.data ?? []) as PersonRow[],
+      ok: true,
+      warning: null as string | null,
+    }
+  }
+
+  if (!isMissingDefaultApproverColumn(withDefaultApprover.error)) {
+    return {
+      data: [] as PersonRow[],
+      ok: false,
+      warning: safeDataLoadWarning('people'),
+    }
+  }
+
+  const fallback = await service
+    .from('people')
+    .select('id,profile_id,full_name,email,department_id,manager_id,status,created_at,updated_at')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+
+  if (fallback.error) {
+    return {
+      data: [] as PersonRow[],
+      ok: false,
+      warning: safeDataLoadWarning('people'),
+    }
+  }
+
+  return {
+    data: (fallback.data ?? []) as PersonRow[],
+    ok: true,
+    warning: 'Chua co cot people.default_approver_id; can chay migration additive tren staging de luu Nguoi duyet mac dinh.',
+  }
+}
+
 async function safeRows<T>(
   label: string,
   query: PromiseLike<{ data: T[] | null; error: unknown }>,
@@ -635,6 +687,15 @@ async function safeRows<T>(
 
 function safeDataLoadWarning(label: string) {
   return `Dang tai duoc danh sach nguoi dung, nhung chua dong bo duoc bang ${label}.`
+}
+
+function isMissingDefaultApproverColumn(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error && 'message' in error
+      ? String(error.message)
+      : ''
+  return message.includes('default_approver_id')
 }
 
 function resolveUserManagementSource(input: {
