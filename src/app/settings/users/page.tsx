@@ -180,6 +180,7 @@ export default function UserManagementPage() {
   const [departmentFilter, setDepartmentFilter] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
   const [mode, setMode] = React.useState<'create' | 'edit' | 'reset' | null>(null)
+  const [createFormNonce, setCreateFormNonce] = React.useState(0)
   const [panelTab, setPanelTab] = React.useState<'account' | 'permissions'>('account')
   const [selected, setSelected] = React.useState<ManagedUser | null>(null)
   const [form, setForm] = React.useState<AccountForm>(emptyForm)
@@ -249,6 +250,7 @@ export default function UserManagementPage() {
     setPermissionState(null)
     setPermissionDraft(buildDefaultPermissionMatrix(roleCode))
     setForm({ ...emptyForm, roleCode })
+    setCreateFormNonce((value) => value + 1)
     setMode('create')
   }
 
@@ -381,6 +383,7 @@ export default function UserManagementPage() {
       ...prev,
       existingPersonId: value,
       fullName: person?.name ?? prev.fullName,
+      username: person && shouldSuggestUsername(prev.username) ? suggestUsernameFromPersonName(person.name) : prev.username,
       departmentId: person?.departmentId ?? prev.departmentId,
       managerId: person?.managerId ?? prev.managerId,
       defaultApproverId: person?.defaultApproverId ?? prev.defaultApproverId,
@@ -714,7 +717,12 @@ export default function UserManagementPage() {
                 </div>
               </form>
             ) : (
-              <form onSubmit={mode === 'create' ? handleCreate : handleEdit} style={panelFormStyle}>
+              <form
+                key={mode === 'create' ? `create-account-${createFormNonce}` : selected?.profileId ?? mode}
+                onSubmit={mode === 'create' ? handleCreate : handleEdit}
+                style={accountPanelFormStyle(mode)}
+                autoComplete={mode === 'create' ? 'off' : undefined}
+              >
                 <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={closePanel} />
                 {mode === 'edit' ? (
                   <div style={tabRowStyle}>
@@ -745,7 +753,9 @@ export default function UserManagementPage() {
                           <Input
                             label="Tên đăng nhập"
                             placeholder="nhung"
-                            autoComplete="username"
+                            id="new-account-username"
+                            name="new-account-username"
+                            autoComplete="off"
                             value={form.username}
                             onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
                             required
@@ -753,7 +763,10 @@ export default function UserManagementPage() {
                           />
                           <Input
                             label="Mật khẩu tạm"
+                            id="new-account-temporary-password"
+                            name="new-account-temporary-password"
                             type="password"
+                            autoComplete="new-password"
                             minLength={8}
                             value={form.password}
                             onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
@@ -1150,6 +1163,39 @@ function formatPersonOption(person: LookupData['managers'][number]) {
   return [person.name, person.roleLabel, person.departmentName].filter(Boolean).join(' — ')
 }
 
+function shouldSuggestUsername(value: string) {
+  const normalized = value.trim().toLowerCase()
+  return normalized === '' || normalized === 'justinbiemap'
+}
+
+function suggestUsernameFromPersonName(name: string) {
+  const normalized = normalizeVietnameseName(name)
+  const aliases: Record<string, string> = {
+    'dao hoang vu': 'vu',
+    'ma hong': 'mahong',
+    'phuc': 'phuc',
+    'vy': 'tuongvy',
+    'nhung': 'nhung',
+    'hiep': 'hiep',
+  }
+  if (aliases[normalized]) return aliases[normalized]
+  const parts = normalized.split(' ').filter(Boolean)
+  if (parts.length <= 2) return parts.join('')
+  return parts[parts.length - 1] ?? normalized.replace(/\s+/g, '')
+}
+
+function normalizeVietnameseName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function disabledActionReason(user: ManagedUser) {
   if (user.mappingStatus !== 'complete') return 'Hồ sơ chưa liên kết đầy đủ nên không thể thao tác.'
   if (!user.authLinked) return 'Tài khoản chưa liên kết Auth nên không thể thao tác.'
@@ -1286,6 +1332,11 @@ const panelFormStyle: React.CSSProperties = {
   overflow: 'hidden',
 }
 
+const accountPanelFormStyle = (mode: 'create' | 'edit' | 'reset' | null): React.CSSProperties => ({
+  ...panelFormStyle,
+  gridTemplateRows: mode === 'edit' ? 'auto auto minmax(0, 1fr) auto' : 'auto minmax(0, 1fr) auto',
+})
+
 const resetPanelFormStyle: React.CSSProperties = {
   width: 'min(560px, 92vw)',
   maxHeight: 'calc(100vh - 48px)',
@@ -1328,6 +1379,9 @@ const accountFieldsStyle: React.CSSProperties = {
 }
 
 const panelFooterStyle: React.CSSProperties = {
+  position: 'sticky',
+  bottom: 0,
+  zIndex: 2,
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'flex-end',
@@ -1336,6 +1390,7 @@ const panelFooterStyle: React.CSSProperties = {
   padding: '14px 18px',
   borderTop: '1px solid var(--color-border)',
   background: 'var(--color-surface)',
+  boxShadow: '0 -10px 18px rgba(0,0,0,0.08)',
 }
 
 const tabRowStyle: React.CSSProperties = {
