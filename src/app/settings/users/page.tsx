@@ -353,9 +353,9 @@ export default function UserManagementPage() {
 
       {!forbidden ? (
         <div style={metaRow}>
-          <span>Env: <strong>{meta?.appEnv ?? 'staging'}</strong></span>
-          <span>Ref: <strong>{meta?.supabaseRef ?? 'unknown'}</strong></span>
-          <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'ADMIN'}</strong></span>
+          <span>Env: <strong>{meta?.appEnv ?? 'Dang tai'}</strong></span>
+          <span>Ref: <strong>{meta?.supabaseRef ?? 'Dang tai'}</strong></span>
+          <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'Dang tai'}</strong></span>
           <span>Source: <strong>{source}</strong></span>
           {diagnostics ? (
             <span>
