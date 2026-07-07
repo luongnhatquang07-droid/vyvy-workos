@@ -110,6 +110,10 @@ export default function ApprovalsPage() {
       setActionError('Thiếu thông tin bàn giao nên chưa thể cập nhật trạng thái.')
       return
     }
+    if (!isPendingApproval(approval)) {
+      setActionError('Bàn giao đã được xử lý. Không thể thao tác lại.')
+      return
+    }
 
     setBusyKey(`${approval.id}:${action}`)
     setActionError('')
@@ -142,6 +146,10 @@ export default function ApprovalsPage() {
   }
 
   function openReviewDialog(approval: CommandCenterApprovalRow, action: Exclude<ReviewAction, 'approve'>) {
+    if (!isPendingApproval(approval)) {
+      setActionError('Bàn giao đã được xử lý. Không thể thao tác lại.')
+      return
+    }
     setDialog({ approval, action })
     setReason(action === 'requestRevision' ? 'Cần bổ sung/chỉnh lại file hoặc báo cáo.' : 'File/báo cáo chưa đạt yêu cầu.')
     setActionError('')
@@ -453,7 +461,8 @@ function ApprovalActions({
   onRevision: () => void
   onReject: () => void
 }) {
-  const canApprove = canManualApprove(approval)
+  const canAct = isPendingApproval(approval)
+  const canApprove = canAct && canManualApprove(approval)
   return (
     <div style={actionWrapStyle}>
       <button type="button" onClick={onOpenFile} style={secondaryButtonStyle}>
@@ -467,16 +476,20 @@ function ApprovalActions({
           Đã duyệt
         </button>
       ) : null}
-      {approval.status !== 'REVISION_REQUESTED' ? (
-        <button type="button" onClick={onRevision} disabled={Boolean(busyKey)} style={warningButtonStyle}>
-          Yêu cầu sửa
+      {canAct ? (
+        <>
+          <button type="button" onClick={onRevision} disabled={Boolean(busyKey)} style={warningButtonStyle}>
+            Yêu cầu sửa
+          </button>
+          <button type="button" onClick={onReject} disabled={Boolean(busyKey)} style={dangerGhostButtonStyle}>
+            Từ chối
+          </button>
+        </>
+      ) : (
+        <button type="button" disabled title="Bàn giao đã được xử lý" style={disabledActionButtonStyle}>
+          Đã xử lý
         </button>
-      ) : null}
-      {approval.status !== 'REJECTED' ? (
-        <button type="button" onClick={onReject} disabled={Boolean(busyKey)} style={dangerGhostButtonStyle}>
-          Từ chối
-        </button>
-      ) : null}
+      )}
       <button type="button" onClick={onCopyLink} style={iconButtonStyle} title="Copy link">
         <i className="ti ti-link" />
       </button>
@@ -509,7 +522,7 @@ function getLatestRelevantApprovalVersion(versions: CommandCenterDeliverableVers
 }
 
 function canManualApprove(approval: CommandCenterApprovalRow) {
-  return !['APPROVED', 'CANCELLED', 'UPLOADED_BY_MISTAKE', 'SUPERSEDED'].includes(approval.status)
+  return isPendingApproval(approval)
 }
 
 function defaultReviewComment(action: ReviewAction) {
@@ -744,6 +757,14 @@ const dangerButtonStyle: React.CSSProperties = {
   ...dangerGhostButtonStyle,
   background: 'var(--color-danger)',
   color: '#fff',
+}
+
+const disabledActionButtonStyle: React.CSSProperties = {
+  ...baseButtonStyle,
+  background: 'var(--surface-2)',
+  color: 'var(--txt-3)',
+  cursor: 'not-allowed',
+  opacity: 0.75,
 }
 
 const iconButtonStyle: React.CSSProperties = {

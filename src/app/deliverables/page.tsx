@@ -401,9 +401,10 @@ export default function DeliverablesPage() {
         )}
       </section>
 
-      <Drawer open={Boolean(selectedId)} onClose={() => { setSelectedId(null); setDetail(null); setDetailError(''); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
+      {selectedId ? (
+        <Drawer open onClose={() => { setSelectedId(null); setDetail(null); setDetailError(''); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
         {!selected ? (
-          <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : 'Không tìm thấy bàn giao.'}</div>
+          <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : detailError || 'Chọn một bàn giao để xem chi tiết.'}</div>
         ) : (
           <DeliverableDetail
             item={selected}
@@ -428,7 +429,8 @@ export default function DeliverablesPage() {
             onConfirmReminder={(confirmed) => void confirmReminder(confirmed)}
           />
         )}
-      </Drawer>
+        </Drawer>
+      ) : null}
 
       <Drawer open={showCreate} onClose={() => setShowCreate(false)} title="Tạo bàn giao" width={560}>
         <CreateDeliverableForm
