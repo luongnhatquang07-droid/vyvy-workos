@@ -4,6 +4,10 @@ import React, { Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+const APP_ENV = process.env.NEXT_PUBLIC_APP_ENV ?? 'unknown'
+const SUPABASE_REF = getSupabaseRef(process.env.NEXT_PUBLIC_SUPABASE_URL)
+const USERNAME_DOMAIN = 'vyvystore.vn'
+
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginShell />}>
@@ -24,7 +28,7 @@ function LoginContent() {
 
   function toEmail(input: string): string {
     const normalized = input.trim().normalize('NFKC').toLowerCase()
-    return normalized.includes('@') ? normalized : `${normalized}@vyvystore.vn`
+    return normalized.includes('@') ? normalized : `${normalized}@${USERNAME_DOMAIN}`
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -41,11 +45,7 @@ function LoginContent() {
     setLoading(false)
 
     if (authError) {
-      setError(
-        authError.message === 'Invalid login credentials'
-          ? 'Tên đăng nhập hoặc mật khẩu không đúng.'
-          : authError.message,
-      )
+      setError(await resolveLoginErrorMessage(username, authError.message))
       return
     }
 
@@ -87,6 +87,10 @@ function LoginContent() {
           />
         </div>
 
+        <div style={envInfoStyle}>
+          Env: {APP_ENV} · Ref: {SUPABASE_REF}
+        </div>
+
         {error && (
           <div style={{
             fontSize: 13,
@@ -122,6 +126,42 @@ function LoginContent() {
       </form>
     </LoginShell>
   )
+}
+
+async function resolveLoginErrorMessage(username: string, authMessage: string) {
+  const genericMessage =
+    authMessage === 'Invalid login credentials'
+      ? 'Tên đăng nhập hoặc mật khẩu không đúng.'
+      : authMessage
+
+  if (APP_ENV === 'production') return genericMessage
+
+  try {
+    const response = await fetch('/api/auth/login-check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username }),
+    })
+    const data = (await response.json()) as {
+      detailAllowed?: boolean
+      accountExists?: boolean | null
+      env?: string
+    }
+
+    if (data.detailAllowed && data.accountExists === false) {
+      const env = data.env ?? APP_ENV
+      return `Không tìm thấy tài khoản trên môi trường ${env}. Kiểm tra tên đăng nhập hoặc dùng tài khoản ${env}.`
+    }
+  } catch {
+    // Diagnostics are best-effort only; keep login failure safe and stable.
+  }
+
+  return genericMessage
+}
+
+function getSupabaseRef(url?: string) {
+  const match = url?.match(/^https:\/\/([^.]+)\.supabase\.co/)
+  return match?.[1] ?? 'unknown'
 }
 
 function LoginShell({ children }: { children?: React.ReactNode }) {
@@ -192,4 +232,11 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   outline: 'none',
   fontFamily: 'inherit',
+}
+
+const envInfoStyle: React.CSSProperties = {
+  marginTop: -4,
+  fontSize: 12,
+  lineHeight: 1.4,
+  color: 'var(--color-text-muted)',
 }
