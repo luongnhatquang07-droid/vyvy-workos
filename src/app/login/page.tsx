@@ -23,7 +23,7 @@ function LoginContent() {
   const [loading, setLoading] = React.useState(false)
 
   function toEmail(input: string): string {
-    const normalized = input.trim().toLowerCase()
+    const normalized = input.trim().normalize('NFKC').toLowerCase()
     return normalized.includes('@') ? normalized : `${normalized}@vyvystore.vn`
   }
 

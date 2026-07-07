@@ -88,7 +88,7 @@ interface UsersPayload {
 
 interface AccountForm {
   fullName: string
-  email: string
+  username: string
   password: string
   roleCode: string
   departmentId: string
@@ -98,7 +98,7 @@ interface AccountForm {
 
 const emptyForm: AccountForm = {
   fullName: '',
-  email: '',
+  username: '',
   password: '',
   roleCode: 'EMPLOYEE',
   departmentId: '',
@@ -198,7 +198,7 @@ export default function UserManagementPage() {
     setResetPassword('')
     setForm({
       fullName: user.fullName,
-      email: user.email ?? '',
+      username: user.username ?? user.email?.split('@')[0] ?? '',
       password: '',
       roleCode: user.roleCode ?? 'EMPLOYEE',
       departmentId: user.departmentId ?? '',
@@ -312,8 +312,8 @@ export default function UserManagementPage() {
     return users.filter((user) => {
       const matchesQuery = !needle || [
         user.fullName,
-        user.email,
         user.username,
+        user.email,
         user.departmentName,
         user.roleLabel,
       ].some((value) => value?.toLowerCase().includes(needle))
@@ -388,7 +388,7 @@ export default function UserManagementPage() {
       <section style={toolbarStyle}>
         <Input
           aria-label="Tìm tài khoản"
-          placeholder="Tìm theo tên, email, role, phòng ban..."
+          placeholder="Tìm theo tên, tên đăng nhập, role, phòng ban..."
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           style={{ minWidth: 240 }}
@@ -407,7 +407,7 @@ export default function UserManagementPage() {
               <thead>
                 <tr>
                   <Th>Họ tên</Th>
-                  <Th>Email / Username</Th>
+                  <Th>Tên đăng nhập / Email nội bộ</Th>
                   <Th>Role</Th>
                   <Th>Phòng ban</Th>
                   <Th>Quản lý</Th>
@@ -429,8 +429,8 @@ export default function UserManagementPage() {
                         <div style={mutedText}>Cập nhật: {formatDate(user.updatedAt)}</div>
                       </Td>
                       <Td>
-                        <div style={primaryText}>{user.email ?? 'Chưa có email'}</div>
-                        <div style={mutedText}>{user.username ?? 'Chưa có username'}</div>
+                        <div style={primaryText}>{user.username ?? 'Chưa có tên đăng nhập'}</div>
+                        <div style={mutedText}>{user.email ?? 'Chưa có email nội bộ'}</div>
                       </Td>
                       <Td><BadgeLike tone="lime">{user.roleLabel}</BadgeLike></Td>
                       <Td>{user.departmentName ?? 'Chưa gán'}</Td>
@@ -483,7 +483,7 @@ export default function UserManagementPage() {
               </form>
             ) : (
               <form onSubmit={mode === 'create' ? handleCreate : handleEdit} style={panelFormStyle}>
-                <PanelHead title={mode === 'create' ? 'Tạo tài khoản staging' : 'Sửa tài khoản'} onClose={() => setMode(null)} />
+                <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={() => setMode(null)} />
                 <Input
                   label="Họ tên"
                   value={form.fullName}
@@ -493,11 +493,13 @@ export default function UserManagementPage() {
                 {mode === 'create' ? (
                   <>
                     <Input
-                      label="Email"
-                      type="email"
-                      value={form.email}
-                      onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+                      label="Tên đăng nhập"
+                      placeholder="nhung"
+                      autoComplete="username"
+                      value={form.username}
+                      onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
                       required
+                      helpText="Người dùng sẽ đăng nhập bằng tên này. Email nội bộ sẽ tự tạo dạng username@vyvystore.vn."
                     />
                     <Input
                       label="Mật khẩu tạm"

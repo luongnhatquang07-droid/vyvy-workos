@@ -132,6 +132,14 @@ export function cleanEmail(value: unknown) {
   return cleanText(value).toLowerCase()
 }
 
+export function cleanUsername(value: unknown) {
+  return cleanText(value).normalize('NFKC').toLowerCase()
+}
+
+export function authEmailFromUsername(username: string) {
+  return `${username}@vyvystore.vn`
+}
+
 export function cleanStatus(value: unknown) {
   const text = cleanText(value).toLowerCase()
   if (text === 'inactive' || text === 'suspended') return text

@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 import {
+  authEmailFromUsername,
   cleanEmail,
   cleanNullableId,
   cleanStatus,
   cleanText,
+  cleanUsername,
   isActiveAccountStatus,
   jsonError,
   requireUserManagementAccess,
@@ -45,15 +47,19 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>
     const fullName = cleanText(body.fullName)
-    const email = cleanEmail(body.email)
+    const loginInput = cleanUsername(body.username ?? body.email)
     const password = cleanText(body.password)
     const roleCode = cleanText(body.roleCode).toUpperCase()
     const departmentId = cleanNullableId(body.departmentId)
     const managerId = cleanNullableId(body.managerId)
     const status = cleanStatus(body.status)
+    const email = loginInput.includes('@') ? cleanEmail(loginInput) : authEmailFromUsername(loginInput)
+    const username = loginInput.includes('@') ? usernameFromEmail(email) : loginInput
 
     if (!fullName) return jsonError('Thiếu họ tên.', 400)
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return jsonError('Email không hợp lệ.', 400)
+    if (!username) return jsonError('Thiếu tên đăng nhập.', 400)
+    if (!/^[a-z0-9._-]+$/.test(username)) return jsonError('Tên đăng nhập chỉ dùng chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang.', 400)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return jsonError('Email nội bộ không hợp lệ.', 400)
     if (password.length < 8) return jsonError('Mật khẩu tạm phải có ít nhất 8 ký tự.', 400)
     if (!roleCode) return jsonError('Thiếu vai trò.', 400)
 
@@ -61,7 +67,7 @@ export async function POST(request: Request) {
     if (!role) return jsonError('Vai trò không tồn tại.', 400)
 
     const duplicate = await findDuplicateEmail(auth.service, auth.workspaceId, email)
-    if (duplicate) return jsonError('Email đã tồn tại trong staging.', 409)
+    if (duplicate) return jsonError('Tên đăng nhập đã tồn tại.', 409)
 
     if (departmentId) {
       const departmentOk = await entityExists(auth.service, 'departments', auth.workspaceId, departmentId)
@@ -73,17 +79,14 @@ export async function POST(request: Request) {
       if (!managerOk) return jsonError('Người quản lý không tồn tại.', 400)
     }
 
-    const username = usernameFromEmail(email)
-    if (username) {
-      const usernameRes = await auth.service
-        .from('profiles')
-        .select('id')
-        .eq('workspace_id', auth.workspaceId)
-        .eq('username', username)
-        .maybeSingle()
-      if (usernameRes.error) throw usernameRes.error
-      if (usernameRes.data) return jsonError('Username đã tồn tại.', 409)
-    }
+    const usernameRes = await auth.service
+      .from('profiles')
+      .select('id')
+      .eq('workspace_id', auth.workspaceId)
+      .eq('username', username)
+      .maybeSingle()
+    if (usernameRes.error) throw usernameRes.error
+    if (usernameRes.data) return jsonError('Tên đăng nhập đã tồn tại.', 409)
 
     const authRes = await auth.service.auth.admin.createUser({
       email,
