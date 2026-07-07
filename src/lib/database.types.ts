@@ -51,6 +51,7 @@ export interface ProjectRow {
   code: string | null
   description: string | null
   owner_id: string | null
+  reviewer_id?: string | null
   status: string
   health_status: 'NO_DATA' | 'ON_TRACK' | 'WARNING' | 'AT_RISK' | 'CRITICAL'
   start_date: string | null
@@ -65,6 +66,7 @@ export interface TaskRow {
   workstream_id: string | null
   title: string
   owner_id: string | null
+  reviewer_id?: string | null
   status:
     | 'NOT_STARTED'
     | 'IN_PROGRESS'
@@ -190,6 +192,7 @@ export interface CommandCenterProjectRow {
   code: string | null
   description: string | null
   owner_id: string | null
+  reviewer_id?: string | null
   status: string
   health_status: 'NO_DATA' | 'ON_TRACK' | 'WARNING' | 'AT_RISK' | 'CRITICAL'
   start_date: string | null
@@ -202,6 +205,7 @@ export interface CommandCenterTaskRow {
   title: string
   description: string | null
   owner_id: string | null
+  reviewer_id?: string | null
   project_id: string | null
   workstream_id: string | null
   start_date: string | null
@@ -230,6 +234,7 @@ export interface CommandCenterWorkstreamRow {
   name: string
   description: string | null
   owner_id: string | null
+  reviewer_id?: string | null
   status: string
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   start_date: string | null
@@ -244,6 +249,7 @@ export interface CommandCenterTaskStepRow {
   title: string
   description: string | null
   owner_id: string | null
+  reviewer_id?: string | null
   status:
     | 'NOT_STARTED'
     | 'IN_PROGRESS'

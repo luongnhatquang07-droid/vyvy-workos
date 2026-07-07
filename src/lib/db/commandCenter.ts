@@ -113,6 +113,7 @@ export async function getCommandCenterData(
       (!task.project_id || projectIds.has(task.project_id)) &&
       (!task.workstream_id || workstreamIds.has(task.workstream_id)),
     )
+  await hydrateWorkspaceItemReviewers(sb, workspaceId, { projects, workstreams, tasks })
   const taskIds = new Set(tasks.map((task) => task.id))
   if (taskIds.size) {
     const assigneesRes = await sb
@@ -145,6 +146,7 @@ export async function getCommandCenterData(
   }
   let taskSteps = (requireRows('bước thực hiện', taskStepsRes) as RawCommandCenterData['taskSteps'])
     .filter((step) => taskIds.has(step.task_id))
+  await hydrateWorkspaceItemReviewers(sb, workspaceId, { taskSteps })
   const stepIds = new Set(taskSteps.map((step) => step.id))
 
   const deadlineRollups = buildDeadlineRollups({
@@ -328,6 +330,57 @@ function isActivityEntityActive(
     default:
       return false
   }
+}
+
+async function hydrateWorkspaceItemReviewers(
+  sb: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  collections: {
+    projects?: Array<{ id: string; reviewer_id?: string | null }>
+    workstreams?: Array<{ id: string; reviewer_id?: string | null }>
+    tasks?: Array<{ id: string; reviewer_id?: string | null }>
+    taskSteps?: Array<{ id: string; reviewer_id?: string | null }>
+  },
+) {
+  await Promise.all([
+    hydrateReviewerRows(sb, workspaceId, 'projects', collections.projects),
+    hydrateReviewerRows(sb, workspaceId, 'workstreams', collections.workstreams),
+    hydrateReviewerRows(sb, workspaceId, 'tasks', collections.tasks),
+    hydrateReviewerRows(sb, workspaceId, 'task_steps', collections.taskSteps),
+  ])
+}
+
+async function hydrateReviewerRows<T extends { id: string; reviewer_id?: string | null }>(
+  sb: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  table: 'projects' | 'workstreams' | 'tasks' | 'task_steps',
+  rows: T[] | undefined,
+) {
+  if (!rows?.length) return
+  const result = await sb
+    .from(table)
+    .select('id,reviewer_id')
+    .eq('workspace_id', workspaceId)
+    .in('id', rows.map((row) => row.id))
+
+  if (result.error) {
+    if (isMissingReviewerColumn(result.error)) return
+    throw new Error(`Khong doc duoc nguoi duyet cua ${table}: ${result.error.message}`)
+  }
+
+  const reviewers = new Map((result.data ?? []).map((row) => [row.id as string, row.reviewer_id as string | null]))
+  rows.forEach((row) => {
+    if (reviewers.has(row.id)) row.reviewer_id = reviewers.get(row.id) ?? null
+  })
+}
+
+function isMissingReviewerColumn(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error && 'message' in error
+      ? String(error.message)
+      : ''
+  return message.includes('reviewer_id')
 }
 
 function requireRows<T>(

@@ -12,6 +12,7 @@ import {
   RBAC_FORBIDDEN_MESSAGE,
 } from '@/lib/rbac/workspaceResourceAccess'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getDefaultApproverForUser } from '@/lib/approvals/defaultApprover'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
     if (rbacGuard) return rbacGuard
 
     if (body.type === 'project') {
+      await assertReviewerColumnReadyForManualSelection(auth, 'projects', payload)
       const result = await auth.sb.from('projects').insert({
         workspace_id: auth.workspaceId,
         name: text(payload.name) || 'Dự án mới',
@@ -44,11 +46,14 @@ export async function POST(request: Request) {
         health_status: 'NO_DATA',
       }).select('id').single()
       if (result.error) throw result.error
+      const reviewerId = await resolveWorkspaceItemReviewer(auth, payload, text(payload.ownerId) || null)
+      await updateWorkspaceItemReviewer(auth, 'projects', result.data.id, reviewerId, Boolean(text(payload.reviewerId)))
       await logActivity(auth, 'CREATE_PROJECT', 'project', result.data.id, payload)
       return NextResponse.json({ id: result.data.id })
     }
 
     if (body.type === 'workstream') {
+      await assertReviewerColumnReadyForManualSelection(auth, 'workstreams', payload)
       const result = await auth.sb.from('workstreams').insert({
         workspace_id: auth.workspaceId,
         project_id: requiredText(payload.projectId, 'Thiếu dự án cho đầu việc lớn.'),
@@ -61,11 +66,15 @@ export async function POST(request: Request) {
         priority: 'MEDIUM',
       }).select('id').single()
       if (result.error) throw result.error
+      const reviewerId = await resolveWorkspaceItemReviewer(auth, payload, text(payload.ownerId) || null)
+      await updateWorkspaceItemReviewer(auth, 'workstreams', result.data.id, reviewerId, Boolean(text(payload.reviewerId)))
       await logActivity(auth, 'CREATE_WORKSTREAM', 'workstream', result.data.id, payload)
       return NextResponse.json({ id: result.data.id })
     }
 
     if (body.type === 'task') {
+      await assertReviewerColumnReadyForManualSelection(auth, 'tasks', payload)
+      await assertReviewerColumnReadyForManualSelection(auth, 'task_steps', payload)
       const taskRes = await auth.sb.from('tasks').insert({
         workspace_id: auth.workspaceId,
         project_id: requiredText(payload.projectId, 'Thiếu dự án cho đầu việc con.'),
@@ -80,6 +89,8 @@ export async function POST(request: Request) {
         priority: 'MEDIUM',
       }).select('id,title,project_id,owner_id,start_date,due_date').single()
       if (taskRes.error) throw taskRes.error
+      const reviewerId = await resolveWorkspaceItemReviewer(auth, payload, taskRes.data.owner_id)
+      await updateWorkspaceItemReviewer(auth, 'tasks', taskRes.data.id, reviewerId, Boolean(text(payload.reviewerId)))
 
       const dueDate = taskRes.data.due_date ?? dateOrNull(payload.dueDate)
       const templateSteps = buildTemplateSteps(
@@ -96,6 +107,7 @@ export async function POST(request: Request) {
         const stepsRes = await auth.sb.from('task_steps').insert(templateSteps).select('id,sort_order')
         if (stepsRes.error) throw stepsRes.error
         submitStepId = stepsRes.data?.find((step) => step.sort_order === 3)?.id ?? null
+        await updateWorkspaceItemReviewersByIds(auth, 'task_steps', stepsRes.data?.map((step) => step.id) ?? [], reviewerId, Boolean(text(payload.reviewerId)))
       }
 
       if (payload.needsFile !== false) {
@@ -107,6 +119,7 @@ export async function POST(request: Request) {
           name: `Kết quả: ${taskRes.data.title}`,
           type: 'report',
           submitter_id: taskRes.data.owner_id,
+          reviewer_id: reviewerId,
           due_date: dueDate,
           status: 'REQUIRED',
           is_required: true,
@@ -118,6 +131,7 @@ export async function POST(request: Request) {
     }
 
     if (body.type === 'step') {
+      await assertReviewerColumnReadyForManualSelection(auth, 'task_steps', payload)
       const taskId = requiredText(payload.taskId, 'Thiếu đầu việc con cho bước.')
       const result = await auth.sb.from('task_steps').insert({
         workspace_id: auth.workspaceId,
@@ -132,7 +146,9 @@ export async function POST(request: Request) {
         priority: 'MEDIUM',
       }).select('id').single()
       if (result.error) throw result.error
-      if (payload.requiresDeliverable === true) await ensureStepDeliverable(auth, result.data.id)
+      const reviewerId = await resolveWorkspaceItemReviewer(auth, payload, text(payload.ownerId) || null)
+      await updateWorkspaceItemReviewer(auth, 'task_steps', result.data.id, reviewerId, Boolean(text(payload.reviewerId)))
+      if (payload.requiresDeliverable === true) await ensureStepDeliverable(auth, result.data.id, reviewerId)
       await logActivity(auth, 'CREATE_STEP', 'task_step', result.data.id, payload)
       return NextResponse.json({ id: result.data.id })
     }
@@ -179,10 +195,18 @@ export async function PATCH(request: Request) {
     else if (body.type === 'task') updated = await updateEntity(auth, 'tasks', body.id, mapTaskPatch(patch))
     else if (body.type === 'step') {
       updated = await updateEntity(auth, 'task_steps', body.id, mapPatch(patch, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'isRequired', 'priority']))
-      if (patch.requiresDeliverable === true) await ensureStepDeliverable(auth, body.id)
+      if (patch.requiresDeliverable === true) await ensureStepDeliverable(auth, body.id, patch.reviewerId !== undefined ? text(patch.reviewerId) || null : undefined)
       if (patch.requiresDeliverable === false) await disableStepDeliverable(auth, body.id)
     }
     else return NextResponse.json({ error: 'Loại thao tác chưa được hỗ trợ.' }, { status: 400 })
+
+    if (patch.reviewerId !== undefined) {
+      const reviewerId = text(patch.reviewerId) || null
+      const reviewerTable = reviewerTableForEntity(body.type)
+      if (reviewerTable) await updateWorkspaceItemReviewer(auth, reviewerTable, body.id, reviewerId, Boolean(text(patch.reviewerId)))
+      if (body.type === 'task') await updateTaskDeliverableReviewer(auth, body.id, reviewerId)
+      if (body.type === 'step') await updateStepDeliverableReviewer(auth, body.id, reviewerId)
+    }
 
     await logActivity(auth, 'UPDATE_WORKSPACE_ITEM', body.type, body.id, patch)
     return NextResponse.json({ ok: true, item: updated })
@@ -728,9 +752,142 @@ function stepPayload(
   }
 }
 
+async function resolveWorkspaceItemReviewer(
+  auth: WorkspaceAuth,
+  payload: Record<string, unknown>,
+  ownerId: string | null,
+) {
+  const requestedReviewerId = text(payload.reviewerId) || null
+  if (requestedReviewerId) {
+    const exists = await personInWorkspace(auth, requestedReviewerId)
+    if (!exists) throw new Error('Người duyệt không thuộc workspace hiện tại.')
+    return requestedReviewerId
+  }
+  return ownerId ? await getDefaultApproverForUser(auth.sb, auth.workspaceId, { personId: ownerId }) : null
+}
+
+async function personInWorkspace(auth: WorkspaceAuth, personId: string) {
+  const result = await auth.sb
+    .from('people')
+    .select('id')
+    .eq('workspace_id', auth.workspaceId)
+    .eq('id', personId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (result.error) throw result.error
+  return Boolean(result.data?.id)
+}
+
+function reviewerTableForEntity(type: EntityType | undefined) {
+  if (type === 'project') return 'projects'
+  if (type === 'workstream') return 'workstreams'
+  if (type === 'task') return 'tasks'
+  if (type === 'step') return 'task_steps'
+  return null
+}
+
+async function assertReviewerColumnReadyForManualSelection(
+  auth: WorkspaceAuth,
+  table: 'projects' | 'workstreams' | 'tasks' | 'task_steps',
+  payload: Record<string, unknown>,
+) {
+  if (!text(payload.reviewerId)) return
+  const ready = await workspaceItemReviewerColumnReady(auth, table)
+  if (!ready) throw new Error('Chưa có cột reviewer_id cho cấp này. Cần chạy migration additive trước khi lưu Người duyệt.')
+}
+
+async function updateWorkspaceItemReviewer(
+  auth: WorkspaceAuth,
+  table: 'projects' | 'workstreams' | 'tasks' | 'task_steps',
+  id: string,
+  reviewerId: string | null,
+  required: boolean,
+) {
+  if (!reviewerId && !required) {
+    const ready = await workspaceItemReviewerColumnReady(auth, table)
+    if (!ready) return
+  }
+  if (reviewerId && !(await personInWorkspace(auth, reviewerId))) throw new Error('Người duyệt không thuộc workspace hiện tại.')
+  const ready = await workspaceItemReviewerColumnReady(auth, table)
+  if (!ready) {
+    if (required) throw new Error('Chưa có cột reviewer_id cho cấp này. Cần chạy migration additive trước khi lưu Người duyệt.')
+    return
+  }
+  const result = await auth.sb
+    .from(table)
+    .update({ reviewer_id: reviewerId })
+    .eq('workspace_id', auth.workspaceId)
+    .eq('id', id)
+  if (result.error) throw result.error
+}
+
+async function updateWorkspaceItemReviewersByIds(
+  auth: WorkspaceAuth,
+  table: 'task_steps',
+  ids: string[],
+  reviewerId: string | null,
+  required: boolean,
+) {
+  if (!ids.length) return
+  const ready = await workspaceItemReviewerColumnReady(auth, table)
+  if (!ready) {
+    if (required) throw new Error('Chưa có cột reviewer_id cho step. Cần chạy migration additive trước khi lưu Người duyệt.')
+    return
+  }
+  const result = await auth.sb
+    .from(table)
+    .update({ reviewer_id: reviewerId })
+    .eq('workspace_id', auth.workspaceId)
+    .in('id', ids)
+  if (result.error) throw result.error
+}
+
+async function workspaceItemReviewerColumnReady(
+  auth: WorkspaceAuth,
+  table: 'projects' | 'workstreams' | 'tasks' | 'task_steps',
+) {
+  const result = await auth.sb
+    .from(table)
+    .select('id,reviewer_id')
+    .eq('workspace_id', auth.workspaceId)
+    .limit(1)
+  if (!result.error) return true
+  if (isMissingReviewerColumn(result.error)) return false
+  throw result.error
+}
+
+function isMissingReviewerColumn(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error && 'message' in error
+      ? String(error.message)
+      : ''
+  return message.includes('reviewer_id')
+}
+
+async function updateTaskDeliverableReviewer(auth: WorkspaceAuth, taskId: string, reviewerId: string | null) {
+  const result = await auth.sb
+    .from('deliverables')
+    .update({ reviewer_id: reviewerId })
+    .eq('workspace_id', auth.workspaceId)
+    .eq('task_id', taskId)
+    .is('step_id', null)
+  if (result.error) throw result.error
+}
+
+async function updateStepDeliverableReviewer(auth: WorkspaceAuth, stepId: string, reviewerId: string | null) {
+  const result = await auth.sb
+    .from('deliverables')
+    .update({ reviewer_id: reviewerId })
+    .eq('workspace_id', auth.workspaceId)
+    .eq('step_id', stepId)
+  if (result.error) throw result.error
+}
+
 async function ensureStepDeliverable(
   auth: Exclude<Awaited<ReturnType<typeof getWorkspace>>, { response: NextResponse }>,
   stepId: string,
+  reviewerId?: string | null,
 ) {
   const existing = await auth.sb
     .from('deliverables')
@@ -740,9 +897,12 @@ async function ensureStepDeliverable(
     .maybeSingle()
   if (existing.error) throw existing.error
   if (existing.data?.id) {
+    const updatePayload = reviewerId === undefined
+      ? { is_required: true }
+      : { is_required: true, reviewer_id: reviewerId }
     const updateRes = await auth.sb
       .from('deliverables')
-      .update({ is_required: true })
+      .update(updatePayload)
       .eq('id', existing.data.id)
       .eq('workspace_id', auth.workspaceId)
     if (updateRes.error) throw updateRes.error
@@ -776,6 +936,7 @@ async function ensureStepDeliverable(
     required_format: step.description,
     type: 'report',
     submitter_id: step.owner_id,
+    reviewer_id: reviewerId ?? null,
     due_date: step.due_date,
     status: 'REQUIRED',
     is_required: true,

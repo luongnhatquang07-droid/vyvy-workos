@@ -60,6 +60,7 @@ interface StepItem {
   title: string
   description: string
   ownerId: string | null
+  reviewerId: string | null
   dueDate: string
   missingDueDate?: boolean
   status: TaskStatus
@@ -81,6 +82,7 @@ interface StepDraft {
   title: string
   description: string
   ownerId: string
+  reviewerId: string
   dueDate: string
   status: TaskStatus
   isRequired: boolean
@@ -93,6 +95,7 @@ interface SubtaskItem {
   title: string
   description: string
   ownerId: string | null
+  reviewerId: string | null
   supporterIds: string[]
   startDate: string
   dueDate: string
@@ -113,6 +116,7 @@ interface WorkstreamItem {
   title: string
   description: string
   ownerId: string | null
+  reviewerId: string | null
   storedStatus: string | null
   startDate: string
   dueDate: string
@@ -138,6 +142,7 @@ interface ProjectWorkspace {
   status: TaskStatus
   storedStatus: string | null
   ownerId: string | null
+  reviewerId: string | null
   startDate: string
   dueDate: string
   description: string
@@ -158,6 +163,7 @@ interface ComposerDraft {
   code: string
   description: string
   ownerId: string
+  reviewerId: string
   startDate: string
   dueDate: string
   cadence: string
@@ -201,6 +207,7 @@ interface EditDraft {
   title: string
   description: string
   ownerId: string
+  reviewerId: string
   startDate: string
   dueDate: string
   status: TaskStatus
@@ -678,7 +685,7 @@ function ProjectsPageContent() {
   function openComposer(mode: ComposerMode, parentId?: string) {
     setComposerMode(mode)
     setComposerParentId(parentId ?? null)
-    setComposerDraft(createDraft(selectedProject?.ownerId ?? null, selectedProject?.dueDate))
+    setComposerDraft(createDraft(selectedProject?.ownerId ?? null, selectedProject?.dueDate, selectedProject?.reviewerId ?? null))
   }
 
   async function saveComposer() {
@@ -850,6 +857,7 @@ function ProjectsPageContent() {
       patch: {
         title: patch.title,
         ownerId: patch.ownerId,
+        reviewerId: patch.reviewerId,
         dueDate: patch.dueDate,
         status: patch.status,
         description: patch.description ?? patch.note,
@@ -870,6 +878,7 @@ function ProjectsPageContent() {
           title: draft.title,
           description: draft.description,
           ownerId: draft.ownerId || null,
+          reviewerId: draft.reviewerId || null,
           dueDate: draft.dueDate,
           status: draft.status,
           isRequired: draft.isRequired,
@@ -894,7 +903,7 @@ function ProjectsPageContent() {
                         steps: [
                           ...subtask.steps,
                           {
-                            ...makeStep(draft.title, draft.ownerId || null, draft.dueDate),
+                            ...makeStep(draft.title, draft.ownerId || null, draft.dueDate, draft.reviewerId || null),
                             description: draft.description,
                             note: draft.description,
                             status: draft.status,
@@ -1469,7 +1478,16 @@ function ProjectsPageContent() {
               <select value={composerDraft.ownerId} onChange={(e) => setComposerDraft((current) => ({ ...current, ownerId: e.target.value }))} style={inputStyle}>
                 <option value="">Chưa gắn người</option>
                 {Object.values(people).map((person) => (
-                  <option key={person.id} value={person.id}>{person.full_name}</option>
+                  <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Người duyệt">
+              <select value={composerDraft.reviewerId} onChange={(e) => setComposerDraft((current) => ({ ...current, reviewerId: e.target.value }))} style={inputStyle}>
+                <option value="">Chưa gắn người duyệt</option>
+                {Object.values(people).map((person) => (
+                  <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
                 ))}
               </select>
             </Field>
@@ -1724,7 +1742,7 @@ function SubtaskCompactDetail({
             taskId={subtask.sourceTaskId ?? undefined}
             deliverableId={activeUploadStep?.deliverableId ?? undefined}
             peopleOptions={peopleOptions}
-            defaultApproverId={activeUploadStep?.deliverableReviewerId ?? project.ownerId}
+            defaultApproverId={activeUploadStep?.deliverableReviewerId ?? activeUploadStep?.reviewerId ?? project.reviewerId ?? project.ownerId}
             requiresApproval={Boolean(activeUploadStep?.deliverableId)}
             compact
             label="Tải file hoàn thành, báo cáo, ảnh chụp, tài liệu"
@@ -1747,7 +1765,7 @@ function SubtaskCompactDetail({
               projectId={project.sourceProjectId ?? undefined}
               taskId={subtask.sourceTaskId ?? undefined}
               deliverableId={activeUploadStep.deliverableId}
-              reviewerId={activeUploadStep.deliverableReviewerId}
+              reviewerId={activeUploadStep.deliverableReviewerId ?? activeUploadStep.reviewerId}
               requiresApproval={activeUploadStep.deliverableRequiresApproval || Boolean(activeUploadStep.deliverableId)}
               refreshKey={fileRefreshKey}
               peopleById={peopleById}
@@ -2004,6 +2022,7 @@ function StepCard({
       description: draft.description,
       note: draft.description,
       ownerId: draft.ownerId || null,
+      reviewerId: draft.reviewerId || null,
       dueDate: draft.dueDate,
       status: draft.status,
       isRequired: draft.isRequired,
@@ -2031,6 +2050,7 @@ function StepCard({
 
         <div style={stepMetaGrid}>
           <span>Người phụ trách: <strong>{people[step.ownerId ?? '']?.full_name ?? 'Chưa gắn'}</strong></span>
+          <span>Người duyệt: <strong>{people[step.reviewerId ?? '']?.full_name ?? 'Chưa gắn'}</strong></span>
         <span title={step.dueDate ? toFullDate(step.dueDate) : undefined}>Deadline: <strong>{step.dueDate ? formatDeadlineLabel(step.dueDate, step.status) : 'Chưa có'}</strong></span>
           <span>Bắt buộc: <strong>{step.isRequired ? 'Có' : 'Không'}</strong></span>
           <span>File/báo cáo: <strong>{deliverableStatusLabel(step)}</strong></span>
@@ -2090,7 +2110,15 @@ function StepDraftForm({
           <select value={draft.ownerId} onChange={(e) => onChange({ ...draft, ownerId: e.target.value })} style={inputStyle}>
             <option value="">Chưa gắn</option>
             {Object.values(people).map((person) => (
-              <option key={person.id} value={person.id}>{person.full_name}</option>
+              <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Người duyệt">
+          <select value={draft.reviewerId} onChange={(e) => onChange({ ...draft, reviewerId: e.target.value })} style={inputStyle}>
+            <option value="">Chưa gắn người duyệt</option>
+            {Object.values(people).map((person) => (
+              <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
             ))}
           </select>
         </Field>
@@ -2265,7 +2293,15 @@ function EditWorkItemDrawerBody({
           <select value={draft.ownerId} onChange={(event) => setDraft((current) => ({ ...current, ownerId: event.target.value }))} style={inputStyle}>
             <option value="">Chưa gắn người</option>
             {Object.values(people).map((person) => (
-              <option key={person.id} value={person.id}>{person.full_name}</option>
+              <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Người duyệt">
+          <select value={draft.reviewerId} onChange={(event) => setDraft((current) => ({ ...current, reviewerId: event.target.value }))} style={inputStyle}>
+            <option value="">Chưa gắn người duyệt</option>
+            {Object.values(people).map((person) => (
+              <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
             ))}
           </select>
         </Field>
@@ -4606,6 +4642,7 @@ function seedWorkspace(
           title: 'Chưa phân nhóm',
           description: '',
           ownerId: project.owner_id ?? fallbackOwner,
+          reviewerId: project.reviewer_id ?? null,
           storedStatus: 'NOT_STARTED',
           startDate,
           dueDate: project.due_date ?? shiftDate(startDate, 21),
@@ -4624,6 +4661,7 @@ function seedWorkspace(
       status: normalizeStatus(project.status),
       storedStatus: project.status,
       ownerId: project.owner_id ?? fallbackOwner,
+      reviewerId: project.reviewer_id ?? null,
       startDate,
       dueDate,
       description: project.description ?? '',
@@ -4654,6 +4692,7 @@ function toWorkstreamItem(
     title: workstream.name,
     description: workstream.description ?? '',
     ownerId: workstream.owner_id ?? fallbackOwner,
+    reviewerId: workstream.reviewer_id ?? null,
     storedStatus: workstream.status,
     startDate: workstream.start_date ?? subtasks[0]?.startDate ?? projectStart,
     dueDate: workstream.due_date ?? subtasks.map((task) => task.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(projectStart, 14),
@@ -4685,6 +4724,7 @@ function toSeedSubtask(
         title: step.title,
         description: stepText.description,
         ownerId: step.owner_id,
+        reviewerId: step.reviewer_id ?? null,
         dueDate: step.due_date ?? dueDate,
         missingDueDate: !step.due_date,
         status: evidence.valid ? 'COMPLETED' : stepStatus,
@@ -4722,6 +4762,7 @@ function toSeedSubtask(
     title: task.title,
     description: task.description ?? '',
     ownerId: task.owner_id,
+    reviewerId: task.reviewer_id ?? null,
     supporterIds: [],
     startDate,
     dueDate,
@@ -4843,6 +4884,13 @@ function normalizeStatus(value: string): TaskStatus {
   return 'NOT_STARTED'
 }
 
+function formatPeopleOption(person: CommandCenterPersonRow) {
+  const department = Array.isArray(person.department)
+    ? person.department[0]?.name
+    : person.department?.name
+  return [person.full_name, person.job_title, department].filter(Boolean).join(' — ')
+}
+
 function isTaskStatus(value: string | null | undefined): value is TaskStatus {
   return Boolean(value && TASK_STATUS_ORDER.includes(value as TaskStatus))
 }
@@ -4865,12 +4913,13 @@ function serializeStepText(description: string, expectedResult: string) {
   return `${cleanDescription}${STEP_EXPECTED_RESULT_MARKER}${cleanExpectedResult}`
 }
 
-function makeStep(title: string, ownerId: string | null, dueDate: string): StepItem {
+function makeStep(title: string, ownerId: string | null, dueDate: string, reviewerId: string | null = null): StepItem {
   return {
     id: makeId('step'),
     title,
     description: '',
     ownerId,
+    reviewerId,
     dueDate,
     status: 'NOT_STARTED',
     note: '',
@@ -4891,6 +4940,7 @@ function createStepDraft(subtask: SubtaskItem): StepDraft {
     title: '',
     description: '',
     ownerId: subtask.ownerId ?? '',
+    reviewerId: subtask.reviewerId ?? '',
     dueDate: subtask.dueDate,
     status: 'NOT_STARTED',
     isRequired: true,
@@ -4903,6 +4953,7 @@ function stepToDraft(step: StepItem): StepDraft {
     title: step.title,
     description: step.description || step.note,
     ownerId: step.ownerId ?? '',
+    reviewerId: step.reviewerId ?? '',
     dueDate: step.dueDate,
     status: step.status,
     isRequired: step.isRequired,
@@ -4934,6 +4985,7 @@ function editContextToDraft(context: EditContext): EditDraft {
       title: context.project.name,
       description: context.project.description,
       ownerId: context.project.ownerId ?? '',
+      reviewerId: context.project.reviewerId ?? '',
       startDate: context.project.startDate,
       dueDate: context.project.dueDate,
       status: context.project.status,
@@ -4948,6 +5000,7 @@ function editContextToDraft(context: EditContext): EditDraft {
       title: context.workstream.title,
       description: context.workstream.description,
       ownerId: context.workstream.ownerId ?? '',
+      reviewerId: context.workstream.reviewerId ?? '',
       startDate: context.workstream.startDate,
       dueDate: context.workstream.dueDate,
       status: context.workstream.status,
@@ -4962,6 +5015,7 @@ function editContextToDraft(context: EditContext): EditDraft {
       title: context.subtask.title,
       description: context.subtask.description,
       ownerId: context.subtask.ownerId ?? '',
+      reviewerId: context.subtask.reviewerId ?? '',
       startDate: context.subtask.startDate,
       dueDate: context.subtask.dueDate,
       status: context.subtask.status,
@@ -4976,6 +5030,7 @@ function editContextToDraft(context: EditContext): EditDraft {
     title: step.title,
     description: step.description || step.note,
     ownerId: step.ownerId ?? '',
+    reviewerId: step.reviewerId ?? '',
     startDate: '',
     dueDate: step.dueDate,
     status: step.status,
@@ -5007,6 +5062,7 @@ function buildEditPatch(kind: EditableKind, draft: EditDraft): Record<string, un
       title: draft.title.trim(),
       description: serializeStepText(draft.description, draft.expectedResult),
       ownerId: draft.ownerId || null,
+      reviewerId: draft.reviewerId || null,
       dueDate: draft.dueDate || null,
       status: draft.status,
       isRequired: draft.isRequired,
@@ -5018,6 +5074,7 @@ function buildEditPatch(kind: EditableKind, draft: EditDraft): Record<string, un
     name: draft.title.trim(),
     description: draft.description.trim(),
     ownerId: draft.ownerId || null,
+    reviewerId: draft.reviewerId || null,
     startDate: draft.startDate || null,
     dueDate: draft.dueDate || null,
     status: draft.status,
@@ -5034,6 +5091,7 @@ function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTa
         name: draft.title.trim(),
         description: draft.description,
         ownerId: draft.ownerId || null,
+        reviewerId: draft.reviewerId || null,
         startDate: draft.startDate,
         dueDate: draft.dueDate,
         status: draft.status,
@@ -5051,6 +5109,7 @@ function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTa
             title: draft.title.trim(),
             description: draft.description,
             ownerId: draft.ownerId || null,
+            reviewerId: draft.reviewerId || null,
             startDate: draft.startDate,
             dueDate: draft.dueDate,
             status: draft.status,
@@ -5068,6 +5127,7 @@ function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTa
                 title: draft.title.trim(),
                 description: draft.description,
                 ownerId: draft.ownerId || null,
+                reviewerId: draft.reviewerId || null,
                 startDate: draft.startDate,
                 dueDate: draft.dueDate,
                 status: draft.status,
@@ -5086,6 +5146,7 @@ function applyEditDraftToWorkspace(workspace: ProjectWorkspace[], target: EditTa
                       description: draft.description,
                       note: draft.expectedResult,
                       ownerId: draft.ownerId || null,
+                      reviewerId: draft.reviewerId || null,
                       dueDate: draft.dueDate,
                       status: draft.status,
                       isRequired: draft.isRequired,
@@ -5147,12 +5208,13 @@ function deliverableStatusLabel(step: StepItem) {
   return 'Chưa nộp file/báo cáo'
 }
 
-function createDraft(ownerId?: string | null, dueDate?: string): ComposerDraft {
+function createDraft(ownerId?: string | null, dueDate?: string, reviewerId?: string | null): ComposerDraft {
   return {
     name: '',
     code: '',
     description: '',
     ownerId: ownerId ?? '',
+    reviewerId: reviewerId ?? '',
     startDate: getVietnamDateKey(),
     dueDate: dueDate ?? shiftDate(getVietnamDateKey(), 7),
     cadence: '',
