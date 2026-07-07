@@ -82,6 +82,19 @@ interface RowActionCapabilities {
   canDelete: boolean
 }
 
+interface PersonLookupRow {
+  id: string
+  name: string
+  email: string | null
+  profileId: string | null
+  departmentId: string | null
+  departmentName: string | null
+  managerId: string | null
+  defaultApproverId: string | null
+  roleLabel: string | null
+  hasAccount: boolean
+}
+
 interface UserManagementCapabilities {
   canCreateUser: boolean
   canEditMappedUser: boolean
@@ -308,6 +321,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
         code: department.code,
         status: department.status,
       })),
+      people: people.map((person) => personLookupRow(person, departmentsById, membershipsByProfile, rolesById)),
       managers: people.map((person) => ({
         id: person.id,
         name: person.full_name,
@@ -319,6 +333,27 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
           : roleLabel(null),
       })),
     },
+  }
+}
+
+function personLookupRow(
+  person: PersonRow,
+  departmentsById: Map<string, DepartmentRow>,
+  membershipsByProfile: Map<string, MembershipRow>,
+  rolesById: Map<string, RoleRow>,
+): PersonLookupRow {
+  const roleCode = person.profile_id ? rolesById.get(membershipsByProfile.get(person.profile_id)?.role_id ?? '')?.code : null
+  return {
+    id: person.id,
+    name: person.full_name,
+    email: person.email,
+    profileId: person.profile_id,
+    departmentId: person.department_id,
+    departmentName: person.department_id ? departmentsById.get(person.department_id)?.name ?? null : null,
+    managerId: person.manager_id,
+    defaultApproverId: person.default_approver_id ?? null,
+    roleLabel: roleLabel(roleCode),
+    hasAccount: Boolean(person.profile_id),
   }
 }
 
@@ -401,7 +436,7 @@ export async function requireCompleteManagedUserRow(
   }
 }
 
-export async function findDuplicateEmail(service: ServiceClient, workspaceId: string, email: string) {
+export async function findDuplicateEmail(service: ServiceClient, workspaceId: string, email: string, excludePersonId?: string | null) {
   const peopleRes = await service
     .from('people')
     .select('id')
@@ -410,11 +445,44 @@ export async function findDuplicateEmail(service: ServiceClient, workspaceId: st
     .is('deleted_at', null)
     .maybeSingle()
   if (peopleRes.error) throw peopleRes.error
-  if (peopleRes.data) return true
+  if (peopleRes.data && peopleRes.data.id !== excludePersonId) return true
 
   const authUsersResult = await listAuthUsersResilient(service)
   const authUsers = authUsersResult.users
   return authUsers.some((user) => user.email?.toLowerCase() === email)
+}
+
+export async function findDuplicatePersonName(service: ServiceClient, workspaceId: string, fullName: string) {
+  const normalizedName = normalizePersonName(fullName)
+  if (!normalizedName) return null
+
+  const peopleRes = await service
+    .from('people')
+    .select('id,full_name,profile_id')
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+  if (peopleRes.error) throw peopleRes.error
+
+  return (peopleRes.data ?? []).find((person) => {
+    const existingName = normalizePersonName(person.full_name)
+    return (
+      existingName === normalizedName ||
+      existingName.endsWith(` ${normalizedName}`) ||
+      normalizedName.endsWith(` ${existingName}`)
+    )
+  }) ?? null
+}
+
+function normalizePersonName(value: string | null | undefined) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/đ/g, 'd')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export async function updateMembershipRole(

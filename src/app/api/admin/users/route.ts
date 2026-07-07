@@ -16,6 +16,7 @@ import {
   defaultApproverColumnReady,
   entityExists,
   findDuplicateEmail,
+  findDuplicatePersonName,
   findRoleByCode,
   loadUserManagementData,
 } from '@/lib/admin/userManagementData'
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
     const departmentId = cleanNullableId(body.departmentId)
     const managerId = cleanNullableId(body.managerId)
     const defaultApproverId = cleanNullableId(body.defaultApproverId)
+    const existingPersonId = cleanNullableId(body.existingPersonId)
     const status = cleanStatus(body.status)
     const email = loginInput.includes('@') ? cleanEmail(loginInput) : authEmailFromUsername(loginInput)
     const username = loginInput.includes('@') ? usernameFromEmail(email) : loginInput
@@ -76,8 +78,39 @@ export async function POST(request: Request) {
       if (roleCode === 'ADMIN') return jsonError('ADMIN luon dung full quyen, khong can custom override.', 400)
     }
 
-    const duplicate = await findDuplicateEmail(auth.service, auth.workspaceId, email)
+    let existingPerson: {
+      id: string
+      profile_id: string | null
+      full_name: string
+      email: string | null
+      department_id: string | null
+      manager_id: string | null
+      default_approver_id?: string | null
+    } | null = null
+
+    if (existingPersonId) {
+      const existingPersonRes = await auth.service
+        .from('people')
+        .select('id,profile_id,full_name,email,department_id,manager_id,default_approver_id')
+        .eq('workspace_id', auth.workspaceId)
+        .eq('id', existingPersonId)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (existingPersonRes.error) throw existingPersonRes.error
+      if (!existingPersonRes.data) return jsonError('Nhân sự có sẵn không tồn tại.', 400)
+      if (existingPersonRes.data.profile_id) return jsonError('Nhân sự này đã có tài khoản. Không tạo trùng account.', 409)
+      existingPerson = existingPersonRes.data
+    }
+
+    const duplicate = await findDuplicateEmail(auth.service, auth.workspaceId, email, existingPersonId)
     if (duplicate) return jsonError('Tên đăng nhập đã tồn tại.', 409)
+
+    if (!existingPersonId) {
+      const duplicatePerson = await findDuplicatePersonName(auth.service, auth.workspaceId, fullName)
+      if (duplicatePerson) {
+        return jsonError(`Đã có nhân sự tên "${duplicatePerson.full_name}". Hãy chọn "Nhân sự có sẵn" để map account, không tạo person trùng.`, 409)
+      }
+    }
 
     if (departmentId) {
       const departmentOk = await entityExists(auth.service, 'departments', auth.workspaceId, departmentId)
@@ -85,11 +118,13 @@ export async function POST(request: Request) {
     }
 
     if (managerId) {
+      if (existingPersonId && managerId === existingPersonId) return jsonError('Người quản lý không được trùng chính nhân sự này.', 400)
       const managerOk = await entityExists(auth.service, 'people', auth.workspaceId, managerId)
       if (!managerOk) return jsonError('Người quản lý không tồn tại.', 400)
     }
 
     if (defaultApproverId) {
+      if (existingPersonId && defaultApproverId === existingPersonId) return jsonError('Người duyệt mặc định không được trùng chính nhân sự này.', 400)
       const approverOk = await entityExists(auth.service, 'people', auth.workspaceId, defaultApproverId)
       if (!approverOk) return jsonError('Người duyệt mặc định không tồn tại.', 400)
     }
@@ -132,22 +167,37 @@ export async function POST(request: Request) {
     if (profileRes.error) throw profileRes.error
 
     const personPayload: Record<string, unknown> = {
-      workspace_id: auth.workspaceId,
       profile_id: profileRes.data.id,
       department_id: departmentId,
       manager_id: managerId,
       full_name: fullName,
       email,
       status,
+      updated_at: new Date().toISOString(),
     }
     if (approverColumnReady) personPayload.default_approver_id = defaultApproverId
 
-    const personRes = await auth.service
-      .from('people')
-      .insert(personPayload)
-      .select('id')
-      .single()
-    if (personRes.error) throw personRes.error
+    if (existingPerson) {
+      const personRes = await auth.service
+        .from('people')
+        .update(personPayload)
+        .eq('workspace_id', auth.workspaceId)
+        .eq('id', existingPerson.id)
+        .is('deleted_at', null)
+        .select('id')
+        .single()
+      if (personRes.error) throw personRes.error
+    } else {
+      const personRes = await auth.service
+        .from('people')
+        .insert({
+          ...personPayload,
+          workspace_id: auth.workspaceId,
+        })
+        .select('id')
+        .single()
+      if (personRes.error) throw personRes.error
+    }
 
     const membershipRes = await auth.service.from('workspace_memberships').insert({
       workspace_id: auth.workspaceId,

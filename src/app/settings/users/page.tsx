@@ -63,6 +63,18 @@ interface LookupData {
   roles: Array<{ id: string; code: string; label: string; name: string }>
   departments: Array<{ id: string; name: string; code: string | null; status: string | null }>
   managers: Array<{ id: string; name: string; email: string | null; departmentId: string | null; departmentName?: string | null; roleLabel?: string | null }>
+  people?: Array<{
+    id: string
+    name: string
+    email: string | null
+    profileId: string | null
+    departmentId: string | null
+    departmentName?: string | null
+    managerId?: string | null
+    defaultApproverId?: string | null
+    roleLabel?: string | null
+    hasAccount?: boolean
+  }>
 }
 
 interface UserActionCapabilities {
@@ -102,6 +114,7 @@ interface UsersPayload {
 }
 
 interface AccountForm {
+  existingPersonId: string
   fullName: string
   username: string
   password: string
@@ -125,6 +138,7 @@ interface PermissionState {
 }
 
 const emptyForm: AccountForm = {
+  existingPersonId: '',
   fullName: '',
   username: '',
   password: '',
@@ -159,7 +173,7 @@ export default function UserManagementPage() {
   })
   const [diagnostics, setDiagnostics] = React.useState<UsersPayload['diagnostics']>(undefined)
   const [users, setUsers] = React.useState<ManagedUser[]>([])
-  const [lookups, setLookups] = React.useState<LookupData>({ roles: [], departments: [], managers: [] })
+  const [lookups, setLookups] = React.useState<LookupData>({ roles: [], departments: [], managers: [], people: [] })
   const [meta, setMeta] = React.useState<UsersPayload['meta']>(undefined)
   const [query, setQuery] = React.useState('')
   const [roleFilter, setRoleFilter] = React.useState('')
@@ -187,7 +201,7 @@ export default function UserManagementPage() {
       if (response.status === 403) setForbidden(true)
       if (!response.ok) throw new Error(payload?.error ?? 'Không tải được danh sách tài khoản.')
       setUsers(payload.users ?? [])
-      setLookups(payload.lookups ?? { roles: [], departments: [], managers: [] })
+      setLookups(payload.lookups ?? { roles: [], departments: [], managers: [], people: [] })
       setMeta(payload.meta)
       setAuthAdminError(payload.authAdminError ?? '')
       setWarnings(Array.isArray(payload.warnings) ? payload.warnings : [])
@@ -247,6 +261,7 @@ export default function UserManagementPage() {
     setPermissionState(null)
     setPermissionDraft(buildDefaultPermissionMatrix(user.roleCode ?? 'EMPLOYEE'))
     setForm({
+      existingPersonId: '',
       fullName: user.fullName,
       username: user.username ?? user.email?.split('@')[0] ?? '',
       password: '',
@@ -358,6 +373,18 @@ export default function UserManagementPage() {
   function handleRoleChange(value: string) {
     setForm((prev) => ({ ...prev, roleCode: value }))
     if (!useCustomPermissions) setPermissionDraft(buildDefaultPermissionMatrix(value))
+  }
+
+  function handleExistingPersonChange(value: string) {
+    const person = lookups.people?.find((item) => item.id === value) ?? null
+    setForm((prev) => ({
+      ...prev,
+      existingPersonId: value,
+      fullName: person?.name ?? prev.fullName,
+      departmentId: person?.departmentId ?? prev.departmentId,
+      managerId: person?.managerId ?? prev.managerId,
+      defaultApproverId: person?.defaultApproverId ?? prev.defaultApproverId,
+    }))
   }
 
   function canEditUser(user: ManagedUser) {
@@ -502,6 +529,12 @@ export default function UserManagementPage() {
   }, [authAdminError, capabilities.canCreateUser, source, warnings])
   const formRoleOptions = lookups.roles.map((role) => ({ value: role.code, label: role.label }))
   const departmentOptions = [{ value: '', label: 'Chưa gán phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: department.name }))]
+  const existingPersonOptions = [
+    { value: '', label: 'Chọn nhân sự có sẵn hoặc tạo mới' },
+    ...(lookups.people ?? [])
+      .filter((person) => !person.hasAccount)
+      .map((person) => ({ value: person.id, label: formatPersonOption(person) })),
+  ]
   const managerOptions = [
     { value: '', label: 'Chưa gán quản lý' },
     ...lookups.managers
@@ -692,6 +725,15 @@ export default function UserManagementPage() {
                 <div style={mode === 'create' ? createPanelBodyStyle : panelBodyStyle}>
                   {(mode === 'create' || panelTab === 'account') ? (
                     <section style={accountFieldsStyle}>
+                      {mode === 'create' ? (
+                        <FormSelect
+                          label="Nhân sự có sẵn"
+                          value={form.existingPersonId}
+                          onChange={handleExistingPersonChange}
+                          options={existingPersonOptions}
+                          helpText={form.existingPersonId ? 'Account sẽ được map vào nhân sự đã có, không tạo person mới.' : 'Bỏ trống chỉ khi đây thật sự là nhân sự mới.'}
+                        />
+                      ) : null}
                       <Input
                         label="Họ tên"
                         value={form.fullName}
@@ -1047,11 +1089,24 @@ function SelectField({ value, onChange, options }: { value: string; onChange: (v
   )
 }
 
-function FormSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
+function FormSelect({
+  label,
+  value,
+  onChange,
+  options,
+  helpText,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  options: Array<{ value: string; label: string }>
+  helpText?: string
+}) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span style={labelStyle}>{label}</span>
       <SelectField value={value} onChange={onChange} options={options} />
+      {helpText ? <span style={smallNote}>{helpText}</span> : null}
     </label>
   )
 }
