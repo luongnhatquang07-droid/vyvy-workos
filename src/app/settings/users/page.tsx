@@ -44,6 +44,7 @@ interface ManagedUser {
     canEdit?: boolean
     canResetPassword?: boolean
     canSuspend?: boolean
+    canDelete?: boolean
   }
   createdAt: string | null
   updatedAt: string | null
@@ -69,6 +70,7 @@ interface UserActionCapabilities {
   canEditMappedUser: boolean
   canResetMappedUser: boolean
   canSuspendMappedUser: boolean
+  canDeleteMappedUser: boolean
 }
 
 interface UsersPayload {
@@ -153,6 +155,7 @@ export default function UserManagementPage() {
     canEditMappedUser: false,
     canResetMappedUser: false,
     canSuspendMappedUser: false,
+    canDeleteMappedUser: false,
   })
   const [diagnostics, setDiagnostics] = React.useState<UsersPayload['diagnostics']>(undefined)
   const [users, setUsers] = React.useState<ManagedUser[]>([])
@@ -172,6 +175,7 @@ export default function UserManagementPage() {
   const [permissionDraft, setPermissionDraft] = React.useState<PermissionMatrixRow[]>(buildDefaultPermissionMatrix(emptyForm.roleCode))
   const [resetPassword, setResetPassword] = React.useState('')
   const [statusDialog, setStatusDialog] = React.useState<{ user: ManagedUser; nextStatus: AccountStatus } | null>(null)
+  const [deleteDialog, setDeleteDialog] = React.useState<{ user: ManagedUser } | null>(null)
 
   const loadUsers = React.useCallback(async () => {
     setLoading(true)
@@ -193,6 +197,7 @@ export default function UserManagementPage() {
         canEditMappedUser: payload.capabilities?.canEditMappedUser === true,
         canResetMappedUser: payload.capabilities?.canResetMappedUser === true,
         canSuspendMappedUser: payload.capabilities?.canSuspendMappedUser === true,
+        canDeleteMappedUser: payload.capabilities?.canDeleteMappedUser === true,
       })
       setDiagnostics(payload.diagnostics)
     } catch (err) {
@@ -204,6 +209,7 @@ export default function UserManagementPage() {
         canEditMappedUser: false,
         canResetMappedUser: false,
         canSuspendMappedUser: false,
+        canDeleteMappedUser: false,
       })
       setDiagnostics(undefined)
       setAuthAdminError('Không tải được danh sách tài khoản. Không thể thao tác tài khoản cho đến khi hệ thống tải danh sách thành công.')
@@ -265,11 +271,16 @@ export default function UserManagementPage() {
     setStatusDialog({ user, nextStatus })
   }
 
+  function openDeleteDialog(user: ManagedUser) {
+    setDeleteDialog({ user })
+  }
+
   function closePanel() {
     setPermissionModalOpen(false)
     setMode(null)
     setSelected(null)
     setStatusDialog(null)
+    setDeleteDialog(null)
   }
 
   function resetPermissionDraftToRoleDefault() {
@@ -361,6 +372,10 @@ export default function UserManagementPage() {
     return capabilities.canSuspendMappedUser && user.actionCapabilities?.canSuspend === true
   }
 
+  function canDeleteUser(user: ManagedUser) {
+    return capabilities.canDeleteMappedUser && user.actionCapabilities?.canDelete === true && user.roleCode !== 'ADMIN'
+  }
+
   function inferActionAllowed(url: string, method: 'POST' | 'PATCH' | 'DELETE') {
     if (url === '/api/admin/users' && method === 'POST') return capabilities.canCreateUser
 
@@ -368,6 +383,7 @@ export default function UserManagementPage() {
     if (!targetUser) return false
     if (url.includes('/reset-password')) return canResetUser(targetUser)
     if (url.includes('/status')) return canSuspendUser(targetUser)
+    if (url.includes('/delete')) return canDeleteUser(targetUser)
     return canEditUser(targetUser)
   }
 
@@ -408,6 +424,17 @@ export default function UserManagementPage() {
       { keepPanelOpen: true, actionAllowed: canSuspendUser(user) },
     )
     setStatusDialog(null)
+  }
+
+  async function handleDelete(user: ManagedUser) {
+    await submitJson(
+      `/api/admin/users/${user.profileId}/delete`,
+      'DELETE',
+      {},
+      'Đã xóa mềm tài khoản khỏi danh sách. Auth user đã bị khóa và không bị hard-delete.',
+      { keepPanelOpen: true, actionAllowed: canDeleteUser(user) },
+    )
+    setDeleteDialog(null)
   }
 
   async function submitJson(
@@ -571,6 +598,7 @@ export default function UserManagementPage() {
                   const editActionDisabled = loading || saving || Boolean(error) || !canEditUser(user)
                   const resetActionDisabled = loading || saving || Boolean(error) || !canResetUser(user)
                   const statusActionDisabled = loading || saving || Boolean(error) || !canSuspendUser(user)
+                  const deleteActionDisabled = loading || saving || Boolean(error) || !canDeleteUser(user)
                   return (
                     <tr key={user.profileId}>
                       <Td>
@@ -605,6 +633,15 @@ export default function UserManagementPage() {
                             title={statusActionDisabled ? disabledActionReason(user) : undefined}
                           >
                             {active ? 'Khóa' : 'Mở'}
+                          </button>
+                          <button
+                            type="button"
+                            style={actionButtonStyle('danger', deleteActionDisabled)}
+                            onClick={() => openDeleteDialog(user)}
+                            disabled={deleteActionDisabled}
+                            title={deleteActionDisabled ? deleteDisabledActionReason(user) : undefined}
+                          >
+                            Xóa
                           </button>
                         </div>
                       </ActionTd>
@@ -769,6 +806,35 @@ export default function UserManagementPage() {
                   onClick={() => void handleStatus(statusDialog.user, statusDialog.nextStatus)}
                 >
                   {statusDialog.nextStatus === 'active' ? 'Mở lại tài khoản' : 'Khóa tài khoản'}
+                </Button>
+              </div>
+            </section>
+          </aside>
+        ), document.body) : null}
+        {deleteDialog && typeof document !== 'undefined' ? createPortal((
+          <aside style={panelStyle} role="presentation">
+            <section style={confirmPanelStyle} role="dialog" aria-modal="true" aria-label="Xác nhận xóa tài khoản">
+              <PanelHead
+                title="Xóa tài khoản"
+                onClose={() => setDeleteDialog(null)}
+              />
+              <div style={panelBodyStyle}>
+                <div style={confirmBoxStyle}>
+                  <div style={primaryText}>{deleteDialog.user.fullName}</div>
+                  <div style={smallNote}>
+                    Thao tác này chỉ xóa mềm khỏi danh sách: khóa đăng nhập, tắt membership và ẩn hồ sơ nhân sự. Auth user vẫn được giữ để audit, không hard-delete.
+                  </div>
+                </div>
+              </div>
+              <div style={panelFooterStyle}>
+                <button type="button" style={modalSecondaryButtonStyle} onClick={() => setDeleteDialog(null)}>Hủy</button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  loading={saving}
+                  onClick={() => void handleDelete(deleteDialog.user)}
+                >
+                  Xóa tài khoản
                 </Button>
               </div>
             </section>
@@ -1033,6 +1099,11 @@ function disabledActionReason(user: ManagedUser) {
   if (user.mappingStatus !== 'complete') return 'Hồ sơ chưa liên kết đầy đủ nên không thể thao tác.'
   if (!user.authLinked) return 'Tài khoản chưa liên kết Auth nên không thể thao tác.'
   return 'Thao tác đang bị khóa để đảm bảo an toàn.'
+}
+
+function deleteDisabledActionReason(user: ManagedUser) {
+  if (user.roleCode === 'ADMIN') return 'Không xóa tài khoản ADMIN bằng thao tác nhanh.'
+  return disabledActionReason(user)
 }
 
 function formatDate(value: string | null) {

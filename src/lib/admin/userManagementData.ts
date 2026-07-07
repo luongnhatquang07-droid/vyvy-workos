@@ -79,6 +79,7 @@ interface RowActionCapabilities {
   canEdit: boolean
   canResetPassword: boolean
   canSuspend: boolean
+  canDelete: boolean
 }
 
 interface UserManagementCapabilities {
@@ -86,6 +87,7 @@ interface UserManagementCapabilities {
   canEditMappedUser: boolean
   canResetMappedUser: boolean
   canSuspendMappedUser: boolean
+  canDeleteMappedUser: boolean
 }
 
 export interface AuthAdminErrorDetails {
@@ -134,7 +136,13 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
     ),
   ])
 
-  const profiles = profilesRes.data
+  const rawProfiles = profilesRes.data
+  const deletedAuthUserIds = new Set(
+    rawProfiles
+      .filter((profile) => profile.status === 'deleted' && profile.auth_user_id)
+      .map((profile) => profile.auth_user_id as string),
+  )
+  const profiles = rawProfiles.filter((profile) => profile.status !== 'deleted')
   const people = peopleRes.data
   const memberships = membershipsRes.data
   const roles = rolesRes.data
@@ -217,6 +225,7 @@ export async function loadUserManagementData(service: ServiceClient, workspaceId
   if (authUsersResult.available) {
     for (const authUser of authUsers) {
       if (profilesByAuthId.has(authUser.id)) continue
+      if (deletedAuthUserIds.has(authUser.id)) continue
       users.push({
         profileId: `auth:${authUser.id}`,
         personId: null,
@@ -726,6 +735,7 @@ function resolveCapabilities(input: {
     canEditMappedUser: canOperateMappedRows,
     canResetMappedUser: canOperateMappedRows,
     canSuspendMappedUser: canOperateMappedRows,
+    canDeleteMappedUser: canOperateMappedRows,
   }
 }
 
@@ -752,6 +762,7 @@ function rowActionCapabilities(mappingStatus: UserMappingStatus): RowActionCapab
     canEdit: complete,
     canResetPassword: complete,
     canSuspend: complete,
+    canDelete: complete,
   }
 }
 
