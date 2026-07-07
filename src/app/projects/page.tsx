@@ -329,13 +329,13 @@ const FLOWCHART_STEP_GROUP_THRESHOLD = 8
 const FLOWCHART_GROUP_STEP_PREVIEW_LIMIT = 10
 const FLOWCHART_PROJECT_COLOR = '#DADF21'
 const FLOWCHART_BRANCH_COLORS = ['#DADF21', '#55C7B9', '#F3A83B', '#8EA7FF', '#F472B6', '#A3D977', '#FB7185', '#38BDF8']
-const FLOWCHART_LAYOUT_PADDING_X = 48
-const FLOWCHART_LAYOUT_PADDING_Y = 44
-const FLOWCHART_COLUMN_GAP_X = 392
-const FLOWCHART_WORKSTREAM_GAP_Y = 80
-const FLOWCHART_SUBTASK_GAP_Y = 64
-const FLOWCHART_STEP_GROUP_GAP_Y = 56
-const FLOWCHART_STEP_PREVIEW_GAP_Y = 36
+const FLOWCHART_LAYOUT_PADDING_X = 72
+const FLOWCHART_LAYOUT_PADDING_Y = 56
+const FLOWCHART_ROW_GAP_Y = 240
+const FLOWCHART_WORKSTREAM_GAP_X = 96
+const FLOWCHART_SUBTASK_GAP_X = 80
+const FLOWCHART_STEP_GROUP_GAP_X = 72
+const FLOWCHART_STEP_PREVIEW_GAP_X = 52
 const FLOWCHART_CONNECTOR_NODE_GAP = 8
 const FLOWCHART_NODE_WIDTH = {
   project: 286,
@@ -2636,51 +2636,55 @@ function buildFlowchartMindmapLayout({
   projectFilters: ProjectFilters
   selectedNode: FlowchartNode
 }): FlowchartMindmapLayout {
-  type LayoutResult = { key: string; centerY: number; top: number; bottom: number }
+  type LayoutResult = { key: string; centerX: number; left: number; right: number }
   type ConnectorDraft = { id: string; parentKey: string; childKey: string; accent: string; active: boolean }
 
   const items: FlowchartLayoutItem[] = []
   const connectorDrafts: ConnectorDraft[] = []
-  const xAtLevel = (level: number) => FLOWCHART_LAYOUT_PADDING_X + level * FLOWCHART_COLUMN_GAP_X
+  const yAtLevel = (level: number) => FLOWCHART_LAYOUT_PADDING_Y + level * FLOWCHART_ROW_GAP_Y
   const centerFromChildren = (children: LayoutResult[], fallback: number) => (
-    children.length ? (children[0].centerY + children[children.length - 1].centerY) / 2 : fallback
+    children.length ? (children[0].centerX + children[children.length - 1].centerX) / 2 : fallback
   )
-  const resultBounds = (centerY: number, height: number, children: LayoutResult[]): Pick<LayoutResult, 'top' | 'bottom'> => {
-    const nodeTop = centerY - height / 2
-    const nodeBottom = centerY + height / 2
+  const resultBounds = (centerX: number, width: number, children: LayoutResult[]): Pick<LayoutResult, 'left' | 'right'> => {
+    const nodeLeft = centerX - width / 2
+    const nodeRight = centerX + width / 2
     return {
-      top: Math.min(nodeTop, ...children.map((child) => child.top)),
-      bottom: Math.max(nodeBottom, ...children.map((child) => child.bottom)),
+      left: Math.min(nodeLeft, ...children.map((child) => child.left)),
+      right: Math.max(nodeRight, ...children.map((child) => child.right)),
     }
   }
 
-  function addNode(item: Omit<FlowchartLayoutNodeItem, 'kind' | 'y'> & { centerY: number }) {
+  function addNode(item: Omit<FlowchartLayoutNodeItem, 'kind' | 'x' | 'y'> & { centerX: number; level: number }) {
+    const { centerX, level, ...nodeItem } = item
     items.push({
-      ...item,
+      ...nodeItem,
       kind: 'node',
-      y: item.centerY - item.height / 2,
+      x: centerX - item.width / 2,
+      y: yAtLevel(level),
     })
   }
 
-  function addPill(item: Omit<FlowchartLayoutPillItem, 'kind' | 'y'> & { centerY: number }) {
+  function addPill(item: Omit<FlowchartLayoutPillItem, 'kind' | 'x' | 'y'> & { centerX: number; level: number }) {
+    const { centerX, level, ...pillItem } = item
     items.push({
-      ...item,
+      ...pillItem,
       kind: 'pill',
-      y: item.centerY - item.height / 2,
+      x: centerX - item.width / 2,
+      y: yAtLevel(level),
     })
   }
 
-  function layoutStep(step: StepItem, workstream: WorkstreamItem, subtask: SubtaskItem, stepGroup: FlowchartStepGroup | undefined, accent: string, topY: number): LayoutResult {
+  function layoutStep(step: StepItem, workstream: WorkstreamItem, subtask: SubtaskItem, stepGroup: FlowchartStepGroup | undefined, accent: string, leftX: number): LayoutResult {
     const node: FlowchartNode = { kind: 'step', project, workstream, subtask, stepGroup, step }
     const key = getFlowchartNodeKey(node)
-    const centerY = topY + FLOWCHART_NODE_HEIGHT.step / 2
+    const centerX = leftX + FLOWCHART_NODE_WIDTH.step / 2
     const active = selectedNode.kind === 'step' && selectedNode.step?.id === step.id
     const pathActive = isFlowchartStepPathActive(step, selectedNode)
     addNode({
       key,
       node,
-      x: xAtLevel(stepGroup ? 4 : 3),
-      centerY,
+      centerX,
+      level: stepGroup ? 4 : 3,
       width: FLOWCHART_NODE_WIDTH.step,
       height: FLOWCHART_NODE_HEIGHT.step,
       accent,
@@ -2688,50 +2692,50 @@ function buildFlowchartMindmapLayout({
       pathActive,
       variant: 'step',
     })
-    return { key, centerY, top: topY, bottom: topY + FLOWCHART_NODE_HEIGHT.step }
+    return { key, centerX, left: leftX, right: leftX + FLOWCHART_NODE_WIDTH.step }
   }
 
-  function layoutStepGroup(stepGroup: FlowchartStepGroup, workstream: WorkstreamItem, subtask: SubtaskItem, accent: string, topY: number): LayoutResult {
+  function layoutStepGroup(stepGroup: FlowchartStepGroup, workstream: WorkstreamItem, subtask: SubtaskItem, accent: string, leftX: number): LayoutResult {
     const node: FlowchartNode = { kind: 'stepGroup', project, workstream, subtask, stepGroup }
     const key = getFlowchartNodeKey(node)
     const expanded = expandedStepGroupIds.has(key)
     const children: LayoutResult[] = []
-    let cursorY = topY
+    let cursorX = leftX
 
     if (expanded) {
       const previewSteps = stepGroup.steps.slice(0, FLOWCHART_GROUP_STEP_PREVIEW_LIMIT)
       previewSteps.forEach((step) => {
-        const child = layoutStep(step, workstream, subtask, stepGroup, accent, cursorY)
+        const child = layoutStep(step, workstream, subtask, stepGroup, accent, cursorX)
         children.push(child)
-        cursorY = child.bottom + FLOWCHART_STEP_PREVIEW_GAP_Y
+        cursorX = child.right + FLOWCHART_STEP_PREVIEW_GAP_X
       })
 
       const hiddenStepCount = Math.max(0, stepGroup.steps.length - previewSteps.length)
       if (hiddenStepCount) {
         const key = flowchartRemainderNodeId(stepGroup.id)
-        const centerY = cursorY + FLOWCHART_NODE_HEIGHT.pill / 2
+        const centerX = cursorX + FLOWCHART_NODE_WIDTH.pill / 2
         addPill({
           key,
           label: `+${hiddenStepCount} bước còn lại`,
-          x: xAtLevel(4),
-          centerY,
+          centerX,
+          level: 4,
           width: FLOWCHART_NODE_WIDTH.pill,
           height: FLOWCHART_NODE_HEIGHT.pill,
           accent,
         })
-        children.push({ key, centerY, top: cursorY, bottom: cursorY + FLOWCHART_NODE_HEIGHT.pill })
+        children.push({ key, centerX, left: cursorX, right: cursorX + FLOWCHART_NODE_WIDTH.pill })
       }
     }
 
-    const fallbackCenterY = topY + FLOWCHART_NODE_HEIGHT.group / 2
-    const centerY = centerFromChildren(children, fallbackCenterY)
+    const fallbackCenterX = leftX + FLOWCHART_NODE_WIDTH.group / 2
+    const centerX = centerFromChildren(children, fallbackCenterX)
     const active = selectedNode.kind === 'stepGroup' && selectedNode.stepGroup?.id === stepGroup.id
     const pathActive = isFlowchartStepGroupPathActive(stepGroup, selectedNode)
     addNode({
       key,
       node,
-      x: xAtLevel(3),
-      centerY,
+      centerX,
+      level: 3,
       width: FLOWCHART_NODE_WIDTH.group,
       height: FLOWCHART_NODE_HEIGHT.group,
       accent,
@@ -2753,43 +2757,43 @@ function buildFlowchartMindmapLayout({
       })
     })
 
-    const bounds = resultBounds(centerY, FLOWCHART_NODE_HEIGHT.group, children)
-    return { key, centerY, ...bounds }
+    const bounds = resultBounds(centerX, FLOWCHART_NODE_WIDTH.group, children)
+    return { key, centerX, ...bounds }
   }
 
-  function layoutSubtask(subtask: SubtaskItem, workstream: WorkstreamItem, accent: string, topY: number): LayoutResult {
+  function layoutSubtask(subtask: SubtaskItem, workstream: WorkstreamItem, accent: string, leftX: number): LayoutResult {
     const node: FlowchartNode = { kind: 'subtask', project, workstream, subtask }
     const key = getFlowchartNodeKey(node)
     const collapsed = collapsedIds.has(key)
     const children: LayoutResult[] = []
-    let cursorY = topY
+    let cursorX = leftX
 
     if (!collapsed) {
       const visibleSteps = getVisibleFlowchartSteps(subtask, filter, projectFilters)
       if (visibleSteps.length > FLOWCHART_STEP_GROUP_THRESHOLD) {
         getFlowchartStepGroups(subtask, visibleSteps).forEach((stepGroup) => {
-          const child = layoutStepGroup(stepGroup, workstream, subtask, accent, cursorY)
+          const child = layoutStepGroup(stepGroup, workstream, subtask, accent, cursorX)
           children.push(child)
-          cursorY = child.bottom + FLOWCHART_STEP_GROUP_GAP_Y
+          cursorX = child.right + FLOWCHART_STEP_GROUP_GAP_X
         })
       } else {
         visibleSteps.forEach((step) => {
-          const child = layoutStep(step, workstream, subtask, undefined, accent, cursorY)
+          const child = layoutStep(step, workstream, subtask, undefined, accent, cursorX)
           children.push(child)
-          cursorY = child.bottom + FLOWCHART_STEP_GROUP_GAP_Y
+          cursorX = child.right + FLOWCHART_STEP_GROUP_GAP_X
         })
       }
     }
 
-    const fallbackCenterY = topY + FLOWCHART_NODE_HEIGHT.subtask / 2
-    const centerY = centerFromChildren(children, fallbackCenterY)
+    const fallbackCenterX = leftX + FLOWCHART_NODE_WIDTH.subtask / 2
+    const centerX = centerFromChildren(children, fallbackCenterX)
     const active = selectedNode.kind === 'subtask' && selectedNode.subtask?.id === subtask.id
     const pathActive = isFlowchartSubtaskPathActive(subtask, selectedNode)
     addNode({
       key,
       node,
-      x: xAtLevel(2),
-      centerY,
+      centerX,
+      level: 2,
       width: FLOWCHART_NODE_WIDTH.subtask,
       height: FLOWCHART_NODE_HEIGHT.subtask,
       accent,
@@ -2810,35 +2814,35 @@ function buildFlowchartMindmapLayout({
       })
     })
 
-    const bounds = resultBounds(centerY, FLOWCHART_NODE_HEIGHT.subtask, children)
-    return { key, centerY, ...bounds }
+    const bounds = resultBounds(centerX, FLOWCHART_NODE_WIDTH.subtask, children)
+    return { key, centerX, ...bounds }
   }
 
-  function layoutWorkstream(workstream: WorkstreamItem, branchIndex: number, topY: number): LayoutResult {
+  function layoutWorkstream(workstream: WorkstreamItem, branchIndex: number, leftX: number): LayoutResult {
     const accent = getFlowchartBranchColor(branchIndex)
     const node: FlowchartNode = { kind: 'workstream', project, workstream }
     const key = getFlowchartNodeKey(node)
     const collapsed = collapsedIds.has(key)
     const children: LayoutResult[] = []
-    let cursorY = topY
+    let cursorX = leftX
 
     if (!collapsed) {
       workstream.subtasks.forEach((subtask) => {
-        const child = layoutSubtask(subtask, workstream, accent, cursorY)
+        const child = layoutSubtask(subtask, workstream, accent, cursorX)
         children.push(child)
-        cursorY = child.bottom + FLOWCHART_SUBTASK_GAP_Y
+        cursorX = child.right + FLOWCHART_SUBTASK_GAP_X
       })
     }
 
-    const fallbackCenterY = topY + FLOWCHART_NODE_HEIGHT.workstream / 2
-    const centerY = centerFromChildren(children, fallbackCenterY)
+    const fallbackCenterX = leftX + FLOWCHART_NODE_WIDTH.workstream / 2
+    const centerX = centerFromChildren(children, fallbackCenterX)
     const active = selectedNode.kind === 'workstream' && selectedNode.workstream?.id === workstream.id
     const pathActive = isFlowchartWorkstreamPathActive(workstream, selectedNode)
     addNode({
       key,
       node,
-      x: xAtLevel(1),
-      centerY,
+      centerX,
+      level: 1,
       width: FLOWCHART_NODE_WIDTH.workstream,
       height: FLOWCHART_NODE_HEIGHT.workstream,
       accent,
@@ -2859,25 +2863,25 @@ function buildFlowchartMindmapLayout({
       })
     })
 
-    const bounds = resultBounds(centerY, FLOWCHART_NODE_HEIGHT.workstream, children)
-    return { key, centerY, ...bounds }
+    const bounds = resultBounds(centerX, FLOWCHART_NODE_WIDTH.workstream, children)
+    return { key, centerX, ...bounds }
   }
 
-  let cursorY = FLOWCHART_LAYOUT_PADDING_Y
+  let cursorX = FLOWCHART_LAYOUT_PADDING_X
   const workstreamResults = visibleWorkstreams.map((workstream, branchIndex) => {
-    const result = layoutWorkstream(workstream, branchIndex, cursorY)
-    cursorY = result.bottom + FLOWCHART_WORKSTREAM_GAP_Y
+    const result = layoutWorkstream(workstream, branchIndex, cursorX)
+    cursorX = result.right + FLOWCHART_WORKSTREAM_GAP_X
     return result
   })
 
   const projectNode: FlowchartNode = { kind: 'project', project }
   const projectKey = getFlowchartNodeKey(projectNode)
-  const projectCenterY = centerFromChildren(workstreamResults, FLOWCHART_LAYOUT_PADDING_Y + FLOWCHART_NODE_HEIGHT.project / 2)
+  const projectCenterX = centerFromChildren(workstreamResults, FLOWCHART_LAYOUT_PADDING_X + FLOWCHART_NODE_WIDTH.project / 2)
   addNode({
     key: projectKey,
     node: projectNode,
-    x: xAtLevel(0),
-    centerY: projectCenterY,
+    centerX: projectCenterX,
+    level: 0,
     width: FLOWCHART_NODE_WIDTH.project,
     height: FLOWCHART_NODE_HEIGHT.project,
     accent: FLOWCHART_PROJECT_COLOR,
@@ -2896,11 +2900,11 @@ function buildFlowchartMindmapLayout({
     })
   })
 
-  const minY = Math.min(...items.map((item) => item.y))
-  const shiftY = Math.max(0, FLOWCHART_LAYOUT_PADDING_Y - minY)
-  if (shiftY) {
+  const minX = Math.min(...items.map((item) => item.x))
+  const shiftX = Math.max(0, FLOWCHART_LAYOUT_PADDING_X - minX)
+  if (shiftX) {
     items.forEach((item) => {
-      item.y += shiftY
+      item.x += shiftX
     })
   }
 
@@ -2909,20 +2913,20 @@ function buildFlowchartMindmapLayout({
     const parent = itemMap.get(connector.parentKey)
     const child = itemMap.get(connector.childKey)
     if (!parent || !child) return []
-    const startX = parent.x + parent.width + FLOWCHART_CONNECTOR_NODE_GAP
-    const startY = parent.y + parent.height / 2
-    const endX = child.x - FLOWCHART_CONNECTOR_NODE_GAP
-    const endY = child.y + child.height / 2
-    const midX = startX + (endX - startX) * 0.5
+    const startX = parent.x + parent.width / 2
+    const startY = parent.y + parent.height + FLOWCHART_CONNECTOR_NODE_GAP
+    const endX = child.x + child.width / 2
+    const endY = child.y - FLOWCHART_CONNECTOR_NODE_GAP
+    const midY = startY + (endY - startY) * 0.5
     return [{
       id: connector.id,
-      path: `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`,
+      path: `M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`,
       accent: connector.accent,
       active: connector.active,
     }]
   })
   const maxX = Math.max(...items.map((item) => item.x + item.width), FLOWCHART_LAYOUT_PADDING_X + FLOWCHART_NODE_WIDTH.project)
-  const maxY = Math.max(...items.map((item) => item.y + item.height), FLOWCHART_LAYOUT_PADDING_Y + FLOWCHART_NODE_HEIGHT.project)
+  const maxY = Math.max(...items.map((item) => item.y + item.height), yAtLevel(4) + FLOWCHART_NODE_HEIGHT.step)
 
   return {
     items,
