@@ -48,6 +48,7 @@ export interface RbacPermissionOverride {
     edit: boolean
     delete: boolean
     approve: boolean
+    approve_on_behalf: boolean
     upload: boolean
     export: boolean
   }
@@ -89,6 +90,7 @@ interface PermissionOverrideRecord {
   can_edit: boolean | null
   can_delete: boolean | null
   can_approve: boolean | null
+  can_approve_on_behalf: boolean | null
   can_upload: boolean | null
   can_export: boolean | null
 }
@@ -290,12 +292,22 @@ export function canEditStep(user: RbacUserContext | null | undefined, step: Rbac
 
 export function canApproveDeliverable(user: RbacUserContext | null | undefined, deliverable: RbacResource | null | undefined) {
   if (!isActiveUser(user) || isReadOnly(user)) return false
+  if (isAssignedReviewer(user, deliverable)) return true
+  if (canApproveOnBehalf(user, deliverable)) return true
   const override = permissionOverrideDecision(user, 'approvals', 'approve', deliverable)
   if (override !== null) return override
   if (isAdmin(user) || normalizeUserRole(user) === 'COO') return true
   if (normalizeUserRole(user) === 'CEO') return true
-  if (isDepartmentHead(user)) return isSameDepartment(user, deliverable) || isAssignedReviewer(user, deliverable)
-  return isAssignedReviewer(user, deliverable)
+  if (isDepartmentHead(user)) return isSameDepartment(user, deliverable)
+  return false
+}
+
+export function canApproveOnBehalf(user: RbacUserContext | null | undefined, deliverable: RbacResource | null | undefined) {
+  if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'approvals', 'approve_on_behalf', deliverable)
+  if (override !== null) return override
+  const role = normalizeUserRole(user)
+  return role === 'ADMIN' || role === 'COO' || role === 'CEO'
 }
 
 export function canViewReports(user: RbacUserContext | null | undefined) {
@@ -340,7 +352,7 @@ async function getPermissionOverrides(client: RbacClient, profileId: string) {
   try {
     const result = await client
       .from<PermissionOverrideRecord>('user_permission_overrides')
-      .select('module,scope,can_view,can_create,can_edit,can_delete,can_approve,can_upload,can_export')
+      .select('module,scope,can_view,can_create,can_edit,can_delete,can_approve,can_approve_on_behalf,can_upload,can_export')
       .eq('profile_id', profileId)
       .eq('is_enabled', true)
 
@@ -354,6 +366,7 @@ async function getPermissionOverrides(client: RbacClient, profileId: string) {
         edit: row.can_edit === true,
         delete: row.can_delete === true,
         approve: row.can_approve === true,
+        approve_on_behalf: row.can_approve_on_behalf === true,
         upload: row.can_upload === true,
         export: row.can_export === true,
       },

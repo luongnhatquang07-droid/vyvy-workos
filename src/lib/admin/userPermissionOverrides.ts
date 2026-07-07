@@ -21,6 +21,7 @@ interface PermissionOverrideRow {
   can_edit: boolean | null
   can_delete: boolean | null
   can_approve: boolean | null
+  can_approve_on_behalf: boolean | null
   can_upload: boolean | null
   can_export: boolean | null
   scope: string | null
@@ -52,7 +53,7 @@ export async function loadUserPermissionState(
 
   const overridesRes = await service
     .from('user_permission_overrides')
-    .select('module,can_view,can_create,can_edit,can_delete,can_approve,can_upload,can_export,scope,is_enabled')
+    .select('module,can_view,can_create,can_edit,can_delete,can_approve,can_approve_on_behalf,can_upload,can_export,scope,is_enabled')
     .eq('profile_id', profileId)
     .eq('is_enabled', true)
 
@@ -111,6 +112,7 @@ export async function saveUserPermissionOverrides(
     can_edit: row.actions.edit,
     can_delete: row.actions.delete,
     can_approve: row.actions.approve,
+    can_approve_on_behalf: row.actions.approve_on_behalf,
     can_upload: row.actions.upload,
     can_export: row.actions.export,
     scope: row.scope,
@@ -150,7 +152,7 @@ export async function resetUserPermissionOverrides(
 export async function permissionOverrideTableReady(service: ServiceClient) {
   const res = await service
     .from('user_permission_overrides')
-    .select('id')
+    .select('id,can_approve_on_behalf')
     .limit(1)
 
   if (!res.error) return { ready: true, message: null as string | null }
@@ -209,6 +211,7 @@ function rowsToMatrix(rows: PermissionOverrideRow[], roleCode: string | null) {
         edit: row.can_edit === true,
         delete: row.can_delete === true,
         approve: row.can_approve === true,
+        approve_on_behalf: row.can_approve_on_behalf === true,
         upload: row.can_upload === true,
         export: row.can_export === true,
       },

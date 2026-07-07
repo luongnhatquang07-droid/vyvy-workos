@@ -5,6 +5,11 @@ import type { RawCommandCenterData } from '@/lib/database.types'
 
 export type CommandCenterApiData = RawCommandCenterData & {
   workspaceId: string
+  currentUser?: {
+    personId: string | null
+    role: string | null
+    canApproveOnBehalf: boolean
+  }
 }
 
 interface UseCommandDataResult {

@@ -38,6 +38,7 @@ interface VersionDetail {
 export default function ApprovalsPage() {
   const { data, loading, error, refresh } = useCommandData()
   const workspaceId = data?.workspaceId ?? ''
+  const currentUser = data?.currentUser ?? null
   const approvals: CommandCenterApprovalRow[] = data?.approvals ?? []
   const people = React.useMemo(
     () => Object.fromEntries(((data?.people ?? []) as CommandCenterPersonRow[]).map((person) => [person.id, person])),
@@ -102,6 +103,18 @@ export default function ApprovalsPage() {
 
   function getTitle(approval: CommandCenterApprovalRow) {
     return getApprovalContext(approval).title
+  }
+
+  function isDelegatedApproval(approval: CommandCenterApprovalRow) {
+    const context = getApprovalContext(approval)
+    const assignedApproverId = context.deliverable?.reviewer_id ?? approval.approver_id
+    return Boolean(
+      isPendingApproval(approval) &&
+      currentUser?.canApproveOnBehalf &&
+      assignedApproverId &&
+      currentUser.personId &&
+      assignedApproverId !== currentUser.personId,
+    )
   }
 
   async function runReviewAction(approval: CommandCenterApprovalRow, action: ReviewAction, reviewComment = '') {
@@ -244,6 +257,7 @@ export default function ApprovalsPage() {
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          isDelegatedApproval={isDelegatedApproval}
         />
         <StatusPanel
           title="Chờ duyệt"
@@ -255,6 +269,7 @@ export default function ApprovalsPage() {
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          isDelegatedApproval={isDelegatedApproval}
         />
         <StatusPanel
           title="Đã xử lý"
@@ -266,6 +281,7 @@ export default function ApprovalsPage() {
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          isDelegatedApproval={isDelegatedApproval}
         />
       </div>
 
@@ -301,6 +317,7 @@ export default function ApprovalsPage() {
                 const state = resolveApprovalState(approval, today)
                 const context = getApprovalContext(approval)
                 const reviewer = context.latestVersion?.reviewed_by ? people[context.latestVersion.reviewed_by] : null
+                const delegated = isDelegatedApproval(approval)
 
                 return (
                   <tr key={approval.id}>
@@ -314,6 +331,7 @@ export default function ApprovalsPage() {
                     <Td>
                       <div style={requestCellStyle}>
                         <span>{reviewer?.full_name ?? approver?.full_name ?? 'Quang/Admin'}</span>
+                        {delegated ? <small style={delegatedTextStyle}>Bạn đang duyệt thay người duyệt chính.</small> : null}
                         {context.latestVersion?.reviewed_at ? <small>{new Date(context.latestVersion.reviewed_at).toLocaleString('vi-VN')}</small> : null}
                       </div>
                     </Td>
@@ -332,6 +350,7 @@ export default function ApprovalsPage() {
                         onApprove={() => void runReviewAction(approval, 'approve')}
                         onRevision={() => openReviewDialog(approval, 'requestRevision')}
                         onReject={() => openReviewDialog(approval, 'reject')}
+                        delegated={delegated}
                       />
                     </Td>
                   </tr>
@@ -388,6 +407,7 @@ function StatusPanel({
   onOpenTask,
   onApprove,
   onRevision,
+  isDelegatedApproval,
 }: {
   title: string
   icon: string
@@ -398,6 +418,7 @@ function StatusPanel({
   onOpenTask: (item: CommandCenterApprovalRow) => void
   onApprove: (item: CommandCenterApprovalRow) => void
   onRevision: (item: CommandCenterApprovalRow) => void
+  isDelegatedApproval: (item: CommandCenterApprovalRow) => boolean
 }) {
   return (
     <section style={panelStyle} data-vyvy-card="true">
@@ -412,6 +433,7 @@ function StatusPanel({
         ) : (
           items.slice(0, 4).map((item) => {
             const pending = isPendingApproval(item)
+            const delegated = isDelegatedApproval(item)
             return (
               <div key={item.id} style={miniRowStyle} data-vyvy-row="true">
                 <button type="button" onClick={() => onOpenTask(item)} style={miniTitleButtonStyle}>
@@ -427,6 +449,7 @@ function StatusPanel({
                       <button type="button" onClick={() => onApprove(item)} disabled={busyKey === `${item.id}:approve`} style={miniPrimaryButtonStyle}>
                         Đã duyệt
                       </button>
+                      {delegated ? <span style={delegatedBadgeStyle}>Duyệt thay</span> : null}
                       <button type="button" onClick={() => onRevision(item)} style={miniButtonStyle}>
                         Yêu cầu sửa
                       </button>
@@ -451,6 +474,7 @@ function ApprovalActions({
   onApprove,
   onRevision,
   onReject,
+  delegated,
 }: {
   approval: CommandCenterApprovalRow
   busyKey: string
@@ -460,6 +484,7 @@ function ApprovalActions({
   onApprove: () => void
   onRevision: () => void
   onReject: () => void
+  delegated: boolean
 }) {
   const canAct = isPendingApproval(approval)
   const canApprove = canAct && canManualApprove(approval)
@@ -472,9 +497,12 @@ function ApprovalActions({
         Mở đầu việc
       </button>
       {canApprove ? (
-        <button type="button" onClick={onApprove} disabled={busyKey === `${approval.id}:approve`} style={primaryButtonStyle}>
-          Đã duyệt
-        </button>
+        <>
+          {delegated ? <span style={delegatedBadgeStyle}>Duyệt thay</span> : null}
+          <button type="button" onClick={onApprove} disabled={busyKey === `${approval.id}:approve`} style={primaryButtonStyle}>
+            Đã duyệt
+          </button>
+        </>
       ) : null}
       {canAct ? (
         <>
@@ -707,6 +735,25 @@ const pillStyle: React.CSSProperties = {
   padding: '2px 9px',
   borderRadius: 20,
   whiteSpace: 'nowrap',
+}
+
+const delegatedBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  border: '1px solid rgba(59, 130, 246, .32)',
+  background: 'rgba(59, 130, 246, .12)',
+  color: '#60a5fa',
+  borderRadius: 999,
+  padding: '5px 9px',
+  fontSize: 11,
+  fontWeight: 900,
+  whiteSpace: 'nowrap',
+}
+
+const delegatedTextStyle: React.CSSProperties = {
+  color: '#60a5fa',
+  fontSize: 11.5,
+  fontWeight: 800,
 }
 
 const actionWrapStyle: React.CSSProperties = {

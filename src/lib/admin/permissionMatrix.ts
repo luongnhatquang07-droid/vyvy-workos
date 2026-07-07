@@ -1,6 +1,6 @@
 import { getRoleLabel } from '@/lib/rbac/roles'
 
-export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'upload', 'export'] as const
+export const PERMISSION_ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'approve_on_behalf', 'upload', 'export'] as const
 
 export type PermissionAction = (typeof PERMISSION_ACTIONS)[number]
 
@@ -51,6 +51,7 @@ export const ACTION_LABELS: Record<PermissionAction, string> = {
   edit: 'Sửa',
   delete: 'Xóa',
   approve: 'Duyệt',
+  approve_on_behalf: 'Duyệt thay',
   upload: 'Upload',
   export: 'Export',
 }
@@ -79,7 +80,7 @@ export function buildDefaultPermissionMatrix(roleCode: string | null | undefined
     set(matrix, 'steps', 'company', ['view'])
     set(matrix, 'deliverables', 'company', ['view'])
     set(matrix, 'file_library', 'company', ['view'])
-    set(matrix, 'approvals', role === 'CEO' ? 'company' : 'none', role === 'CEO' ? ['view', 'approve'] : [])
+    set(matrix, 'approvals', role === 'CEO' ? 'company' : 'none', role === 'CEO' ? ['view', 'approve', 'approve_on_behalf'] : [])
     set(matrix, 'follow_ups', 'company', ['view'])
     set(matrix, 'calendar', 'company', ['view'])
     set(matrix, 'reports', 'company', ['view', 'export'])
@@ -94,7 +95,7 @@ export function buildDefaultPermissionMatrix(roleCode: string | null | undefined
     set(matrix, 'steps', 'company', ['view', 'create', 'edit', 'upload'])
     set(matrix, 'deliverables', 'company', ['view', 'create', 'edit', 'approve', 'upload'])
     set(matrix, 'file_library', 'company', ['view', 'upload'])
-    set(matrix, 'approvals', 'company', ['view', 'approve'])
+    set(matrix, 'approvals', 'company', role === 'COO' ? ['view', 'approve', 'approve_on_behalf'] : ['view', 'approve'])
     set(matrix, 'follow_ups', 'company', ['view', 'create', 'edit'])
     set(matrix, 'calendar', 'company', ['view'])
     set(matrix, 'reports', 'company', ['view', 'export'])

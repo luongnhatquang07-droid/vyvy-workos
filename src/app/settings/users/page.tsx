@@ -1278,7 +1278,7 @@ const largeMatrixWrapStyle: React.CSSProperties = {
 
 const largeMatrixTableStyle: React.CSSProperties = {
   width: '100%',
-  minWidth: 980,
+  minWidth: 1060,
   borderCollapse: 'collapse',
 }
 

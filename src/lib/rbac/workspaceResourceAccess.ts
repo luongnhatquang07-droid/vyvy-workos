@@ -3,6 +3,7 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   canApproveDeliverable,
+  canApproveOnBehalf,
   canEditProject,
   canEditStep,
   canEditSubtask,
@@ -100,6 +101,24 @@ export async function canSubmitToDeliverable(
 
 export async function canReviewDeliverable(user: RbacUserContext, workspaceId: string, deliverableId: string) {
   return canApproveDeliverable(user, await loadDeliverableResource(workspaceId, deliverableId))
+}
+
+export async function getDeliverableReviewPermission(user: RbacUserContext, workspaceId: string, deliverableId: string) {
+  const resource = await loadDeliverableResource(workspaceId, deliverableId)
+  const assignedReviewer = Boolean(user.personId && (
+    resource?.reviewer_id === user.personId ||
+    resource?.reviewerId === user.personId ||
+    resource?.approver_id === user.personId ||
+    resource?.approverId === user.personId
+  ))
+  const canAct = canApproveDeliverable(user, resource)
+  const canDelegate = !assignedReviewer && canApproveOnBehalf(user, resource)
+  return {
+    allowed: canAct,
+    delegated: canAct && canDelegate,
+    assignedReviewer,
+    assignedApproverId: resource?.reviewer_id ?? resource?.reviewerId ?? resource?.approver_id ?? resource?.approverId ?? null,
+  }
 }
 
 export async function canViewDeliverable(user: RbacUserContext, workspaceId: string, deliverableId: string) {

@@ -16,7 +16,7 @@ import {
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   canCreateDeliverable,
-  canReviewDeliverable,
+  getDeliverableReviewPermission,
   canSubmitToDeliverable,
   canViewDeliverable,
   RBAC_FORBIDDEN_MESSAGE,
@@ -51,6 +51,38 @@ function cleanId(value: unknown) {
 
 function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function buildDelegatedReviewComment(comment: string | null, delegated: boolean) {
+  if (!delegated) return comment
+  return comment ? `[Duyệt thay] ${comment}` : '[Duyệt thay] Người thực hiện duyệt không phải người duyệt chính.'
+}
+
+async function insertApprovalActions(client: ServiceClient, rows: Array<Record<string, unknown>>) {
+  const res = await client.from('approval_actions').insert(rows)
+  if (!res.error) return
+  if (!isMissingDelegatedAuditColumn(res.error)) throw res.error
+
+  const fallbackRows = rows.map((row) => {
+    const fallback = { ...row }
+    delete fallback.acted_by_user_id
+    delete fallback.original_reviewer_id
+    delete fallback.is_delegated_action
+    delete fallback.metadata
+    return fallback
+  })
+  const fallbackRes = await client.from('approval_actions').insert(fallbackRows)
+  if (fallbackRes.error) throw fallbackRes.error
+}
+
+function isMissingDelegatedAuditColumn(error: unknown) {
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error && 'message' in error
+      ? String(error.message)
+      : ''
+  return ['acted_by_user_id', 'original_reviewer_id', 'is_delegated_action', 'metadata']
+    .some((column) => message.includes(column))
 }
 
 function cleanDate(value: unknown) {
@@ -871,14 +903,17 @@ export async function PATCH(req: NextRequest) {
     const guard = await guardDeliverableTargetWrite(req, context.workspaceId, deliverable)
     if (guard) return guard
     const isReviewAction = ['setReviewer', 'approve', 'requestRevision', 'reject', 'markMissing'].includes(action)
-    const allowed = isReviewAction
-      ? await canReviewDeliverable(context.actor, context.workspaceId, deliverableId)
+    const reviewPermission = isReviewAction
+      ? await getDeliverableReviewPermission(context.actor, context.workspaceId, deliverableId)
+      : null
+    const allowed = reviewPermission
+      ? reviewPermission.allowed
       : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
           projectId: deliverable.project_id,
           taskId: deliverable.task_id,
           stepId: deliverable.step_id,
         })
-    if (!allowed) return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+    if (!allowed) return jsonError(isReviewAction ? 'Bạn không có quyền duyệt bàn giao này.' : RBAC_FORBIDDEN_MESSAGE, 403)
 
     if (action === 'setReviewer') {
       const reviewerId = cleanId(body.reviewerId)
@@ -1083,20 +1118,35 @@ export async function PATCH(req: NextRequest) {
         reviewedApprovalIds = [insertApprovalRes.data.id]
       }
 
+      const reviewComment = cleanText(body.reviewComment) || null
+      const delegatedReview = reviewPermission?.delegated === true
+      const delegatedComment = buildDelegatedReviewComment(reviewComment, delegatedReview)
+
       if (reviewedApprovalIds.length) {
-        await client.from('approval_actions').insert(reviewedApprovalIds.map((approvalId) => ({
+        await insertApprovalActions(client, reviewedApprovalIds.map((approvalId) => ({
           approval_id: approvalId,
           action: approvalStatus,
           actor_id: context.personId,
-          comment: cleanText(body.reviewComment) || null,
+          acted_by_user_id: context.personId,
+          original_reviewer_id: reviewPermission?.assignedApproverId ?? deliverable.reviewer_id ?? null,
+          is_delegated_action: delegatedReview,
+          metadata: {
+            delegated: delegatedReview,
+            assignedApproverId: reviewPermission?.assignedApproverId ?? deliverable.reviewer_id ?? null,
+            actedByUserId: context.personId,
+          },
+          comment: delegatedComment,
         })))
       }
 
       await logActivity(context.workspaceId, context.personId, `deliverable.${action}`, deliverableId, {
         versionId,
-        reason: cleanText(body.reviewComment) || null,
+        reason: reviewComment,
         before: previousReviewStatus,
         after: reviewStatus,
+        delegated: delegatedReview,
+        assignedApproverId: reviewPermission?.assignedApproverId ?? deliverable.reviewer_id ?? null,
+        actedByUserId: context.personId,
       })
       const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
       return NextResponse.json({ ok: true, taskSync })

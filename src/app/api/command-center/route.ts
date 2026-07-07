@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCommandCenterData } from '@/lib/db/commandCenter'
 import { resyncCompletedTasks } from '@/lib/db/taskCompletionSync'
 import { isLocalProductionDatabaseRequest } from '@/lib/localQaGuard'
-import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
+import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -71,7 +71,15 @@ export async function GET(request: Request) {
       }
     }
     const data = await getCommandCenterData(workspaceId, userContext)
-    return NextResponse.json({ ...data, workspaceId })
+    return NextResponse.json({
+      ...data,
+      workspaceId,
+      currentUser: {
+        personId: userContext.personId,
+        role: userContext.normalizedRole,
+        canApproveOnBehalf: canUserApproveOnBehalf(userContext),
+      },
+    })
   } catch (error) {
     return NextResponse.json(
       {
@@ -82,4 +90,16 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
+}
+
+function canUserApproveOnBehalf(userContext: RbacUserContext) {
+  if (userContext.normalizedRole === 'ADMIN' || userContext.normalizedRole === 'COO' || userContext.normalizedRole === 'CEO') {
+    return true
+  }
+  const override = userContext.permissionOverrides.find((permission) => permission.module === 'approvals')
+  return Boolean(
+    override?.actions.approve_on_behalf &&
+    override.scope &&
+    override.scope !== 'none',
+  )
 }
