@@ -6892,9 +6892,9 @@ const flowchartShell: React.CSSProperties = {
   gap: 16,
   padding: 18,
   borderRadius: 22,
-  background: 'linear-gradient(145deg, rgba(11,13,18,.98), rgba(18,22,29,.96))',
-  border: '1px solid rgba(255,255,255,.10)',
-  boxShadow: '0 24px 80px rgba(0,0,0,.30)',
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+  boxShadow: '0 24px 80px rgba(0,0,0,.16)',
 }
 
 const flowchartFullscreenShell: React.CSSProperties = {
@@ -6908,7 +6908,7 @@ const flowchartFullscreenShell: React.CSSProperties = {
   border: 'none',
   padding: 10,
   gap: 10,
-  background: 'radial-gradient(circle at 18% 12%, rgba(218,223,33,.07), transparent 32%), linear-gradient(145deg, #07090d, #11151c 58%, #090b0f)',
+  background: 'var(--bg)',
   overflow: 'hidden',
 }
 
@@ -6920,9 +6920,9 @@ const flowchartFullscreenToolbar: React.CSSProperties = {
   alignItems: 'start',
   padding: '6px 10px',
   borderRadius: 18,
-  border: '1px solid rgba(255,255,255,.10)',
-  background: 'rgba(8,10,13,.76)',
-  boxShadow: '0 18px 54px rgba(0,0,0,.28)',
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+  boxShadow: '0 18px 54px rgba(0,0,0,.18)',
 }
 
 const flowchartFullscreenTitleBlock: React.CSSProperties = {
@@ -7024,8 +7024,8 @@ const flowchartIconButton: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   borderRadius: 12,
-  border: '1px solid rgba(255,255,255,.12)',
-  background: 'rgba(255,255,255,.04)',
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
   color: 'var(--txt)',
   fontWeight: 900,
   cursor: 'pointer',
@@ -7092,9 +7092,9 @@ const flowchartWorkspace: React.CSSProperties = {
 const flowchartCanvasCard: React.CSSProperties = {
   minWidth: 0,
   borderRadius: 20,
-  border: '1px solid rgba(255,255,255,.10)',
-  background: 'linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.018))',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,.05)',
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,.04)',
   overflow: 'hidden',
 }
 
@@ -7112,7 +7112,7 @@ const flowchartCanvasHeader: React.CSSProperties = {
   gridTemplateColumns: '280px 260px 300px 280px',
   gap: flowchartTierGap,
   padding: '14px 18px 12px',
-  borderBottom: '1px solid rgba(255,255,255,.09)',
+  borderBottom: '1px solid var(--line)',
   color: 'var(--txt-3)',
   fontSize: 11,
   fontWeight: 900,
@@ -7127,7 +7127,8 @@ const flowchartScroll: React.CSSProperties = {
   minHeight: 560,
   padding: 24,
   touchAction: 'none',
-  backgroundImage: 'radial-gradient(circle, rgba(255,255,255,.065) 1px, transparent 1px)',
+  backgroundColor: 'var(--surface)',
+  backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--txt) 10%, transparent) 1px, transparent 1px)',
   backgroundSize: '28px 28px',
   backgroundPosition: '0 0',
 }
@@ -7582,7 +7583,7 @@ const flowchartProgressArea: React.CSSProperties = {
 const flowchartProgressTrack: React.CSSProperties = {
   height: 6,
   borderRadius: 999,
-  background: 'rgba(255,255,255,.09)',
+  background: 'var(--surface-3)',
   overflow: 'hidden',
 }
 
@@ -7620,9 +7621,9 @@ const flowchartDetailPanel: React.CSSProperties = {
   gap: 12,
   padding: 16,
   borderRadius: 20,
-  border: '1px solid rgba(255,255,255,.11)',
-  background: 'linear-gradient(180deg, rgba(18,22,29,.98), rgba(10,12,17,.98))',
-  boxShadow: '0 24px 70px rgba(0,0,0,.34)',
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+  boxShadow: '0 24px 70px rgba(0,0,0,.18)',
   overflowY: 'auto',
 }
 
@@ -7675,8 +7676,8 @@ const flowchartPanelCard: React.CSSProperties = {
   gap: 10,
   padding: 14,
   borderRadius: 14,
-  background: 'rgba(255,255,255,.035)',
-  border: '1px solid rgba(255,255,255,.09)',
+  background: 'var(--surface-2)',
+  border: '1px solid var(--line)',
 }
 
 const flowchartBreadcrumb: React.CSSProperties = {
@@ -7689,9 +7690,9 @@ const flowchartBreadcrumb: React.CSSProperties = {
 const flowchartBreadcrumbItem: React.CSSProperties = {
   padding: '5px 8px',
   borderRadius: 999,
-  border: '1px solid rgba(255,255,255,.10)',
+  border: '1px solid var(--line)',
   color: 'var(--txt-2)',
-  background: 'rgba(255,255,255,.04)',
+  background: 'var(--surface-3)',
   fontSize: 11,
   fontWeight: 800,
 }
