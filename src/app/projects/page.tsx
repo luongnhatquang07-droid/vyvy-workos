@@ -18,6 +18,7 @@ import {
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
 import type {
+  CommandCenterAttachmentRow,
   CommandCenterDeliverableRow,
   CommandCenterDeliverableVersionRow,
   CommandCenterMeetingRow,
@@ -53,6 +54,14 @@ interface AttachmentItem {
   id: string
   name: string
   url: string | null
+  deliverableId?: string | null
+  stepId?: string | null
+  mimeType?: string | null
+  sizeBytes?: number | null
+  status?: VersionReviewStatus | null
+  submittedBy?: string | null
+  submittedAt?: string | null
+  versionNumber?: number | null
 }
 
 interface StepItem {
@@ -425,6 +434,7 @@ function ProjectsPageContent() {
       data?.taskSteps ?? [],
       data?.deliverables ?? [],
       data?.deliverableVersions ?? [],
+      data?.attachments ?? [],
       data?.meetings ?? [],
     )
     queueMicrotask(() => {
@@ -456,7 +466,7 @@ function ProjectsPageContent() {
       setSelectedSubtaskId(nextSubtaskId)
       setReady(true)
     })
-  }, [data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
+  }, [data?.attachments, data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -1774,19 +1784,11 @@ function SubtaskCompactDetail({
           ) : null}
 
           <div style={fieldLabel}>File đã gắn vào đầu việc</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {subtask.attachments.length === 0 ? (
-              <div style={emptyInline}>Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên.</div>
-            ) : (
-              subtask.attachments.map((file) => (
-                <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
-                  <i className="ti ti-paperclip" />
-                  <span style={{ flex: 1, minWidth: 0 }}>{file.name}</span>
-                  <i className="ti ti-external-link" />
-                </a>
-              ))
-            )}
-          </div>
+          <EvidenceFileList
+            files={subtask.attachments}
+            people={people}
+            emptyText="Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên."
+          />
         </AccordionSection>
 
         <AccordionSection
@@ -3811,6 +3813,7 @@ function FlowchartDetailDrawer({
   const workflowSummary = subtask ? getWorkflowSummary(subtask) : null
   const blockers = subtask ? getCompletionBlockers(subtask) : []
   const path = getFlowchartBreadcrumb(node)
+  const fileItems = getFlowchartNodeFiles(node)
 
   return (
     <aside style={fullscreen ? { ...flowchartDetailPanel, ...flowchartDetailPanelFullscreen } : flowchartDetailPanel}>
@@ -3875,15 +3878,11 @@ function FlowchartDetailDrawer({
         {fileSummary ? (
           <>
             <div style={mutedMetaStyle}>{fileSummary.value} · {fileSummary.hint}</div>
-            {subtask?.attachments.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {subtask.attachments.map((file) => (
-                  <a key={file.id} href={file.url ?? '#'} target="_blank" rel="noreferrer" style={fileRowStyle}>
-                    <i className="ti ti-paperclip" /> {file.name}
-                  </a>
-                ))}
-              </div>
-            ) : null}
+            <EvidenceFileList
+              files={fileItems}
+              people={people}
+              emptyText="Chưa có file thật nào gắn với node này."
+            />
           </>
         ) : node.step ? (
           <div style={mutedMetaStyle}>
@@ -3913,6 +3912,54 @@ function FlowchartDetailDrawer({
         ) : null}
       </div>
     </aside>
+  )
+}
+
+function EvidenceFileList({
+  files,
+  people,
+  emptyText,
+}: {
+  files: AttachmentItem[]
+  people: Record<string, CommandCenterPersonRow>
+  emptyText: string
+}) {
+  if (!files.length) return <div style={emptyInline}>{emptyText}</div>
+
+  return (
+    <div style={evidenceFileStackStyle}>
+      {files.map((file) => {
+        const submitter = file.submittedBy ? people[file.submittedBy] : null
+        const meta = [
+          file.status ? getEvidenceFileStatusLabel(file.status) : null,
+          file.versionNumber ? `Version ${file.versionNumber}` : null,
+          file.mimeType ? getEvidenceFileTypeLabel(file.name, file.mimeType) : null,
+          file.submittedAt ? `Nộp lúc ${formatDateTime(file.submittedAt)}` : null,
+          submitter ? `bởi ${submitter.full_name}` : null,
+        ].filter(Boolean).join(' · ')
+
+        const content = (
+          <>
+            <i className="ti ti-paperclip" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={evidenceFileNameStyle}>{file.name}</div>
+              {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
+            </div>
+            {file.url ? <span style={evidenceFileActionStyle}>Mở file <i className="ti ti-external-link" /></span> : <span style={evidenceFileUnavailableStyle}>Chưa có link mở</span>}
+          </>
+        )
+
+        return file.url ? (
+          <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" style={fileRowStyle}>
+            {content}
+          </a>
+        ) : (
+          <div key={file.id} style={fileRowStyle}>
+            {content}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -3985,6 +4032,47 @@ function FlowchartWorkflowSummary({ node }: { node: FlowchartNode }) {
     return <div style={mutedMetaStyle}>{node.step.description || node.step.note || 'Chưa có mô tả cho bước này.'}</div>
   }
   return null
+}
+
+function getFlowchartNodeFiles(node: FlowchartNode) {
+  if (node.kind === 'step' && node.step?.deliverableId && node.subtask) {
+    return node.subtask.attachments.filter((file) => file.deliverableId === node.step?.deliverableId || file.stepId === node.step?.id)
+  }
+  if (node.kind === 'stepGroup' && node.stepGroup && node.subtask) {
+    const stepIds = new Set(node.stepGroup.steps.map((step) => step.id))
+    return node.subtask.attachments.filter((file) => file.stepId && stepIds.has(file.stepId))
+  }
+  if (node.subtask) return node.subtask.attachments
+  return []
+}
+
+function getEvidenceFileStatusLabel(status: VersionReviewStatus) {
+  if (status === 'APPROVED') return 'Đã duyệt'
+  if (status === 'PENDING' || status === 'PENDING_REVIEW' || status === 'NOT_REQUESTED') return 'Chờ duyệt'
+  if (status === 'REVISION_REQUESTED') return 'Cần sửa'
+  if (status === 'REJECTED') return 'Từ chối'
+  if (status === 'CANCELLED') return 'Đã hủy'
+  if (status === 'UPLOADED_BY_MISTAKE') return 'Up nhầm'
+  if (status === 'SUPERSEDED') return 'Đã thay thế'
+  return status
+}
+
+function getEvidenceFileTypeLabel(name: string, mime = '') {
+  if (mime === 'external_url') return 'Link'
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (['html', 'htm'].includes(ext) || mime.includes('html')) return 'HTML'
+  if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'Ảnh'
+  if (ext === 'pdf' || mime.includes('pdf')) return 'PDF'
+  if (['doc', 'docx'].includes(ext) || mime.includes('word')) return 'Word'
+  if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('excel')) return 'Excel/CSV'
+  if (['zip', 'rar', '7z'].includes(ext)) return 'Nén'
+  return ext ? ext.toUpperCase() : 'File'
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('vi-VN')
 }
 
 type GanttLevel = 'project' | 'workstream' | 'subtask' | 'step'
@@ -4620,6 +4708,7 @@ function seedWorkspace(
   taskSteps: CommandCenterTaskStepRow[],
   deliverables: CommandCenterDeliverableRow[],
   deliverableVersions: CommandCenterDeliverableVersionRow[],
+  attachments: CommandCenterAttachmentRow[],
   meetings: CommandCenterMeetingRow[],
 ): ProjectWorkspace[] {
   const today = getVietnamDateKey()
@@ -4631,7 +4720,7 @@ function seedWorkspace(
     const startDate = project.start_date ?? shiftDate(today, index * 3)
     const mappedWorkstreams = projectWorkstreams.map((workstream) => {
       const streamTasks = projectTasks.filter((task) => task.workstream_id === workstream.id)
-      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions))
+      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments))
       return toWorkstreamItem(workstream, subtasks, startDate, fallbackOwner)
     })
 
@@ -4647,7 +4736,7 @@ function seedWorkspace(
           startDate,
           dueDate: project.due_date ?? shiftDate(startDate, 21),
           status: 'NOT_STARTED',
-          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions)),
+          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments)),
         }
       : null
     const projectTree = ungroupedWorkstream ? [...mappedWorkstreams, ungroupedWorkstream] : mappedWorkstreams
@@ -4708,10 +4797,12 @@ function toSeedSubtask(
   taskSteps: CommandCenterTaskStepRow[],
   deliverables: CommandCenterDeliverableRow[],
   deliverableVersions: CommandCenterDeliverableVersionRow[],
+  attachments: CommandCenterAttachmentRow[],
 ): SubtaskItem {
   const dueDate = task.due_date ?? shiftDate(projectStart, 5 + index * 2)
   const startDate = task.start_date ?? shiftDate(dueDate, -3)
   const taskDeliverables = deliverables.filter((deliverable) => deliverable.task_id === task.id)
+  const taskAttachments = buildDeliverableFileItems(taskDeliverables, deliverableVersions, attachments)
   const persistedSteps = taskSteps
     .filter((step) => step.task_id === task.id)
     .map((step) => {
@@ -4773,7 +4864,7 @@ function toSeedSubtask(
     needsFile: Boolean(taskLevelDeliverable ?? taskDeliverables.length),
     taskDeliverableValid: taskEvidence.valid,
     fileBlocker: taskEvidence.blocker,
-    attachments: [],
+    attachments: taskAttachments,
     deadlineHistory: [],
     steps: persistedSteps,
   }
@@ -4933,6 +5024,55 @@ function makeStep(title: string, ownerId: string | null, dueDate: string, review
     deliverableRequiresApproval: false,
     deliverableReviewerId: null,
   }
+}
+
+function buildDeliverableFileItems(
+  deliverables: CommandCenterDeliverableRow[],
+  versions: CommandCenterDeliverableVersionRow[],
+  attachments: CommandCenterAttachmentRow[],
+): AttachmentItem[] {
+  const deliverablesById = new Map(deliverables.map((deliverable) => [deliverable.id, deliverable]))
+  const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
+
+  return versions
+    .filter((version) => deliverablesById.has(version.deliverable_id))
+    .filter((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
+    .sort((a, b) => {
+      const submittedOrder = String(b.submitted_at ?? '').localeCompare(String(a.submitted_at ?? ''))
+      return submittedOrder || b.version_number - a.version_number
+    })
+    .map((version) => {
+      const deliverable = deliverablesById.get(version.deliverable_id)
+      const attachment = version.attachment_id ? attachmentsById.get(version.attachment_id) : null
+      const name = version.external_url
+        ? version.external_url
+        : attachment?.file_name ?? deliverable?.name ?? `Version ${version.version_number}`
+      const url = version.external_url ?? buildStorageOpenUrl(attachment)
+
+      return {
+        id: version.id,
+        name: cleanDisplayFileName(name),
+        url,
+        deliverableId: version.deliverable_id,
+        stepId: deliverable?.step_id ?? null,
+        mimeType: version.external_url ? 'external_url' : attachment?.mime_type ?? null,
+        sizeBytes: attachment?.size_bytes ?? null,
+        status: normalizeVersionReviewStatus(version.review_status),
+        submittedBy: version.submitted_by ?? attachment?.uploaded_by ?? null,
+        submittedAt: version.submitted_at ?? attachment?.uploaded_at ?? null,
+        versionNumber: version.version_number,
+      }
+    })
+}
+
+function buildStorageOpenUrl(attachment: CommandCenterAttachmentRow | null | undefined) {
+  if (!attachment?.workspace_id || !attachment.storage_path) return null
+  const params = new URLSearchParams({ workspaceId: attachment.workspace_id, path: attachment.storage_path })
+  return `/api/files/open?${params.toString()}`
+}
+
+function cleanDisplayFileName(name: string) {
+  return name.replace(/^\d+_/, '')
 }
 
 function createStepDraft(subtask: SubtaskItem): StepDraft {
@@ -5444,11 +5584,13 @@ function getFileSummary(subtask: SubtaskItem): { value: string; hint: string; to
     }
   }
 
-  const submittedCount = subtask.attachments.length + (subtask.taskDeliverableValid ? 1 : 0) + subtask.steps.filter((step) => step.deliverableIsValid).length
+  const fallbackSubmittedCount = (subtask.taskDeliverableValid ? 1 : 0) + subtask.steps.filter((step) => step.deliverableIsValid).length
+  const submittedCount = subtask.attachments.length || fallbackSubmittedCount
   if (submittedCount > 0 || subtask.reportText.trim()) {
+    const hasApprovedFile = subtask.attachments.some((file) => file.status === 'APPROVED') || subtask.steps.some((step) => step.deliverableStatus === 'APPROVED')
     return {
       value: submittedCount > 0 ? `Đã nộp ${submittedCount} mục` : 'Đã có báo cáo',
-      hint: subtask.steps.some((step) => step.deliverableStatus === 'APPROVED') ? 'Có file đã duyệt' : 'Đang có bằng chứng/báo cáo',
+      hint: hasApprovedFile ? 'Có file đã duyệt' : 'Đang có bằng chứng/báo cáo',
       tone: 'good',
     }
   }
@@ -8307,6 +8449,45 @@ const fileRowStyle: React.CSSProperties = {
   border: '1px solid var(--line)',
   color: 'var(--txt)',
   textDecoration: 'none',
+}
+
+const evidenceFileStackStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
+
+const evidenceFileNameStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  color: 'var(--txt)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+}
+
+const evidenceFileMetaStyle: React.CSSProperties = {
+  marginTop: 3,
+  fontSize: 11,
+  lineHeight: 1.45,
+  color: 'var(--muted)',
+}
+
+const evidenceFileActionStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  flexShrink: 0,
+  fontSize: 11,
+  fontWeight: 850,
+  color: 'var(--color-lime)',
+}
+
+const evidenceFileUnavailableStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontSize: 11,
+  fontWeight: 750,
+  color: 'var(--muted)',
 }
 
 const historyRowStyle: React.CSSProperties = {

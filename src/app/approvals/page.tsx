@@ -189,14 +189,6 @@ export default function ApprovalsPage() {
     if (!version) return null
     if (version.external_url) return version.external_url
 
-    const fileName = version.attachment?.file_name ?? context.fileName
-    if (isHtmlFile(fileName, version.attachment?.mime_type ?? '')) {
-      return htmlPreviewUrl({
-        workspaceId,
-        storagePath: version.attachment?.storage_path,
-        fileName,
-      })
-    }
     return version.attachment?.url ?? null
   }
 
@@ -557,25 +549,6 @@ function defaultReviewComment(action: ReviewAction) {
   if (action === 'approve') return 'Đã xác nhận thủ công.'
   if (action === 'reject') return 'File/báo cáo chưa đạt yêu cầu.'
   return 'Cần chỉnh sửa/bổ sung file hoặc báo cáo.'
-}
-
-function isHtmlFile(name: string, mime = '') {
-  const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  return ['html', 'htm'].includes(ext) || mime.includes('html') || mime.includes('xhtml')
-}
-
-function htmlPreviewUrl({
-  workspaceId,
-  storagePath,
-  fileName,
-}: {
-  workspaceId?: string
-  storagePath?: string | null
-  fileName: string
-}) {
-  if (!workspaceId || !storagePath) return null
-  const params = new URLSearchParams({ workspaceId, path: storagePath, name: fileName })
-  return `/file-preview/html?${params.toString()}`
 }
 
 function GhostButton({ children, icon }: { children: React.ReactNode; icon: string }) {
