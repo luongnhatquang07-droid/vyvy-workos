@@ -9,7 +9,7 @@ type QueryError = { message?: string } | null
 
 type QueryResult<T> = Promise<{ data: T | null; error?: QueryError }>
 
-interface QueryBuilder<T = Record<string, unknown>> {
+interface QueryBuilder<T = Record<string, unknown>> extends PromiseLike<{ data: T[] | null; error?: QueryError }> {
   select(columns: string): QueryBuilder<T>
   eq(column: string, value: string | boolean): QueryBuilder<T>
   is(column: string, value: null): QueryBuilder<T>
@@ -36,6 +36,21 @@ export interface RbacUserContext {
   departmentName: string | null
   managedDepartmentIds: string[]
   status: string | null
+  permissionOverrides: RbacPermissionOverride[]
+}
+
+export interface RbacPermissionOverride {
+  module: string
+  scope: string
+  actions: {
+    view: boolean
+    create: boolean
+    edit: boolean
+    delete: boolean
+    approve: boolean
+    upload: boolean
+    export: boolean
+  }
 }
 
 interface ProfileRecord {
@@ -64,6 +79,18 @@ interface PersonRecord {
 interface DepartmentRecord {
   id: string
   name?: string | null
+}
+
+interface PermissionOverrideRecord {
+  module: string
+  scope: string | null
+  can_view: boolean | null
+  can_create: boolean | null
+  can_edit: boolean | null
+  can_delete: boolean | null
+  can_approve: boolean | null
+  can_upload: boolean | null
+  can_export: boolean | null
 }
 
 export interface RbacResource {
@@ -154,6 +181,7 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
     if (!departmentResult.error) departmentName = departmentResult.data?.name ?? null
   }
   const managedDepartmentIds = await getManagedDepartmentIds(client, membershipResult.data.workspace_id, person?.id ?? null)
+  const permissionOverrides = await getPermissionOverrides(client, profileResult.data.id)
 
   return {
     authUserId,
@@ -167,6 +195,7 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
     departmentName,
     managedDepartmentIds,
     status: person?.status ?? profileResult.data.status ?? null,
+    permissionOverrides,
   }
 }
 
@@ -197,6 +226,8 @@ export function canManageUsers(user: RbacUserContext | null | undefined) {
 
 export function canViewProject(user: RbacUserContext | null | undefined, project: RbacResource | null | undefined) {
   if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'projects', 'view', project)
+  if (override !== null) return override
   if (isExecutive(user)) return true
   if (isDepartmentHead(user)) return isSameDepartment(user, project) || isAssignedToResource(user, project)
   return isAssignedToResource(user, project)
@@ -204,21 +235,31 @@ export function canViewProject(user: RbacUserContext | null | undefined, project
 
 export function canEditProject(user: RbacUserContext | null | undefined, project: RbacResource | null | undefined) {
   if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'projects', 'edit', project)
+  if (override !== null) return override
   if (isAdmin(user) || normalizeUserRole(user) === 'COO') return true
   if (isDepartmentHead(user)) return isSameDepartment(user, project) || isAssignedToResource(user, project)
   return false
 }
 
 export function canViewWorkstream(user: RbacUserContext | null | undefined, workstream: RbacResource | null | undefined) {
+  if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'workstreams', 'view', workstream)
+  if (override !== null) return override
   return canViewProject(user, workstream)
 }
 
 export function canEditWorkstream(user: RbacUserContext | null | undefined, workstream: RbacResource | null | undefined) {
+  if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'workstreams', 'edit', workstream)
+  if (override !== null) return override
   return canEditProject(user, workstream)
 }
 
 export function canViewSubtask(user: RbacUserContext | null | undefined, subtask: RbacResource | null | undefined) {
   if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'subtasks', 'view', subtask)
+  if (override !== null) return override
   if (isExecutive(user)) return true
   if (isDepartmentHead(user)) return isSameDepartment(user, subtask) || isAssignedToResource(user, subtask)
   return isAssignedToResource(user, subtask)
@@ -226,21 +267,31 @@ export function canViewSubtask(user: RbacUserContext | null | undefined, subtask
 
 export function canEditSubtask(user: RbacUserContext | null | undefined, subtask: RbacResource | null | undefined) {
   if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'subtasks', 'edit', subtask)
+  if (override !== null) return override
   if (isAdmin(user) || normalizeUserRole(user) === 'COO') return true
   if (isDepartmentHead(user)) return isSameDepartment(user, subtask) || isAssignedToResource(user, subtask)
   return isAssignedToResource(user, subtask)
 }
 
 export function canViewStep(user: RbacUserContext | null | undefined, step: RbacResource | null | undefined) {
+  if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'steps', 'view', step)
+  if (override !== null) return override
   return canViewSubtask(user, step)
 }
 
 export function canEditStep(user: RbacUserContext | null | undefined, step: RbacResource | null | undefined) {
+  if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'steps', 'edit', step)
+  if (override !== null) return override
   return canEditSubtask(user, step)
 }
 
 export function canApproveDeliverable(user: RbacUserContext | null | undefined, deliverable: RbacResource | null | undefined) {
   if (!isActiveUser(user) || isReadOnly(user)) return false
+  const override = permissionOverrideDecision(user, 'approvals', 'approve', deliverable)
+  if (override !== null) return override
   if (isAdmin(user) || normalizeUserRole(user) === 'COO') return true
   if (normalizeUserRole(user) === 'CEO') return true
   if (isDepartmentHead(user)) return isSameDepartment(user, deliverable) || isAssignedReviewer(user, deliverable)
@@ -249,16 +300,22 @@ export function canApproveDeliverable(user: RbacUserContext | null | undefined, 
 
 export function canViewReports(user: RbacUserContext | null | undefined) {
   if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'reports', 'view')
+  if (override !== null) return override
   return isExecutive(user) || isDepartmentHead(user)
 }
 
 export function canViewTeamWorkload(user: RbacUserContext | null | undefined) {
   if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'reports', 'view')
+  if (override !== null) return override
   return isExecutive(user) || isDepartmentHead(user)
 }
 
 export function canViewFileLibrary(user: RbacUserContext | null | undefined, file: RbacResource | null | undefined) {
   if (!isActiveUser(user)) return false
+  const override = permissionOverrideDecision(user, 'file_library', 'view', file)
+  if (override !== null) return override
   if (isExecutive(user)) return true
   if (isDepartmentHead(user)) return isSameDepartment(user, file) || isAssignedToResource(user, file)
   return isAssignedToResource(user, file)
@@ -277,6 +334,54 @@ async function getManagedDepartmentIds(client: RbacClient, workspaceId: string, 
 
   if (departmentResult.error || !departmentResult.data?.id) return []
   return [departmentResult.data.id]
+}
+
+async function getPermissionOverrides(client: RbacClient, profileId: string) {
+  try {
+    const result = await client
+      .from<PermissionOverrideRecord>('user_permission_overrides')
+      .select('module,scope,can_view,can_create,can_edit,can_delete,can_approve,can_upload,can_export')
+      .eq('profile_id', profileId)
+      .eq('is_enabled', true)
+
+    if (result.error || !Array.isArray(result.data)) return []
+    return result.data.map((row) => ({
+      module: row.module,
+      scope: row.scope ?? 'none',
+      actions: {
+        view: row.can_view === true,
+        create: row.can_create === true,
+        edit: row.can_edit === true,
+        delete: row.can_delete === true,
+        approve: row.can_approve === true,
+        upload: row.can_upload === true,
+        export: row.can_export === true,
+      },
+    }))
+  } catch {
+    return []
+  }
+}
+
+function permissionOverrideDecision(
+  user: RbacUserContext | null | undefined,
+  module: string,
+  action: keyof RbacPermissionOverride['actions'],
+  resource?: RbacResource | null,
+) {
+  if (!user) return null
+  if (isAdmin(user)) return true
+  const row = user.permissionOverrides.find((permission) => permission.module === module)
+  if (!row) return null
+  if (!row.actions[action]) return false
+  return scopeAllows(user, row.scope, resource)
+}
+
+function scopeAllows(user: RbacUserContext, scope: string, resource?: RbacResource | null) {
+  if (scope === 'company') return true
+  if (scope === 'department') return resource ? isSameDepartment(user, resource) : Boolean(user.departmentId)
+  if (scope === 'own' || scope === 'assigned_projects') return resource ? isAssignedToResource(user, resource) : Boolean(user.personId)
+  return false
 }
 
 function isActiveUser(user: RbacUserContext | null | undefined): user is RbacUserContext {

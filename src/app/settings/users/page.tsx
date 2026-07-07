@@ -4,6 +4,16 @@ import React from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { PageHead } from '@/components/ui/PageHead'
+import {
+  ACTION_LABELS,
+  PERMISSION_ACTIONS,
+  PERMISSION_MODULES,
+  PERMISSION_SCOPES,
+  SCOPE_LABELS,
+  buildDefaultPermissionMatrix,
+  type PermissionAction,
+  type PermissionMatrixRow,
+} from '@/lib/admin/permissionMatrix'
 
 type AccountStatus = 'active' | 'inactive' | 'suspended'
 
@@ -96,6 +106,18 @@ interface AccountForm {
   status: AccountStatus
 }
 
+interface PermissionState {
+  profileId?: string
+  roleCode: string | null
+  roleLabel: string
+  schemaReady: boolean
+  mode: 'role_default' | 'custom'
+  roleDefault: PermissionMatrixRow[]
+  permissions: PermissionMatrixRow[]
+  overrideCount: number
+  message?: string | null
+}
+
 const emptyForm: AccountForm = {
   fullName: '',
   username: '',
@@ -136,8 +158,12 @@ export default function UserManagementPage() {
   const [departmentFilter, setDepartmentFilter] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
   const [mode, setMode] = React.useState<'create' | 'edit' | 'reset' | null>(null)
+  const [panelTab, setPanelTab] = React.useState<'account' | 'permissions'>('account')
   const [selected, setSelected] = React.useState<ManagedUser | null>(null)
   const [form, setForm] = React.useState<AccountForm>(emptyForm)
+  const [useCustomPermissions, setUseCustomPermissions] = React.useState(false)
+  const [permissionState, setPermissionState] = React.useState<PermissionState | null>(null)
+  const [permissionDraft, setPermissionDraft] = React.useState<PermissionMatrixRow[]>(buildDefaultPermissionMatrix(emptyForm.roleCode))
   const [resetPassword, setResetPassword] = React.useState('')
 
   const loadUsers = React.useCallback(async () => {
@@ -189,13 +215,22 @@ export default function UserManagementPage() {
   function openCreate() {
     setSelected(null)
     setResetPassword('')
-    setForm({ ...emptyForm, roleCode: lookups.roles.find((role) => role.code === 'EMPLOYEE')?.code ?? 'EMPLOYEE' })
+    const roleCode = lookups.roles.find((role) => role.code === 'EMPLOYEE')?.code ?? 'EMPLOYEE'
+    setPanelTab('account')
+    setUseCustomPermissions(false)
+    setPermissionState(null)
+    setPermissionDraft(buildDefaultPermissionMatrix(roleCode))
+    setForm({ ...emptyForm, roleCode })
     setMode('create')
   }
 
   function openEdit(user: ManagedUser) {
     setSelected(user)
     setResetPassword('')
+    setPanelTab('account')
+    setUseCustomPermissions(false)
+    setPermissionState(null)
+    setPermissionDraft(buildDefaultPermissionMatrix(user.roleCode ?? 'EMPLOYEE'))
     setForm({
       fullName: user.fullName,
       username: user.username ?? user.email?.split('@')[0] ?? '',
@@ -206,12 +241,85 @@ export default function UserManagementPage() {
       status: normalizeStatus(user.status),
     })
     setMode('edit')
+    void loadUserPermissions(user)
   }
 
   function openReset(user: ManagedUser) {
     setSelected(user)
     setResetPassword('')
     setMode('reset')
+  }
+
+  async function loadUserPermissions(user: ManagedUser) {
+    try {
+      const response = await fetch(`/api/admin/users/${user.profileId}/permissions`, { cache: 'no-store' })
+      const payload = await response.json().catch(() => null) as PermissionState | null
+      if (!response.ok || !payload) throw new Error(payload?.message ?? 'Khong tai duoc bang phan quyen.')
+      setPermissionState(payload)
+      setUseCustomPermissions(payload.mode === 'custom')
+      setPermissionDraft(payload.permissions ?? buildDefaultPermissionMatrix(user.roleCode ?? form.roleCode))
+    } catch (err) {
+      const fallback = buildDefaultPermissionMatrix(user.roleCode ?? form.roleCode)
+      setPermissionState({
+        profileId: user.profileId,
+        roleCode: user.roleCode,
+        roleLabel: user.roleLabel,
+        schemaReady: false,
+        mode: 'role_default',
+        roleDefault: fallback,
+        permissions: fallback,
+        overrideCount: 0,
+        message: err instanceof Error ? err.message : 'Khong tai duoc bang phan quyen.',
+      })
+      setUseCustomPermissions(false)
+      setPermissionDraft(fallback)
+    }
+  }
+
+  async function handleSavePermissions() {
+    if (!selected) return
+    await submitJson(
+      `/api/admin/users/${selected.profileId}/permissions`,
+      'PATCH',
+      { permissions: permissionDraft },
+      'Da luu phan quyen tuy chinh.',
+      {
+        keepPanelOpen: true,
+        actionAllowed: canEditUser(selected) && permissionState?.schemaReady === true && selected.roleCode !== 'ADMIN',
+      },
+    )
+    await loadUserPermissions(selected)
+  }
+
+  async function handleResetPermissions() {
+    if (!selected) return
+    await submitJson(
+      `/api/admin/users/${selected.profileId}/permissions`,
+      'DELETE',
+      {},
+      'Da reset ve quyen mac dinh theo role.',
+      {
+        keepPanelOpen: true,
+        actionAllowed: canEditUser(selected) && permissionState?.schemaReady === true,
+      },
+    )
+    await loadUserPermissions(selected)
+  }
+
+  function setPermissionAction(module: string, action: PermissionAction, checked: boolean) {
+    setPermissionDraft((rows) => rows.map((row) => {
+      if (row.module !== module) return row
+      return { ...row, actions: { ...row.actions, [action]: checked } }
+    }))
+  }
+
+  function setPermissionScope(module: string, scope: PermissionMatrixRow['scope']) {
+    setPermissionDraft((rows) => rows.map((row) => row.module === module ? { ...row, scope } : row))
+  }
+
+  function handleRoleChange(value: string) {
+    setForm((prev) => ({ ...prev, roleCode: value }))
+    if (!useCustomPermissions) setPermissionDraft(buildDefaultPermissionMatrix(value))
   }
 
   function canEditUser(user: ManagedUser) {
@@ -226,7 +334,7 @@ export default function UserManagementPage() {
     return capabilities.canSuspendMappedUser && user.actionCapabilities?.canSuspend === true
   }
 
-  function inferActionAllowed(url: string, method: 'POST' | 'PATCH') {
+  function inferActionAllowed(url: string, method: 'POST' | 'PATCH' | 'DELETE') {
     if (url === '/api/admin/users' && method === 'POST') return capabilities.canCreateUser
 
     const targetUser = users.find((user) => url.includes(`/api/admin/users/${user.profileId}`))
@@ -238,7 +346,12 @@ export default function UserManagementPage() {
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault()
-    await submitJson('/api/admin/users', 'POST', form, 'Đã tạo tài khoản staging.')
+    await submitJson(
+      '/api/admin/users',
+      'POST',
+      useCustomPermissions ? { ...form, useCustomPermissions: true, permissions: permissionDraft } : form,
+      'Đã tạo tài khoản.',
+    )
   }
 
   async function handleEdit(event: React.FormEvent) {
@@ -271,7 +384,7 @@ export default function UserManagementPage() {
 
   async function submitJson(
     url: string,
-    method: 'POST' | 'PATCH',
+    method: 'POST' | 'PATCH' | 'DELETE',
     body: unknown,
     successMessage: string,
     options?: { keepPanelOpen?: boolean; clearPassword?: boolean; actionAllowed?: boolean },
@@ -353,9 +466,9 @@ export default function UserManagementPage() {
 
       {!forbidden ? (
         <div style={metaRow}>
-          <span>Env: <strong>{meta?.appEnv ?? 'Dang tai'}</strong></span>
-          <span>Ref: <strong>{meta?.supabaseRef ?? 'Dang tai'}</strong></span>
-          <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'Dang tai'}</strong></span>
+          <span>Env: <strong>{meta?.appEnv ?? 'Đang tải'}</strong></span>
+          <span>Ref: <strong>{meta?.supabaseRef ?? 'Đang tải'}</strong></span>
+          <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'Đang tải'}</strong></span>
           <span>Source: <strong>{source}</strong></span>
           {diagnostics ? (
             <span>
@@ -442,13 +555,14 @@ export default function UserManagementPage() {
                       </Td>
                       <Td>
                         <div style={actionStack}>
-                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={editActionDisabled}>Sửa</button>
-                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={resetActionDisabled}>Reset mật khẩu</button>
+                          <button type="button" style={textButton} onClick={() => openEdit(user)} disabled={editActionDisabled} title={editActionDisabled ? disabledActionReason(user) : undefined}>Sửa</button>
+                          <button type="button" style={textButton} onClick={() => openReset(user)} disabled={resetActionDisabled} title={resetActionDisabled ? disabledActionReason(user) : undefined}>Reset mật khẩu</button>
                           <button
                             type="button"
                             style={active ? dangerTextButton : textButton}
                             onClick={() => handleStatus(user, active ? 'suspended' : 'active')}
                             disabled={statusActionDisabled}
+                            title={statusActionDisabled ? disabledActionReason(user) : undefined}
                           >
                             {active ? 'Khóa' : 'Mở'}
                           </button>
@@ -484,6 +598,14 @@ export default function UserManagementPage() {
             ) : (
               <form onSubmit={mode === 'create' ? handleCreate : handleEdit} style={panelFormStyle}>
                 <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={() => setMode(null)} />
+                {mode === 'edit' ? (
+                  <div style={tabRowStyle}>
+                    <button type="button" style={tabButtonStyle(panelTab === 'account')} onClick={() => setPanelTab('account')}>Thông tin tài khoản</button>
+                    <button type="button" style={tabButtonStyle(panelTab === 'permissions')} onClick={() => setPanelTab('permissions')}>Phân quyền</button>
+                  </div>
+                ) : null}
+                {(mode === 'create' || panelTab === 'account') ? (
+                  <>
                 <Input
                   label="Họ tên"
                   value={form.fullName}
@@ -511,12 +633,58 @@ export default function UserManagementPage() {
                       helpText="Chỉ hiển thị trong form này, không lưu vào DB/code/docs."
                     />
                   </>
-                ) : null}
-                <FormSelect label="Role" value={form.roleCode} onChange={(value) => setForm((prev) => ({ ...prev, roleCode: value }))} options={formRoleOptions} />
+                ) : (
+                  <>
+                    <Input
+                      label="Tên đăng nhập"
+                      autoComplete="username"
+                      value={form.username}
+                      onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+                      required
+                      helpText="Nếu đổi tên đăng nhập, hệ thống sẽ đổi email nội bộ tương ứng dạng username@vyvystore.vn."
+                    />
+                    <div style={readOnlyGridStyle}>
+                      <div style={readOnlyInfoStyle}>
+                        <span>Email nội bộ hiện tại</span>
+                        <strong>{selected?.email ?? 'Chưa có'}</strong>
+                      </div>
+                      <div style={readOnlyInfoStyle}>
+                        <span>Auth linked</span>
+                        <strong>{selected?.authLinked ? 'Có' : 'Không'}</strong>
+                      </div>
+                      <div style={readOnlyInfoStyle}>
+                        <span>Mapping status</span>
+                        <strong>{mappingStatusLabel(selected?.mappingStatus)}</strong>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <FormSelect label="Role" value={form.roleCode} onChange={handleRoleChange} options={formRoleOptions} />
                 <FormSelect label="Phòng ban" value={form.departmentId} onChange={(value) => setForm((prev) => ({ ...prev, departmentId: value }))} options={departmentOptions} />
                 <FormSelect label="Người quản lý" value={form.managerId} onChange={(value) => setForm((prev) => ({ ...prev, managerId: value }))} options={managerOptions} />
                 <FormSelect label="Trạng thái" value={form.status} onChange={(value) => setForm((prev) => ({ ...prev, status: normalizeStatus(value) }))} options={statusOptions} />
                 <Button type="submit" variant="primary" loading={saving}>{mode === 'create' ? 'Tạo tài khoản' : 'Lưu thay đổi'}</Button>
+                  </>
+                ) : null}
+                {(mode === 'create' || panelTab === 'permissions') ? (
+                  <PermissionMatrixPanel
+                    mode={mode}
+                    roleCode={form.roleCode}
+                    selected={selected}
+                    state={permissionState}
+                    rows={permissionDraft}
+                    useCustom={useCustomPermissions}
+                    saving={saving}
+                    onToggleCustom={(checked) => {
+                      setUseCustomPermissions(checked)
+                      if (!checked) setPermissionDraft(permissionState?.roleDefault ?? buildDefaultPermissionMatrix(form.roleCode))
+                    }}
+                    onActionChange={setPermissionAction}
+                    onScopeChange={setPermissionScope}
+                    onSave={handleSavePermissions}
+                    onReset={handleResetPermissions}
+                  />
+                ) : null}
               </form>
             )}
           </aside>
@@ -536,6 +704,128 @@ function PanelHead({ title, onClose }: { title: string; onClose: () => void }) {
         <i className="ti ti-x" />
       </button>
     </div>
+  )
+}
+
+function PermissionMatrixPanel({
+  mode,
+  roleCode,
+  selected,
+  state,
+  rows,
+  useCustom,
+  saving,
+  onToggleCustom,
+  onActionChange,
+  onScopeChange,
+  onSave,
+  onReset,
+}: {
+  mode: 'create' | 'edit' | 'reset'
+  roleCode: string
+  selected: ManagedUser | null
+  state: PermissionState | null
+  rows: PermissionMatrixRow[]
+  useCustom: boolean
+  saving: boolean
+  onToggleCustom: (checked: boolean) => void
+  onActionChange: (module: string, action: PermissionAction, checked: boolean) => void
+  onScopeChange: (module: string, scope: PermissionMatrixRow['scope']) => void
+  onSave: () => void
+  onReset: () => void
+}) {
+  const adminRole = roleCode === 'ADMIN'
+  const schemaReady = mode === 'create' ? true : state?.schemaReady === true
+  const editable = useCustom && !adminRole && schemaReady
+  const statusText = adminRole
+    ? 'ADMIN luôn có full quyền.'
+    : useCustom
+      ? 'Đang tùy chỉnh quyền riêng cho tài khoản này.'
+      : 'Đang dùng quyền mặc định theo role.'
+  const schemaMessage = state?.schemaReady === false
+    ? state.message ?? 'Cần migration user_permission_overrides trên staging trước khi lưu custom override.'
+    : null
+
+  return (
+    <section style={permissionPanelStyle}>
+      <div style={permissionHeaderStyle}>
+        <div>
+          <div style={labelStyle}>Bảng phân quyền</div>
+          <div style={{ marginTop: 4, fontWeight: 750 }}>{selected?.roleLabel ?? roleCode}</div>
+        </div>
+        <BadgeLike tone={useCustom ? 'warning' : 'lime'}>{useCustom ? 'Tùy chỉnh' : 'Theo role'}</BadgeLike>
+      </div>
+
+      <label style={toggleRowStyle}>
+        <input
+          type="checkbox"
+          checked={useCustom}
+          disabled={adminRole}
+          onChange={(event) => onToggleCustom(event.target.checked)}
+        />
+        <span>Tùy chỉnh quyền riêng cho tài khoản này</span>
+      </label>
+      <div style={smallNote}>{statusText}</div>
+      <div style={smallNote}>Mặc định hệ thống sẽ dùng quyền theo Role.</div>
+      {schemaMessage ? <div style={alertStyle('warning')}>{schemaMessage}</div> : null}
+
+      <div style={matrixWrapStyle}>
+        <table style={matrixTableStyle}>
+          <thead>
+            <tr>
+              <Th>Module</Th>
+              {PERMISSION_ACTIONS.map((action) => <Th key={action}>{ACTION_LABELS[action]}</Th>)}
+              <Th>Phạm vi</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const moduleInfo = PERMISSION_MODULES.find((item) => item.key === row.module)
+              return (
+                <tr key={row.module}>
+                  <Td>
+                    <div style={primaryText}>{moduleInfo?.label ?? row.module}</div>
+                    <div style={mutedText}>{moduleInfo?.description}</div>
+                  </Td>
+                  {PERMISSION_ACTIONS.map((action) => (
+                    <td key={action} style={checkboxCellStyle}>
+                      <input
+                        type="checkbox"
+                        checked={row.actions[action]}
+                        disabled={!editable}
+                        onChange={(event) => onActionChange(row.module, action, event.target.checked)}
+                        aria-label={`${moduleInfo?.label ?? row.module} ${ACTION_LABELS[action]}`}
+                      />
+                    </td>
+                  ))}
+                  <Td>
+                    <select
+                      value={row.scope}
+                      disabled={!editable}
+                      onChange={(event) => onScopeChange(row.module, event.target.value as PermissionMatrixRow['scope'])}
+                      style={scopeSelectStyle}
+                    >
+                      {PERMISSION_SCOPES.map((scope) => <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>)}
+                    </select>
+                  </Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {mode === 'edit' ? (
+        <div style={permissionActionsStyle}>
+          <button type="button" style={textButton} onClick={onReset} disabled={saving || adminRole || !schemaReady}>
+            Reset về quyền mặc định theo role
+          </button>
+          <Button type="button" variant="primary" loading={saving} disabled={!editable} onClick={onSave}>
+            Lưu phân quyền
+          </Button>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -583,6 +873,12 @@ function mappingStatusLabel(value: UserMappingStatus | undefined) {
   return 'Hồ sơ cũ / chưa liên kết'
 }
 
+function disabledActionReason(user: ManagedUser) {
+  if (user.mappingStatus !== 'complete') return 'Hồ sơ chưa liên kết đầy đủ nên không thể thao tác.'
+  if (!user.authLinked) return 'Tài khoản chưa liên kết Auth nên không thể thao tác.'
+  return 'Thao tác đang bị khóa để đảm bảo an toàn.'
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'Chưa có'
   return new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(value))
@@ -612,7 +908,7 @@ const toolbarStyle: React.CSSProperties = {
 
 const layoutStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 380px)',
+  gridTemplateColumns: 'minmax(0, 1fr) minmax(380px, 520px)',
   gap: 16,
   alignItems: 'start',
 }
@@ -674,6 +970,26 @@ const panelFormStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 14,
 }
+
+const tabRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+  border: '1px solid var(--color-border)',
+  borderRadius: 9,
+  padding: 4,
+  background: 'var(--color-surface-2)',
+}
+
+const tabButtonStyle = (active: boolean): React.CSSProperties => ({
+  minHeight: 34,
+  borderRadius: 7,
+  border: '1px solid transparent',
+  background: active ? 'var(--color-surface)' : 'transparent',
+  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
+  fontSize: 12,
+  fontWeight: 750,
+})
 
 const panelHeadStyle: React.CSSProperties = {
   display: 'flex',
@@ -744,6 +1060,79 @@ const forbiddenStyle: React.CSSProperties = {
 const smallNote: React.CSSProperties = {
   fontSize: 13,
   color: 'var(--color-text-muted)',
+}
+
+const readOnlyInfoStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  padding: 10,
+  fontSize: 13,
+  color: 'var(--color-text-muted)',
+}
+
+const readOnlyGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr',
+  gap: 8,
+}
+
+const permissionPanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  borderTop: '1px solid var(--color-border)',
+  paddingTop: 14,
+}
+
+const permissionHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+}
+
+const toggleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 13,
+  fontWeight: 700,
+  color: 'var(--color-text)',
+}
+
+const matrixWrapStyle: React.CSSProperties = {
+  overflow: 'auto',
+  border: '1px solid var(--color-border)',
+  borderRadius: 9,
+  maxHeight: 430,
+}
+
+const matrixTableStyle: React.CSSProperties = {
+  width: '100%',
+  minWidth: 900,
+  borderCollapse: 'collapse',
+}
+
+const checkboxCellStyle: React.CSSProperties = {
+  padding: '10px 8px',
+  textAlign: 'center',
+  borderBottom: '1px solid var(--color-border)',
+}
+
+const scopeSelectStyle: React.CSSProperties = {
+  ...selectStyle,
+  minWidth: 150,
+}
+
+const permissionActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  flexWrap: 'wrap',
 }
 
 const alertStyle = (tone: 'error' | 'success' | 'warning'): React.CSSProperties => ({

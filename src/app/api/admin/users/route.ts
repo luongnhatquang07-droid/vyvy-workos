@@ -18,6 +18,7 @@ import {
   findRoleByCode,
   loadUserManagementData,
 } from '@/lib/admin/userManagementData'
+import { permissionOverrideTableReady, saveUserPermissionOverrides } from '@/lib/admin/userPermissionOverrides'
 
 export const runtime = 'nodejs'
 
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
     const status = cleanStatus(body.status)
     const email = loginInput.includes('@') ? cleanEmail(loginInput) : authEmailFromUsername(loginInput)
     const username = loginInput.includes('@') ? usernameFromEmail(email) : loginInput
+    const useCustomPermissions = body.useCustomPermissions === true
 
     if (!fullName) return jsonError('Thiếu họ tên.', 400)
     if (!username) return jsonError('Thiếu tên đăng nhập.', 400)
@@ -65,6 +67,12 @@ export async function POST(request: Request) {
 
     const role = await findRoleByCode(auth.service, roleCode)
     if (!role) return jsonError('Vai trò không tồn tại.', 400)
+
+    if (useCustomPermissions) {
+      const tableReady = await permissionOverrideTableReady(auth.service)
+      if (!tableReady.ready) return jsonError(tableReady.message ?? 'Chua san sang luu quyen tuy chinh.', 409)
+      if (roleCode === 'ADMIN') return jsonError('ADMIN luon dung full quyen, khong can custom override.', 400)
+    }
 
     const duplicate = await findDuplicateEmail(auth.service, auth.workspaceId, email)
     if (duplicate) return jsonError('Tên đăng nhập đã tồn tại.', 409)
@@ -133,6 +141,10 @@ export async function POST(request: Request) {
       is_active: isActiveAccountStatus(status),
     })
     if (membershipRes.error) throw membershipRes.error
+
+    if (useCustomPermissions) {
+      await saveUserPermissionOverrides(auth.service, auth.workspaceId, profileRes.data.id, body.permissions)
+    }
 
     const data = await loadUserManagementData(auth.service, auth.workspaceId)
     return NextResponse.json({
