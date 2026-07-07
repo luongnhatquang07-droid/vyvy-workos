@@ -162,6 +162,7 @@ export default function UserManagementPage() {
   const [selected, setSelected] = React.useState<ManagedUser | null>(null)
   const [form, setForm] = React.useState<AccountForm>(emptyForm)
   const [useCustomPermissions, setUseCustomPermissions] = React.useState(false)
+  const [permissionModalOpen, setPermissionModalOpen] = React.useState(false)
   const [permissionState, setPermissionState] = React.useState<PermissionState | null>(null)
   const [permissionDraft, setPermissionDraft] = React.useState<PermissionMatrixRow[]>(buildDefaultPermissionMatrix(emptyForm.roleCode))
   const [resetPassword, setResetPassword] = React.useState('')
@@ -217,6 +218,7 @@ export default function UserManagementPage() {
     setResetPassword('')
     const roleCode = lookups.roles.find((role) => role.code === 'EMPLOYEE')?.code ?? 'EMPLOYEE'
     setPanelTab('account')
+    setPermissionModalOpen(false)
     setUseCustomPermissions(false)
     setPermissionState(null)
     setPermissionDraft(buildDefaultPermissionMatrix(roleCode))
@@ -228,6 +230,7 @@ export default function UserManagementPage() {
     setSelected(user)
     setResetPassword('')
     setPanelTab('account')
+    setPermissionModalOpen(false)
     setUseCustomPermissions(false)
     setPermissionState(null)
     setPermissionDraft(buildDefaultPermissionMatrix(user.roleCode ?? 'EMPLOYEE'))
@@ -247,7 +250,19 @@ export default function UserManagementPage() {
   function openReset(user: ManagedUser) {
     setSelected(user)
     setResetPassword('')
+    setPermissionModalOpen(false)
     setMode('reset')
+  }
+
+  function closePanel() {
+    setPermissionModalOpen(false)
+    setMode(null)
+    setSelected(null)
+  }
+
+  function resetPermissionDraftToRoleDefault() {
+    setUseCustomPermissions(false)
+    setPermissionDraft(permissionState?.roleDefault ?? buildDefaultPermissionMatrix(form.roleCode))
   }
 
   async function loadUserPermissions(user: ManagedUser) {
@@ -582,7 +597,7 @@ export default function UserManagementPage() {
           <aside style={panelStyle}>
             {mode === 'reset' && selected ? (
               <form onSubmit={handleReset} style={panelFormStyle}>
-                <PanelHead title="Reset mật khẩu tạm" onClose={() => setMode(null)} />
+                <PanelHead title="Reset mật khẩu tạm" onClose={closePanel} />
                 <div style={smallNote}>Tài khoản: <strong>{selected.fullName}</strong></div>
                 <Input
                   label="Mật khẩu tạm mới"
@@ -597,7 +612,7 @@ export default function UserManagementPage() {
               </form>
             ) : (
               <form onSubmit={mode === 'create' ? handleCreate : handleEdit} style={panelFormStyle}>
-                <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={() => setMode(null)} />
+                <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={closePanel} />
                 {mode === 'edit' ? (
                   <div style={tabRowStyle}>
                     <button type="button" style={tabButtonStyle(panelTab === 'account')} onClick={() => setPanelTab('account')}>Thông tin tài khoản</button>
@@ -675,6 +690,10 @@ export default function UserManagementPage() {
                     rows={permissionDraft}
                     useCustom={useCustomPermissions}
                     saving={saving}
+                    open={permissionModalOpen}
+                    onOpen={() => setPermissionModalOpen(true)}
+                    onClose={() => setPermissionModalOpen(false)}
+                    onApply={() => setPermissionModalOpen(false)}
                     onToggleCustom={(checked) => {
                       setUseCustomPermissions(checked)
                       if (!checked) setPermissionDraft(permissionState?.roleDefault ?? buildDefaultPermissionMatrix(form.roleCode))
@@ -682,7 +701,7 @@ export default function UserManagementPage() {
                     onActionChange={setPermissionAction}
                     onScopeChange={setPermissionScope}
                     onSave={handleSavePermissions}
-                    onReset={handleResetPermissions}
+                    onReset={mode === 'create' ? resetPermissionDraftToRoleDefault : handleResetPermissions}
                   />
                 ) : null}
               </form>
@@ -715,6 +734,10 @@ function PermissionMatrixPanel({
   rows,
   useCustom,
   saving,
+  open,
+  onOpen,
+  onClose,
+  onApply,
   onToggleCustom,
   onActionChange,
   onScopeChange,
@@ -728,6 +751,10 @@ function PermissionMatrixPanel({
   rows: PermissionMatrixRow[]
   useCustom: boolean
   saving: boolean
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
+  onApply: () => void
   onToggleCustom: (checked: boolean) => void
   onActionChange: (module: string, action: PermissionAction, checked: boolean) => void
   onScopeChange: (module: string, scope: PermissionMatrixRow['scope']) => void
@@ -737,6 +764,7 @@ function PermissionMatrixPanel({
   const adminRole = roleCode === 'ADMIN'
   const schemaReady = mode === 'create' ? true : state?.schemaReady === true
   const editable = useCustom && !adminRole && schemaReady
+  const roleLabel = selected?.roleLabel ?? roleCode
   const statusText = adminRole
     ? 'ADMIN luôn có full quyền.'
     : useCustom
@@ -745,87 +773,137 @@ function PermissionMatrixPanel({
   const schemaMessage = state?.schemaReady === false
     ? state.message ?? 'Cần migration user_permission_overrides trên staging trước khi lưu custom override.'
     : null
+  const resetDisabled = saving || adminRole || (mode === 'edit' && !schemaReady)
+  const primaryDisabled = mode === 'edit' ? !editable : false
 
   return (
-    <section style={permissionPanelStyle}>
-      <div style={permissionHeaderStyle}>
-        <div>
-          <div style={labelStyle}>Bảng phân quyền</div>
-          <div style={{ marginTop: 4, fontWeight: 750 }}>{selected?.roleLabel ?? roleCode}</div>
+    <>
+      <section style={permissionPanelStyle}>
+        <div style={permissionHeaderStyle}>
+          <div>
+            <div style={labelStyle}>Phân quyền tài khoản</div>
+            <div style={{ marginTop: 4, fontWeight: 750 }}>Role: {roleLabel}</div>
+          </div>
+          <BadgeLike tone={useCustom ? 'warning' : 'lime'}>{useCustom ? 'Tùy chỉnh riêng' : 'Theo role'}</BadgeLike>
         </div>
-        <BadgeLike tone={useCustom ? 'warning' : 'lime'}>{useCustom ? 'Tùy chỉnh' : 'Theo role'}</BadgeLike>
-      </div>
+        <div style={permissionSummaryGridStyle}>
+          <div style={readOnlyInfoStyle}>
+            <span>Chế độ</span>
+            <strong>{useCustom ? 'Tùy chỉnh riêng' : 'Theo role'}</strong>
+          </div>
+          <div style={readOnlyInfoStyle}>
+            <span>Số module</span>
+            <strong>{rows.length} module</strong>
+          </div>
+        </div>
+        <div style={smallNote}>{statusText}</div>
+        {schemaMessage ? <div style={alertStyle('warning')}>{schemaMessage}</div> : null}
+        <button type="button" style={openPermissionModalButtonStyle} onClick={onOpen}>
+          Mở bảng phân quyền
+        </button>
+      </section>
 
-      <label style={toggleRowStyle}>
-        <input
-          type="checkbox"
-          checked={useCustom}
-          disabled={adminRole}
-          onChange={(event) => onToggleCustom(event.target.checked)}
-        />
-        <span>Tùy chỉnh quyền riêng cho tài khoản này</span>
-      </label>
-      <div style={smallNote}>{statusText}</div>
-      <div style={smallNote}>Mặc định hệ thống sẽ dùng quyền theo Role.</div>
-      {schemaMessage ? <div style={alertStyle('warning')}>{schemaMessage}</div> : null}
+      {open ? (
+        <div style={permissionModalBackdropStyle} role="presentation">
+          <section style={permissionModalStyle} role="dialog" aria-modal="true" aria-label="Bảng phân quyền tài khoản">
+            <div style={permissionModalHeaderStyle}>
+              <div>
+                <h2 style={permissionModalTitleStyle}>Bảng phân quyền tài khoản</h2>
+                <div style={permissionModalMetaStyle}>
+                  <span>Role: <strong>{roleLabel}</strong></span>
+                  <span>Chế độ: <strong>{useCustom ? 'Tùy chỉnh riêng' : 'Theo role'}</strong></span>
+                </div>
+              </div>
+              <button type="button" onClick={onClose} style={iconButtonStyle} aria-label="Đóng bảng phân quyền">
+                <i className="ti ti-x" />
+              </button>
+            </div>
 
-      <div style={matrixWrapStyle}>
-        <table style={matrixTableStyle}>
-          <thead>
-            <tr>
-              <Th>Module</Th>
-              {PERMISSION_ACTIONS.map((action) => <Th key={action}>{ACTION_LABELS[action]}</Th>)}
-              <Th>Phạm vi</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const moduleInfo = PERMISSION_MODULES.find((item) => item.key === row.module)
-              return (
-                <tr key={row.module}>
-                  <Td>
-                    <div style={primaryText}>{moduleInfo?.label ?? row.module}</div>
-                    <div style={mutedText}>{moduleInfo?.description}</div>
-                  </Td>
-                  {PERMISSION_ACTIONS.map((action) => (
-                    <td key={action} style={checkboxCellStyle}>
-                      <input
-                        type="checkbox"
-                        checked={row.actions[action]}
-                        disabled={!editable}
-                        onChange={(event) => onActionChange(row.module, action, event.target.checked)}
-                        aria-label={`${moduleInfo?.label ?? row.module} ${ACTION_LABELS[action]}`}
-                      />
-                    </td>
-                  ))}
-                  <Td>
-                    <select
-                      value={row.scope}
-                      disabled={!editable}
-                      onChange={(event) => onScopeChange(row.module, event.target.value as PermissionMatrixRow['scope'])}
-                      style={scopeSelectStyle}
-                    >
-                      {PERMISSION_SCOPES.map((scope) => <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>)}
-                    </select>
-                  </Td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+            <div style={permissionModalBodyStyle}>
+              <div style={permissionModalControlStyle}>
+                <label style={largeToggleRowStyle}>
+                  <input
+                    type="checkbox"
+                    checked={useCustom}
+                    disabled={adminRole}
+                    onChange={(event) => onToggleCustom(event.target.checked)}
+                    style={largeCheckboxStyle}
+                  />
+                  <span>Tùy chỉnh quyền riêng cho tài khoản này</span>
+                </label>
+                <div style={smallNote}>Nếu tắt tùy chỉnh, tài khoản sẽ dùng quyền mặc định theo role.</div>
+              </div>
+              {schemaMessage ? <div style={alertStyle('warning')}>{schemaMessage}</div> : null}
 
-      {mode === 'edit' ? (
-        <div style={permissionActionsStyle}>
-          <button type="button" style={textButton} onClick={onReset} disabled={saving || adminRole || !schemaReady}>
-            Reset về quyền mặc định theo role
-          </button>
-          <Button type="button" variant="primary" loading={saving} disabled={!editable} onClick={onSave}>
-            Lưu phân quyền
-          </Button>
+              <div style={largeMatrixWrapStyle}>
+                <table style={largeMatrixTableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...matrixHeaderCellStyle, width: 310 }}>Module</th>
+                      <th style={{ ...matrixHeaderCellStyle, width: 210 }}>Phạm vi</th>
+                      {PERMISSION_ACTIONS.map((action) => (
+                        <th key={action} style={matrixHeaderCellStyle}>{ACTION_LABELS[action]}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const moduleInfo = PERMISSION_MODULES.find((item) => item.key === row.module)
+                      return (
+                        <tr key={row.module}>
+                          <td style={largeModuleCellStyle}>
+                            <div style={primaryText}>{moduleInfo?.label ?? row.module}</div>
+                            <div style={permissionDescriptionStyle}>{moduleInfo?.description}</div>
+                          </td>
+                          <td style={largeScopeCellStyle}>
+                            <select
+                              value={row.scope}
+                              disabled={!editable}
+                              onChange={(event) => onScopeChange(row.module, event.target.value as PermissionMatrixRow['scope'])}
+                              style={largeScopeSelectStyle}
+                            >
+                              {PERMISSION_SCOPES.map((scope) => <option key={scope} value={scope}>{SCOPE_LABELS[scope]}</option>)}
+                            </select>
+                          </td>
+                          {PERMISSION_ACTIONS.map((action) => (
+                            <td key={action} style={largeCheckboxCellStyle}>
+                              <input
+                                type="checkbox"
+                                checked={row.actions[action]}
+                                disabled={!editable}
+                                onChange={(event) => onActionChange(row.module, action, event.target.checked)}
+                                aria-label={`${moduleInfo?.label ?? row.module} ${ACTION_LABELS[action]}`}
+                                style={largeCheckboxStyle}
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={permissionModalFooterStyle}>
+              <button type="button" style={modalSecondaryButtonStyle} onClick={onClose}>Hủy</button>
+              <button type="button" style={textButton} onClick={onReset} disabled={resetDisabled}>
+                Reset về quyền mặc định
+              </button>
+              <Button
+                type="button"
+                variant="primary"
+                loading={saving}
+                disabled={primaryDisabled}
+                onClick={mode === 'create' ? onApply : onSave}
+              >
+                {mode === 'create' ? 'Áp dụng' : 'Lưu phân quyền'}
+              </Button>
+            </div>
+          </section>
         </div>
       ) : null}
-    </section>
+    </>
   )
 }
 
@@ -1094,45 +1172,191 @@ const permissionHeaderStyle: React.CSSProperties = {
   gap: 12,
 }
 
-const toggleRowStyle: React.CSSProperties = {
+const permissionSummaryGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+}
+
+const openPermissionModalButtonStyle: React.CSSProperties = {
+  minHeight: 44,
+  borderRadius: 8,
+  border: '1px solid var(--color-border-strong)',
+  background: 'var(--color-charcoal)',
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: 800,
+}
+
+const permissionModalBackdropStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 80,
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
-  fontSize: 13,
-  fontWeight: 700,
+  justifyContent: 'center',
+  padding: 24,
+  background: 'rgba(17, 20, 24, 0.62)',
+}
+
+const permissionModalStyle: React.CSSProperties = {
+  width: 'min(1180px, 90vw)',
+  height: 'min(860px, 88vh)',
+  display: 'grid',
+  gridTemplateRows: 'auto minmax(0, 1fr) auto',
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  background: 'var(--color-surface)',
+  boxShadow: '0 24px 60px rgba(0,0,0,0.24)',
+  overflow: 'hidden',
+}
+
+const permissionModalHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 16,
+  padding: '18px 20px',
+  borderBottom: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+}
+
+const permissionModalTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 20,
+  fontWeight: 800,
   color: 'var(--color-text)',
 }
 
-const matrixWrapStyle: React.CSSProperties = {
+const permissionModalMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 12,
+  marginTop: 8,
+  fontSize: 13,
+  color: 'var(--color-text-muted)',
+}
+
+const permissionModalBodyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  minHeight: 0,
+  padding: '14px 20px',
+  overflow: 'hidden',
+}
+
+const permissionModalControlStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 16,
+  flexWrap: 'wrap',
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  padding: '12px 14px',
+  background: 'var(--color-surface-2)',
+}
+
+const largeToggleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  fontSize: 14,
+  fontWeight: 800,
+  color: 'var(--color-text)',
+}
+
+const largeMatrixWrapStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
   overflow: 'auto',
   border: '1px solid var(--color-border)',
   borderRadius: 9,
-  maxHeight: 430,
+  background: 'var(--color-surface)',
 }
 
-const matrixTableStyle: React.CSSProperties = {
+const largeMatrixTableStyle: React.CSSProperties = {
   width: '100%',
-  minWidth: 900,
+  minWidth: 980,
   borderCollapse: 'collapse',
 }
 
-const checkboxCellStyle: React.CSSProperties = {
-  padding: '10px 8px',
+const matrixHeaderCellStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 1,
+  textAlign: 'left',
+  padding: '13px 14px',
+  fontSize: 11,
+  color: 'var(--color-text-muted)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  borderBottom: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+}
+
+const largeModuleCellStyle: React.CSSProperties = {
+  padding: '14px 16px',
+  borderBottom: '1px solid var(--color-border)',
+  verticalAlign: 'top',
+}
+
+const permissionDescriptionStyle: React.CSSProperties = {
+  marginTop: 5,
+  fontSize: 12,
+  lineHeight: 1.4,
+  color: 'var(--color-text-muted)',
+}
+
+const largeScopeCellStyle: React.CSSProperties = {
+  width: 230,
+  padding: '12px 14px',
+  borderBottom: '1px solid var(--color-border)',
+  verticalAlign: 'middle',
+}
+
+const largeCheckboxCellStyle: React.CSSProperties = {
+  width: 82,
+  padding: '12px 10px',
   textAlign: 'center',
   borderBottom: '1px solid var(--color-border)',
 }
 
-const scopeSelectStyle: React.CSSProperties = {
-  ...selectStyle,
-  minWidth: 150,
+const largeCheckboxStyle: React.CSSProperties = {
+  width: 20,
+  height: 20,
+  cursor: 'pointer',
 }
 
-const permissionActionsStyle: React.CSSProperties = {
+const largeScopeSelectStyle: React.CSSProperties = {
+  ...selectStyle,
+  minWidth: 190,
+  height: 42,
+  fontSize: 13,
+}
+
+const permissionModalFooterStyle: React.CSSProperties = {
+  position: 'sticky',
+  bottom: 0,
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 10,
+  justifyContent: 'flex-end',
+  gap: 12,
   flexWrap: 'wrap',
+  padding: '14px 20px',
+  borderTop: '1px solid var(--color-border)',
+  background: 'var(--color-surface)',
+}
+
+const modalSecondaryButtonStyle: React.CSSProperties = {
+  minHeight: 38,
+  borderRadius: 8,
+  border: '1px solid var(--color-border)',
+  padding: '0 14px',
+  color: 'var(--color-text)',
+  fontSize: 13,
+  fontWeight: 750,
 }
 
 const alertStyle = (tone: 'error' | 'success' | 'warning'): React.CSSProperties => ({
