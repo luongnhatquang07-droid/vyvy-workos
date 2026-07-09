@@ -8,6 +8,7 @@ import {
   versionReviewTone,
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
+import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { externalLinkDisplayName, parseExternalLinkChangeNote } from '@/lib/files/externalLinks'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -146,7 +147,7 @@ export function FileList({
       if (deliverableId) {
         const params = new URLSearchParams({ workspaceId, deliverableId })
         const response = await fetch(`/api/deliverables?${params}`)
-        const payload = (await response.json()) as { deliverable?: DeliverableDetail; versions?: VersionItem[]; error?: string }
+        const payload = await readJsonResponse<{ deliverable?: DeliverableDetail; versions?: VersionItem[]; error?: string }>(response, 'Không tải được lịch sử version.')
         if (!response.ok) throw new Error(payload.error ?? 'Không tải được lịch sử version.')
         setDetailDeliverable(payload.deliverable ?? null)
         setVersions(payload.versions ?? [])
@@ -159,7 +160,7 @@ export function FileList({
       if (taskId) params.set('taskId', taskId)
 
       const response = await fetch(`/api/upload?${params}`)
-      const payload = (await response.json()) as { files?: StorageFile[]; error?: string }
+      const payload = await readJsonResponse<{ files?: StorageFile[]; error?: string }>(response, 'Không tải được danh sách file.')
       if (!response.ok) throw new Error(payload.error ?? 'Không tải được danh sách file.')
       setDetailDeliverable(null)
       setFiles(payload.files ?? [])
@@ -219,7 +220,7 @@ export function FileList({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, deliverableId, versionId, action, reason }),
       })
-      const payload = (await response.json()) as { error?: string }
+      const payload = await readJsonResponse<{ error?: string }>(response, 'Không xử lý được yêu cầu.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xử lý được version.')
       await loadFiles()
       setNotice('Đã cập nhật trạng thái version.')
@@ -243,7 +244,7 @@ export function FileList({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, deliverableId, versionId, action, reviewComment: reviewComment ?? '' }),
       })
-      const payload = (await response.json()) as { error?: string }
+      const payload = await readJsonResponse<{ error?: string }>(response, 'Không xử lý được yêu cầu.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không cập nhật được trạng thái duyệt.')
       await loadFiles()
       setNotice('Đã cập nhật trạng thái duyệt.')
@@ -359,7 +360,7 @@ export function FileList({
       if (requiresApproval) formData.append('requiresApproval', 'true')
 
       const response = await fetch('/api/upload', { method: 'POST', body: formData })
-      const payload = (await response.json()) as { error?: string; versionNumber?: number }
+      const payload = await readJsonResponse<{ error?: string; versionNumber?: number }>(response, 'Không upload được file.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không thay file được.')
 
       await loadFiles()

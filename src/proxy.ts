@@ -34,6 +34,10 @@ export async function proxy(request: NextRequest) {
     pathname === '/favicon.ico'
 
   if (!isPublic && !user) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ ok: false, error: 'Bạn cần đăng nhập trước khi thao tác.' }, { status: 401 })
+    }
+
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('next', pathname)

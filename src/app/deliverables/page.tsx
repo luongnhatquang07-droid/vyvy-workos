@@ -8,6 +8,7 @@ import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
+import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import type { VersionReviewStatus } from '@/lib/deliverableVersionStatus'
 import type {
   CommandCenterDeliverableRow,
@@ -169,7 +170,7 @@ export default function DeliverablesPage() {
     try {
       const params = new URLSearchParams({ workspaceId, deliverableId: id })
       const response = await fetch(`/api/deliverables?${params}`)
-      const payload = (await response.json()) as DetailPayload
+      const payload = await readJsonResponse<DetailPayload>(response, 'Không tải được chi tiết bàn giao.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết bàn giao.')
       if (!payload.deliverable?.id) throw new Error('Không tìm thấy bàn giao.')
       if (selectedIdRef.current === id) setDetail(payload)
@@ -220,7 +221,7 @@ export default function DeliverablesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const result = (await response.json()) as { deliverableId?: string; error?: string }
+      const result = await readJsonResponse<{ deliverableId?: string; error?: string }>(response, 'Không tạo được bàn giao.')
       if (!response.ok || result.error) throw new Error(result.error ?? 'Không tạo được bàn giao.')
       setShowCreate(false)
       setDraft(createDraft())
@@ -250,7 +251,7 @@ export default function DeliverablesPage() {
           reviewComment: reviewComment.trim(),
         }),
       })
-      const payload = (await response.json()) as { error?: string }
+      const payload = await readJsonResponse<{ error?: string }>(response, 'Không cập nhật được bàn giao.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không cập nhật được bàn giao.')
       setReviewComment('')
       await reloadAll(selectedId)
@@ -300,7 +301,7 @@ export default function DeliverablesPage() {
           personId: selected.submitter_id,
         }),
       })
-      const payload = (await response.json()) as { error?: string }
+      const payload = await readJsonResponse<{ error?: string }>(response, 'Không cập nhật được bàn giao.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không ghi nhận được nhắc việc.')
       setPendingReminder(false)
       await reloadAll(selectedId)

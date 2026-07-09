@@ -41,7 +41,7 @@ interface TaskSyncResult {
 }
 
 function jsonError(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status })
+  return NextResponse.json({ ok: false, error: message }, { status })
 }
 
 function cleanId(value: unknown) {
@@ -922,14 +922,14 @@ async function ensureDeliverableForLinkSubmission({
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url)
-  const workspaceId = searchParams.get('workspaceId') ?? ''
-  const deliverableId = searchParams.get('deliverableId') ?? ''
-  const context = await getWorkspaceContext(workspaceId)
-  if (!context.ok) return context.response
-  if (!deliverableId) return jsonError('Thiếu deliverableId.', 400)
-
   try {
+    const { searchParams } = new URL(req.url)
+    const workspaceId = searchParams.get('workspaceId') ?? ''
+    const deliverableId = searchParams.get('deliverableId') ?? ''
+    const context = await getWorkspaceContext(workspaceId)
+    if (!context.ok) return context.response
+    if (!deliverableId) return jsonError('Thiếu deliverableId.', 400)
+
     const detail = await loadDeliverableDetail(context.workspaceId, deliverableId)
     if (!detail) return jsonError('Không tìm thấy hạng mục bàn giao.', 404)
     if (!(await canViewDeliverable(context.actor, context.workspaceId, deliverableId))) {
