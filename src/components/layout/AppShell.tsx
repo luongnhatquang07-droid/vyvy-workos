@@ -10,6 +10,19 @@ import { CommandDataProvider } from '@/hooks/useCommandData'
 const STORAGE_KEY = 'vyvy_sidebar_collapsed'
 const OVERLAY_BREAKPOINT = 1100
 const PRODUCTION_SUPABASE_REF = 'tgmnkqcxucxpnhhsggug'
+const COMMAND_DATA_ROUTES = [
+  '/command-center',
+  '/projects',
+  '/approvals',
+  '/deliverables',
+  '/file-library',
+  '/follow-ups',
+  '/calendar',
+  '/ceo-reports',
+  '/meetings',
+  '/task-inbox',
+  '/team-workload',
+]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -73,8 +86,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (pathname === '/login') return <>{children}</>
 
+  const commandDataEnabled = COMMAND_DATA_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
+
   return (
-    <CommandDataProvider>
+    <CommandDataProvider enabled={commandDataEnabled}>
       <div className="vyvy-app-root" style={{ display: 'flex', minHeight: '100vh', background: 'var(--color-bg)', position: 'relative' }}>
         <AppEffects />
         <div key={pathname} className="vyvy-nav-progress" />

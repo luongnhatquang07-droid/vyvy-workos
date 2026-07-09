@@ -6,10 +6,8 @@ import { usePathname } from 'next/navigation'
 import { Avatar } from '@/components/ui/Avatar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { NAV_ITEMS } from '@/config/navigation'
-import { useCommandData } from '@/hooks/useCommandData'
 import {
   EMPTY_SIDEBAR_COUNTS,
-  getSidebarCounts,
   type SidebarCounts,
 } from '@/lib/data/queries/sidebarCounts'
 import { getRoleLabel } from '@/lib/rbac/roles'
@@ -31,8 +29,51 @@ interface SidebarAccess {
 }
 
 function useSidebarCounts(): SidebarCounts {
-  const { data } = useCommandData()
-  return React.useMemo(() => (data ? getSidebarCounts(data) : EMPTY_SIDEBAR_COUNTS), [data])
+  const [counts, setCounts] = React.useState<SidebarCounts>(() => sidebarCountsCache.data ?? EMPTY_SIDEBAR_COUNTS)
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    async function loadCounts() {
+      if (sidebarCountsCache.promise) {
+        const cached = await sidebarCountsCache.promise.catch(() => EMPTY_SIDEBAR_COUNTS)
+        if (!cancelled) setCounts(cached)
+        return
+      }
+
+      const promise = fetch('/api/sidebar-counts', { cache: 'no-store' })
+        .then(async (response) => {
+          if (!response.ok) return EMPTY_SIDEBAR_COUNTS
+          const payload = await response.json().catch(() => null)
+          return { ...EMPTY_SIDEBAR_COUNTS, ...(payload?.counts ?? {}) } as SidebarCounts
+        })
+        .catch(() => EMPTY_SIDEBAR_COUNTS)
+
+      sidebarCountsCache.promise = promise
+      const nextCounts = await promise
+      sidebarCountsCache.data = nextCounts
+      sidebarCountsCache.promise = null
+      if (!cancelled) setCounts(nextCounts)
+    }
+
+    queueMicrotask(() => {
+      void loadCounts()
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return counts
+}
+
+const sidebarCountsCache: {
+  data: SidebarCounts | null
+  promise: Promise<SidebarCounts> | null
+} = {
+  data: null,
+  promise: null,
 }
 
 const DEFAULT_ACCESS: SidebarAccess = {
@@ -249,8 +290,16 @@ function formatUserName(access: SidebarAccess) {
 
 function formatUserRole(access: SidebarAccess) {
   const roleLabel = access.roleLabel?.trim() || (access.role ? getRoleLabel(access.role) : 'Chưa xác định quyền')
-  const departmentName = access.departmentName?.trim()
+  const departmentName = repairVietnameseText(access.departmentName?.trim() ?? '')
   return departmentName ? `${roleLabel} · ${departmentName}` : roleLabel
+}
+
+function repairVietnameseText(value: string) {
+  const replacements: Record<string, string> = {
+    'V?n h?nh (OPS)': 'Vận hành (OPS)',
+    'V?n h?nh': 'Vận hành',
+  }
+  return replacements[value] ?? value
 }
 
 function badgeStyleFor(variant?: string): React.CSSProperties {

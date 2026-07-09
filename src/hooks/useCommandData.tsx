@@ -21,8 +21,14 @@ interface UseCommandDataResult {
 
 const CommandDataContext = React.createContext<UseCommandDataResult | null>(null)
 
-export function CommandDataProvider({ children }: { children: React.ReactNode }) {
-  const value = useCommandDataState()
+export function CommandDataProvider({
+  children,
+  enabled = true,
+}: {
+  children: React.ReactNode
+  enabled?: boolean
+}) {
+  const value = useCommandDataState(enabled)
   return <CommandDataContext.Provider value={value}>{children}</CommandDataContext.Provider>
 }
 
@@ -38,12 +44,16 @@ export function useCommandData(): UseCommandDataResult {
   )
 }
 
-function useCommandDataState(): UseCommandDataResult {
+function useCommandDataState(enabled: boolean): UseCommandDataResult {
   const [data, setData] = React.useState<CommandCenterApiData | null>(() => commandDataCache.data)
-  const [loading, setLoading] = React.useState(() => !commandDataCache.data)
+  const [loading, setLoading] = React.useState(() => enabled && !commandDataCache.data)
   const [error, setError] = React.useState(() => commandDataCache.error)
 
   const load = React.useCallback(async (force = false, options: { silent?: boolean } = {}) => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
     const showLoading = !options.silent || !commandDataCache.data
     if (commandDataCache.promise && !force) {
       if (showLoading) setLoading(true)
@@ -87,14 +97,18 @@ function useCommandDataState(): UseCommandDataResult {
       commandDataCache.promise = null
       if (showLoading) setLoading(false)
     }
-  }, [])
+  }, [enabled])
 
   React.useEffect(() => {
+    if (!enabled) {
+      queueMicrotask(() => setLoading(false))
+      return
+    }
     if (commandDataCache.data) return
     queueMicrotask(() => {
       void load()
     })
-  }, [load])
+  }, [enabled, load])
 
   const refresh = React.useCallback(async (options: { silent?: boolean } = {}) => {
     commandDataCache.error = ''
