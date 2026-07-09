@@ -22,8 +22,6 @@ import {
   RBAC_FORBIDDEN_MESSAGE,
 } from '@/lib/rbac/workspaceResourceAccess'
 
-const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
-
 type WorkspaceContext =
   | { ok: true; workspaceId: string; profileId: string; personId: string | null; actor: RbacUserContext }
   | { ok: false; response: NextResponse }
@@ -51,6 +49,11 @@ function cleanId(value: unknown) {
 
 function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function openFileUrl(workspaceId: string, storagePath: string) {
+  const params = new URLSearchParams({ workspaceId, path: storagePath })
+  return `/api/files/open?${params.toString()}`
 }
 
 function buildDelegatedReviewComment(comment: string | null, delegated: boolean) {
@@ -258,18 +261,14 @@ async function loadDeliverableDetail(workspaceId: string, deliverableId: string)
 
   const versionsWithFiles = await Promise.all(versions.map(async (version) => {
     const attachment = version.attachment_id ? attachmentsById[version.attachment_id] : null
-    let signedUrl: string | null = null
-    if (attachment?.storage_path) {
-      const { data } = await client.storage.from(STORAGE_BUCKET).createSignedUrl(attachment.storage_path, 3600)
-      signedUrl = data?.signedUrl ?? null
-    }
+    const fileUrl = attachment?.storage_path ? openFileUrl(workspaceId, attachment.storage_path) : null
     return {
       ...version,
       storageMode: version.external_url ? 'external_url' : 'supabase',
       attachment: attachment
         ? {
             ...attachment,
-            url: signedUrl,
+            url: fileUrl,
           }
         : null,
     }

@@ -13,6 +13,7 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { inferFileContentType } from '@/lib/files/mime'
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import { canSubmitToDeliverable, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
@@ -45,10 +46,12 @@ function getExtension(name: string) {
 }
 
 function uploadContentType(file: File) {
-  const extension = getExtension(file.name)
-  if (file.type) return file.type
-  if (extension === 'html' || extension === 'htm') return 'text/html'
-  return 'application/octet-stream'
+  return inferFileContentType(file.name, file.type)
+}
+
+function openFileUrl(workspaceId: string, storagePath: string) {
+  const params = new URLSearchParams({ workspaceId, path: storagePath })
+  return `/api/files/open?${params.toString()}`
 }
 
 function validateFile(file: File) {
@@ -742,10 +745,6 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const { data: signedUrl } = await client.storage
-      .from(STORAGE_BUCKET)
-      .createSignedUrl(storagePath, 86400)
-
     return NextResponse.json({
       ok: true,
       attachmentId: attachment.id,
@@ -753,7 +752,7 @@ export async function POST(req: NextRequest) {
       fileName: file.name,
       fileSize: file.size,
       mimeType,
-      url: signedUrl?.signedUrl ?? null,
+      url: openFileUrl(workspaceId, storagePath),
       deliverableId: activeDeliverableId ?? null,
       versionId,
       versionNumber,
@@ -795,11 +794,10 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message, files: [] }, { status: 500 })
 
-  const withUrls = await Promise.all((files ?? []).map(async (file) => {
+  const withUrls = (files ?? []).map((file) => {
     const path = `${folder}/${file.name}`
-    const { data } = await client.storage.from(STORAGE_BUCKET).createSignedUrl(path, 3600)
-    return { ...file, url: data?.signedUrl ?? null, storagePath: path }
-  }))
+    return { ...file, url: openFileUrl(workspaceId, path), storagePath: path }
+  })
 
   return NextResponse.json({ files: withUrls })
 }
