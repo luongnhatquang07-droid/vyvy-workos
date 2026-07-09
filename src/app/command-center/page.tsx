@@ -8,6 +8,7 @@ import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 
 export const metadata: Metadata = { title: 'Trung tâm điều hành - VyVy WorkOS' }
+const COMMAND_CENTER_PAGE_TIMEOUT_MS = 15000
 
 export default async function CommandCenterPage() {
   const isSupabaseConfigured =
@@ -134,7 +135,11 @@ export default async function CommandCenterPage() {
   let dataIssue: { title: string; description: string } | undefined
 
   try {
-    const raw = await getCommandCenterData(workspaceId, userContext)
+    const raw = await withTimeout(
+      getCommandCenterData(workspaceId, userContext),
+      COMMAND_CENTER_PAGE_TIMEOUT_MS,
+      'Tải dữ liệu điều hành quá lâu. Hãy thử lại sau ít phút.',
+    )
     data = toCommandCenterVM(raw)
   } catch (error) {
     dataIssue = {
@@ -153,6 +158,22 @@ export default async function CommandCenterPage() {
       dataIssue={dataIssue}
     />
   )
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 function emptyRawData() {

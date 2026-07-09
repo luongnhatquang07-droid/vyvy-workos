@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getCommandCenterData } from '@/lib/db/commandCenter'
-import { resyncCompletedTasks } from '@/lib/db/taskCompletionSync'
-import { isLocalProductionDatabaseRequest } from '@/lib/localQaGuard'
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
-import { createServiceClient } from '@/lib/supabase/service'
 
-export async function GET(request: Request) {
+const COMMAND_CENTER_TIMEOUT_MS = 15000
+
+export async function GET() {
   const sb = await createClient()
   const {
     data: { user },
@@ -59,18 +58,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (!isLocalProductionDatabaseRequest(request)) {
-      try {
-        const syncClient = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : sb
-        await resyncCompletedTasks(syncClient, workspaceId)
-      } catch (syncError) {
-        console.warn(
-          'COMMAND_CENTER_RESYNC_SKIPPED',
-          syncError instanceof Error ? syncError.message : 'Unknown resync error',
-        )
-      }
-    }
-    const data = await getCommandCenterData(workspaceId, userContext)
+    const data = await withTimeout(
+      getCommandCenterData(workspaceId, userContext),
+      COMMAND_CENTER_TIMEOUT_MS,
+      'Tải dữ liệu điều hành quá lâu. Hãy thử lại sau ít phút.',
+    )
     return NextResponse.json({
       ...data,
       workspaceId,
@@ -90,6 +82,22 @@ export async function GET(request: Request) {
       { status: 500 },
     )
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 function canUserApproveOnBehalf(userContext: RbacUserContext) {

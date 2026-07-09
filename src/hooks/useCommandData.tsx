@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import type { CommandCenterVisibilitySummary, RawCommandCenterData } from '@/lib/database.types'
 
 export type CommandCenterApiData = RawCommandCenterData & {
@@ -21,6 +22,7 @@ interface UseCommandDataResult {
 }
 
 const CommandDataContext = React.createContext<UseCommandDataResult | null>(null)
+const COMMAND_DATA_TIMEOUT_MS = 15000
 
 export function CommandDataProvider({
   children,
@@ -74,13 +76,7 @@ function useCommandDataState(enabled: boolean): UseCommandDataResult {
     if (showLoading) setLoading(true)
     setError('')
 
-    const promise = fetch('/api/command-center', { cache: 'no-store' }).then(async (response) => {
-      const payload = (await response.json()) as CommandCenterApiData | { error?: string }
-      if (!response.ok) {
-        throw new Error('error' in payload && payload.error ? payload.error : 'Không thể tải dữ liệu điều hành')
-      }
-      return payload as CommandCenterApiData
-    })
+    const promise = fetchCommandCenterData()
 
     commandDataCache.promise = promise
 
@@ -117,6 +113,35 @@ function useCommandDataState(enabled: boolean): UseCommandDataResult {
   }, [load])
 
   return { data, loading, error, refresh }
+}
+
+async function fetchCommandCenterData() {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), COMMAND_DATA_TIMEOUT_MS)
+
+  try {
+    const response = await fetch('/api/command-center', {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    const payload = await readJsonResponse<CommandCenterApiData | { error?: string }>(
+      response,
+      'Không tải được dữ liệu điều hành.',
+    )
+
+    if (!response.ok) {
+      throw new Error('error' in payload && payload.error ? payload.error : 'Không tải được dữ liệu điều hành.')
+    }
+
+    return payload as CommandCenterApiData
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Tải dữ liệu quá lâu. Hãy thử lại.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 const commandDataCache: {

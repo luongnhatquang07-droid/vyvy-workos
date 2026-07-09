@@ -508,6 +508,8 @@ function ProjectsPageContent() {
   const selectedProject = workspace.find((project) => project.id === selectedProjectId) ?? workspace[0] ?? null
   const selectedSubtask = selectedProject ? findSubtask(selectedProject, selectedSubtaskId) : null
   const workspaceId = data?.workspaceId
+  const workspaceLoading = loading && !ready && !error
+  const metricValue = (value: number) => (workspaceLoading || error ? '—' : value)
   const selectedUploadStep = selectedSubtask?.steps.find((step) => step.id === activeUploadStepId) ?? null
   const activeUploadStep = selectedUploadStep?.deliverableId ? selectedUploadStep : null
   const editContext = editTarget ? resolveEditContext(workspace, editTarget) : null
@@ -1306,13 +1308,13 @@ function ProjectsPageContent() {
       {error ? <DataErrorState message={error} /> : null}
 
       <div style={metricGrid}>
-        <Metric icon="ti-folders" label="Dự án" value={metrics.projects} />
-        <Metric icon="ti-stack-2" label="Đầu việc lớn" value={metrics.workstreams} />
-        <Metric icon="ti-list-check" label="Đầu việc con" value={metrics.subtasks} />
-        <Metric icon="ti-alert-triangle" label="Trễ hạn" value={metrics.overdue} danger />
+        <Metric icon="ti-folders" label="Dự án" value={metricValue(metrics.projects)} />
+        <Metric icon="ti-stack-2" label="Đầu việc lớn" value={metricValue(metrics.workstreams)} />
+        <Metric icon="ti-list-check" label="Đầu việc con" value={metricValue(metrics.subtasks)} />
+        <Metric icon="ti-alert-triangle" label="Trễ hạn" value={metricValue(metrics.overdue)} danger />
       </div>
 
-      {!ready || loading ? (
+      {error ? null : !ready || loading ? (
         <section style={sectionCard}><div style={loadingState}>Đang tải workspace dự án...</div></section>
       ) : workspace.length === 0 ? (
         <section style={sectionCard}><div style={loadingState}>Chưa có dự án. Bấm “Tạo dự án” để bắt đầu.</div></section>
@@ -4691,7 +4693,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function Metric({ icon, label, value, danger = false }: { icon: string; label: string; value: number; danger?: boolean }) {
+function Metric({ icon, label, value, danger = false }: { icon: string; label: string; value: number | string; danger?: boolean }) {
   return (
     <div style={metricCard}>
       <div style={{ ...metricIcon, color: danger ? 'var(--color-danger)' : 'var(--color-olive)', background: danger ? 'var(--color-danger-bg)' : 'rgba(45, 51, 26, 0.08)' }}>
