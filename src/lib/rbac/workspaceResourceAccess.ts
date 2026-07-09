@@ -74,6 +74,40 @@ export async function canEditWorkspaceEntity(
   return false
 }
 
+export async function canAssignWorkspaceOwner(
+  user: RbacUserContext,
+  workspaceId: string,
+  ownerId: string | null,
+  scope: {
+    type?: WorkspaceEntityType
+    id?: string | null
+    projectId?: string | null
+    workstreamId?: string | null
+    taskId?: string | null
+    stepId?: string | null
+  } = {},
+) {
+  if (!ownerId) return true
+
+  const role = normalizeUserRole(user)
+  if (role === 'ADMIN' || role === 'COO' || role === 'CEO') return true
+  if (user.personId === ownerId) return true
+
+  const ownerDepartmentId = await personDepartment(workspaceId, ownerId)
+  const sameDepartment = Boolean(ownerDepartmentId && (
+    user.departmentId === ownerDepartmentId ||
+    user.managedDepartmentIds.includes(ownerDepartmentId)
+  ))
+  if (role === 'DEPARTMENT_HEAD' && sameDepartment) return true
+
+  if (role === 'DEPARTMENT_HEAD') {
+    const projectId = await resolveProjectIdForAssignmentScope(workspaceId, scope)
+    if (projectId && await isProjectParticipant(workspaceId, projectId, ownerId)) return true
+  }
+
+  return false
+}
+
 export async function canCreateDeliverable(
   user: RbacUserContext,
   workspaceId: string,
@@ -273,6 +307,120 @@ async function personDepartment(workspaceId: string, personId: string | null | u
     .maybeSingle()
   if (error) return null
   return data?.department_id ?? null
+}
+
+async function resolveProjectIdForAssignmentScope(
+  workspaceId: string,
+  scope: {
+    type?: WorkspaceEntityType
+    id?: string | null
+    projectId?: string | null
+    workstreamId?: string | null
+    taskId?: string | null
+    stepId?: string | null
+  },
+) {
+  if (scope.projectId) return scope.projectId
+  const client = createServiceClient()
+
+  const workstreamId = scope.workstreamId || (scope.type === 'workstream' ? scope.id : null)
+  if (workstreamId) {
+    const { data } = await client
+      .from('workstreams')
+      .select('project_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', workstreamId)
+      .maybeSingle()
+    return data?.project_id ?? null
+  }
+
+  const taskId = scope.taskId || (scope.type === 'task' ? scope.id : null)
+  if (taskId) {
+    const { data } = await client
+      .from('tasks')
+      .select('project_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', taskId)
+      .maybeSingle()
+    return data?.project_id ?? null
+  }
+
+  const stepId = scope.stepId || (scope.type === 'step' ? scope.id : null)
+  if (stepId) {
+    const { data: step } = await client
+      .from('task_steps')
+      .select('task_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', stepId)
+      .maybeSingle()
+    if (!step?.task_id) return null
+    const { data: task } = await client
+      .from('tasks')
+      .select('project_id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', step.task_id)
+      .maybeSingle()
+    return task?.project_id ?? null
+  }
+
+  return null
+}
+
+async function isProjectParticipant(workspaceId: string, projectId: string, personId: string) {
+  const client = createServiceClient()
+
+  const [projectRes, workstreamRes, taskRes, taskAssigneeRes, stepRes, deliverableRes] = await Promise.all([
+    client
+      .from('projects')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('id', projectId)
+      .eq('owner_id', personId)
+      .maybeSingle(),
+    client
+      .from('workstreams')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('project_id', projectId)
+      .eq('owner_id', personId)
+      .limit(1),
+    client
+      .from('tasks')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('project_id', projectId)
+      .or(`owner_id.eq.${personId},waiting_for_person_id.eq.${personId}`)
+      .limit(1),
+    client
+      .from('task_assignees')
+      .select('task_id,tasks!inner(project_id)')
+      .eq('person_id', personId)
+      .eq('tasks.project_id', projectId)
+      .limit(1),
+    client
+      .from('task_steps')
+      .select('id,tasks!inner(project_id)')
+      .eq('workspace_id', workspaceId)
+      .eq('owner_id', personId)
+      .eq('tasks.project_id', projectId)
+      .limit(1),
+    client
+      .from('deliverables')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('project_id', projectId)
+      .or(`submitter_id.eq.${personId},reviewer_id.eq.${personId}`)
+      .limit(1),
+  ])
+
+  return Boolean(
+    projectRes.data?.id ||
+    (workstreamRes.data?.length ?? 0) > 0 ||
+    (taskRes.data?.length ?? 0) > 0 ||
+    (taskAssigneeRes.data?.length ?? 0) > 0 ||
+    (stepRes.data?.length ?? 0) > 0 ||
+    (deliverableRes.data?.length ?? 0) > 0
+  )
 }
 
 async function firstPersonDepartment(workspaceId: string, ...personIds: Array<string | null | undefined>) {

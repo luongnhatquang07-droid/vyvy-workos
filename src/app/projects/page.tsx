@@ -37,6 +37,7 @@ type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings' | 'flowchart'
 type ProjectQuickFilter = 'all' | 'unassigned'
 type ProjectStatusFilter = 'all' | 'overdue' | TaskStatus
 type ProjectDeadlineFilter = 'all' | 'today' | 'this_week' | 'next_week' | 'overdue' | 'this_month' | 'none'
+type ProjectAssigneeFilter = 'all' | string
 type FlowchartFilter = 'all' | 'active' | 'completed' | 'delayed' | 'overdue' | 'unassigned'
 type FlowchartNodeKind = 'project' | 'workstream' | 'subtask' | 'stepGroup' | 'step'
 type DeadlineSignalKind = 'overdue' | 'today' | 'upcoming' | 'normal' | 'none'
@@ -49,6 +50,7 @@ interface ProjectFilters {
   quick: ProjectQuickFilter
   status: ProjectStatusFilter
   deadline: ProjectDeadlineFilter
+  assigneeId: ProjectAssigneeFilter
   search: string
 }
 
@@ -308,6 +310,13 @@ interface ProjectOpsStats {
   blocked: number
 }
 
+interface ProjectFilterSummary {
+  totalSubtasks: number
+  visibleSubtasks: number
+  totalSteps: number
+  visibleSteps: number
+}
+
 const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string }> = {
   NOT_STARTED: { label: 'Chưa bắt đầu', bg: 'var(--surface-3)', color: 'var(--txt-2)' },
   IN_PROGRESS: { label: 'Đang làm', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' },
@@ -378,12 +387,13 @@ function createDefaultProjectFilters(): ProjectFilters {
     quick: 'all',
     status: 'all',
     deadline: 'all',
+    assigneeId: 'all',
     search: '',
   }
 }
 
 function hasActiveProjectFilters(filters: ProjectFilters) {
-  return filters.quick !== 'all' || filters.status !== 'all' || filters.deadline !== 'all' || Boolean(filters.search.trim())
+  return filters.quick !== 'all' || filters.status !== 'all' || filters.deadline !== 'all' || filters.assigneeId !== 'all' || Boolean(filters.search.trim())
 }
 
 export default function ProjectsPage() {
@@ -513,6 +523,12 @@ function ProjectsPageContent() {
   const selectedUploadStep = selectedSubtask?.steps.find((step) => step.id === activeUploadStepId) ?? null
   const activeUploadStep = selectedUploadStep?.deliverableId ? selectedUploadStep : null
   const editContext = editTarget ? resolveEditContext(workspace, editTarget) : null
+  const currentPersonId = data?.currentUser?.personId ?? null
+  const currentRole = data?.currentUser?.role ?? null
+  const assignablePeople = React.useMemo(
+    () => getAssignablePeopleForOwner(Object.values(people), currentRole, currentPersonId),
+    [currentPersonId, currentRole, people],
+  )
 
   const metrics = React.useMemo(() => {
     const allWorkstreams = workspace.flatMap((project) => project.workstreams)
@@ -525,6 +541,14 @@ function ProjectsPageContent() {
     }
   }, [workspace])
   const selectedProjectOps = selectedProject ? getProjectOpsStats(selectedProject) : null
+  const selectedProjectAssigneeOptions = React.useMemo(
+    () => selectedProject ? getProjectAssigneeOptions(selectedProject, people, currentPersonId) : [],
+    [currentPersonId, people, selectedProject],
+  )
+  const selectedProjectFilterSummary = React.useMemo(
+    () => selectedProject ? getProjectFilterSummary(selectedProject, projectFilters) : null,
+    [projectFilters, selectedProject],
+  )
 
   function ensureSelection(nextWorkspace: ProjectWorkspace[]) {
     const nextProject = nextWorkspace.find((project) => project.id === selectedProjectId) ?? nextWorkspace[0] ?? null
@@ -1260,7 +1284,7 @@ function ProjectsPageContent() {
               style={selectStyle}
             >
               <option value="">Chưa gắn người</option>
-              {Object.values(people).map((person) => (
+              {assignablePeople.map((person) => (
                 <option key={person.id} value={person.id}>{person.full_name}</option>
               ))}
             </select>
@@ -1271,6 +1295,7 @@ function ProjectsPageContent() {
           subtask={subtask}
           project={selectedProject}
           people={people}
+          assignablePeople={assignablePeople}
           workspaceId={workspaceId}
           activeUploadStep={activeUploadStep}
           openSections={openDetailSections}
@@ -1398,6 +1423,9 @@ function ProjectsPageContent() {
                 <ProjectOpsStrip
                   stats={selectedProjectOps}
                   filters={projectFilters}
+                  assigneeOptions={selectedProjectAssigneeOptions}
+                  currentPersonId={currentPersonId}
+                  filterSummary={selectedProjectFilterSummary}
                   onChangeFilters={(patch) => setProjectFilters((current) => ({ ...current, ...patch }))}
                 />
               ) : null}
@@ -1500,7 +1528,7 @@ function ProjectsPageContent() {
             <Field label="Người phụ trách">
               <select value={composerDraft.ownerId} onChange={(e) => setComposerDraft((current) => ({ ...current, ownerId: e.target.value }))} style={inputStyle}>
                 <option value="">Chưa gắn người</option>
-                {Object.values(people).map((person) => (
+                {assignablePeople.map((person) => (
                   <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
                 ))}
               </select>
@@ -1607,6 +1635,7 @@ function ProjectsPageContent() {
       <EditWorkItemDrawer
         context={editContext}
         people={people}
+        assignablePeople={assignablePeople}
         onClose={() => setEditTarget(null)}
         onSave={saveEditTarget}
       />
@@ -1618,6 +1647,7 @@ function SubtaskCompactDetail({
   subtask,
   project,
   people,
+  assignablePeople,
   workspaceId,
   activeUploadStep,
   openSections,
@@ -1637,6 +1667,7 @@ function SubtaskCompactDetail({
   subtask: SubtaskItem
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   workspaceId?: string
   activeUploadStep: StepItem | null
   openSections: DetailSection[]
@@ -1818,6 +1849,7 @@ function SubtaskCompactDetail({
             key={subtask.id}
             subtask={subtask}
             people={people}
+            assignablePeople={assignablePeople}
             onUpdateStep={onUpdateStep}
             onDeleteStep={onDeleteStep}
             onAddStep={onAddStep}
@@ -1921,6 +1953,7 @@ function AccordionSection({
 function StepWorkflowPanel({
   subtask,
   people,
+  assignablePeople,
   onUpdateStep,
   onDeleteStep,
   onAddStep,
@@ -1929,6 +1962,7 @@ function StepWorkflowPanel({
 }: {
   subtask: SubtaskItem
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   onUpdateStep: (stepId: string, patch: Partial<StepItem>) => void
   onDeleteStep: (stepId: string) => void
   onAddStep: (draft: StepDraft) => void
@@ -1976,6 +2010,7 @@ function StepWorkflowPanel({
               index={index}
               step={step}
               people={people}
+              assignablePeople={assignablePeople}
               onUpdate={(patch) => onUpdateStep(step.id, patch)}
               onDelete={() => onDeleteStep(step.id)}
               onUpload={() => onUploadForStep(step.id)}
@@ -1989,6 +2024,7 @@ function StepWorkflowPanel({
         <StepDraftForm
           draft={draft}
           people={people}
+          assignablePeople={assignablePeople}
           submitLabel="Lưu bước"
           onChange={setDraft}
           onCancel={() => setAdding(false)}
@@ -2010,6 +2046,7 @@ function StepCard({
   index,
   step,
   people,
+  assignablePeople,
   onUpdate,
   onDelete,
   onUpload,
@@ -2018,6 +2055,7 @@ function StepCard({
   index: number
   step: StepItem
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   onUpdate: (patch: Partial<StepItem>) => void
   onDelete: () => void
   onUpload: () => void
@@ -2078,6 +2116,7 @@ function StepCard({
           <StepDraftForm
             draft={draft}
             people={people}
+            assignablePeople={assignablePeople}
             submitLabel="Lưu thay đổi"
             onChange={setDraft}
             onCancel={() => setEditing(false)}
@@ -2103,6 +2142,7 @@ function StepCard({
 function StepDraftForm({
   draft,
   people,
+  assignablePeople,
   submitLabel,
   onChange,
   onCancel,
@@ -2110,6 +2150,7 @@ function StepDraftForm({
 }: {
   draft: StepDraft
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   submitLabel: string
   onChange: (draft: StepDraft) => void
   onCancel: () => void
@@ -2127,7 +2168,7 @@ function StepDraftForm({
         <Field label="Người phụ trách">
           <select value={draft.ownerId} onChange={(e) => onChange({ ...draft, ownerId: e.target.value })} style={inputStyle}>
             <option value="">Chưa gắn</option>
-            {Object.values(people).map((person) => (
+            {assignablePeople.map((person) => (
               <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
             ))}
           </select>
@@ -2172,12 +2213,19 @@ function StepDraftForm({
 function ProjectOpsStrip({
   stats,
   filters,
+  assigneeOptions,
+  currentPersonId,
+  filterSummary,
   onChangeFilters,
 }: {
   stats: ProjectOpsStats
   filters: ProjectFilters
+  assigneeOptions: CommandCenterPersonRow[]
+  currentPersonId: string | null
+  filterSummary: ProjectFilterSummary | null
   onChangeFilters: (patch: Partial<ProjectFilters>) => void
 }) {
+  const peopleOptions = assigneeOptions.filter((person) => person.id !== currentPersonId)
   return (
     <section style={opsStripStyle} aria-label="Cảnh báo vận hành dự án">
       <div style={opsStatGrid}>
@@ -2189,7 +2237,7 @@ function ProjectOpsStrip({
         <OpsStat label="Bị chặn" value={stats.blocked} tone={stats.blocked ? 'danger' : 'neutral'} />
       </div>
       <div style={projectFilterRow}>
-        <button type="button" onClick={() => onChangeFilters(createDefaultProjectFilters())} style={filterChipStyle(filters.quick === 'all' && filters.status === 'all' && filters.deadline === 'all' && !filters.search)}>
+        <button type="button" onClick={() => onChangeFilters(createDefaultProjectFilters())} style={filterChipStyle(filters.quick === 'all' && filters.status === 'all' && filters.deadline === 'all' && filters.assigneeId === 'all' && !filters.search)}>
           Tất cả
         </button>
         <button type="button" onClick={() => onChangeFilters({ quick: filters.quick === 'unassigned' ? 'all' : 'unassigned' })} style={filterChipStyle(filters.quick === 'unassigned', stats.unassigned > 0 ? 'warning' : 'neutral')}>
@@ -2211,6 +2259,13 @@ function ProjectOpsStrip({
           <option value="this_month">Tháng này</option>
           <option value="none">Không có deadline</option>
         </select>
+        <select aria-label="Lọc người thực hiện" value={filters.assigneeId} onChange={(event) => onChangeFilters({ assigneeId: event.target.value })} style={selectStyle}>
+          <option value="all">Tất cả người thực hiện</option>
+          {currentPersonId ? <option value={currentPersonId}>Tôi</option> : null}
+          {peopleOptions.map((person) => (
+            <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+          ))}
+        </select>
         <input
           aria-label="Tìm trong dự án"
           value={filters.search}
@@ -2219,6 +2274,11 @@ function ProjectOpsStrip({
           style={{ ...inputStyle, minWidth: 220, flex: '1 1 220px' }}
         />
       </div>
+      {filterSummary ? (
+        <div style={mutedMetaStyle}>
+          Đang hiển thị {filterSummary.visibleSubtasks}/{filterSummary.totalSubtasks} đầu việc con · {filterSummary.visibleSteps}/{filterSummary.totalSteps} bước trong phạm vi quyền hiện tại.
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -2235,11 +2295,13 @@ function OpsStat({ label, value, tone }: { label: string; value: number; tone: B
 function EditWorkItemDrawer({
   context,
   people,
+  assignablePeople,
   onClose,
   onSave,
 }: {
   context: EditContext | null
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   onClose: () => void
   onSave: (draft: EditDraft) => Promise<boolean>
 }) {
@@ -2249,6 +2311,7 @@ function EditWorkItemDrawer({
       key={getEditContextKey(context)}
       context={context}
       people={people}
+      assignablePeople={assignablePeople}
       onClose={onClose}
       onSave={onSave}
     />
@@ -2258,11 +2321,13 @@ function EditWorkItemDrawer({
 function EditWorkItemDrawerBody({
   context,
   people,
+  assignablePeople,
   onClose,
   onSave,
 }: {
   context: EditContext
   people: Record<string, CommandCenterPersonRow>
+  assignablePeople: CommandCenterPersonRow[]
   onClose: () => void
   onSave: (draft: EditDraft) => Promise<boolean>
 }) {
@@ -2310,7 +2375,7 @@ function EditWorkItemDrawerBody({
         <Field label="Owner / người phụ trách">
           <select value={draft.ownerId} onChange={(event) => setDraft((current) => ({ ...current, ownerId: event.target.value }))} style={inputStyle}>
             <option value="">Chưa gắn người</option>
-            {Object.values(people).map((person) => (
+            {assignablePeople.map((person) => (
               <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
             ))}
           </select>
@@ -4934,7 +4999,7 @@ function toSeedSubtask(
     description: task.description ?? '',
     ownerId: task.owner_id,
     reviewerId: task.reviewer_id ?? null,
-    supporterIds: [],
+    supporterIds: [...(task.assignee_ids ?? []), ...(task.supporter_ids ?? [])],
     startDate,
     dueDate,
     missingStartDate: !task.start_date,
@@ -5878,6 +5943,60 @@ function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
   }
 }
 
+function getProjectAssigneeOptions(
+  project: ProjectWorkspace,
+  people: Record<string, CommandCenterPersonRow>,
+  currentPersonId: string | null,
+) {
+  const ids = new Set<string>()
+  addPersonId(ids, currentPersonId)
+  addPersonId(ids, project.ownerId)
+  for (const workstream of project.workstreams) {
+    addPersonId(ids, workstream.ownerId)
+    for (const subtask of workstream.subtasks) {
+      addPersonId(ids, subtask.ownerId)
+      for (const supporterId of subtask.supporterIds) addPersonId(ids, supporterId)
+      for (const step of subtask.steps) addPersonId(ids, step.ownerId)
+    }
+  }
+  return Array.from(ids)
+    .map((id) => people[id])
+    .filter((person): person is CommandCenterPersonRow => Boolean(person))
+    .sort((left, right) => left.full_name.localeCompare(right.full_name, 'vi'))
+}
+
+function getAssignablePeopleForOwner(
+  people: CommandCenterPersonRow[],
+  role: string | null,
+  currentPersonId: string | null,
+) {
+  const normalizedRole = role?.trim().toUpperCase() ?? ''
+  if (normalizedRole === 'EMPLOYEE') {
+    return people.filter((person) => person.id === currentPersonId)
+  }
+  if (normalizedRole.includes('READONLY') || normalizedRole === 'ADVISOR') {
+    return []
+  }
+  return [...people].sort((left, right) => left.full_name.localeCompare(right.full_name, 'vi'))
+}
+
+function getProjectFilterSummary(project: ProjectWorkspace, filters: ProjectFilters): ProjectFilterSummary {
+  const subtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
+  const visibleSubtasks = project.workstreams.flatMap((workstream) =>
+    workstream.subtasks.filter((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream })),
+  )
+  return {
+    totalSubtasks: subtasks.length,
+    visibleSubtasks: visibleSubtasks.length,
+    totalSteps: subtasks.reduce((count, subtask) => count + subtask.steps.length, 0),
+    visibleSteps: visibleSubtasks.reduce((count, subtask) => count + subtask.steps.length, 0),
+  }
+}
+
+function addPersonId(target: Set<string>, personId: string | null | undefined) {
+  if (personId) target.add(personId)
+}
+
 function getDeadlineSignal(subtask: SubtaskItem): { kind: DeadlineSignalKind; label: string; hint: string; tone: BadgeTone; days: number | null } {
   if (!subtask.dueDate || subtask.missingDueDate) {
     return { kind: 'none', label: 'Không deadline', hint: 'Đầu việc con chưa có deadline.', tone: 'neutral', days: null }
@@ -5898,8 +6017,28 @@ function isUnassignedSubtask(subtask: SubtaskItem) {
   return !subtask.ownerId
 }
 
+function getAssigneeFilterId(filters: ProjectFilters) {
+  return filters.assigneeId === 'all' ? null : filters.assigneeId
+}
+
+function subtaskMatchesAssignee(subtask: SubtaskItem, personId: string | null) {
+  if (!personId) return true
+  return (
+    subtask.ownerId === personId ||
+    subtask.supporterIds.includes(personId) ||
+    subtask.steps.some((step) => step.ownerId === personId)
+  )
+}
+
+function stepMatchesAssignee(step: StepItem, personId: string | null) {
+  return !personId || step.ownerId === personId
+}
+
 function matchesProjectWorkFilter(subtask: SubtaskItem, filters: ProjectFilters, context?: { project?: ProjectWorkspace; workstream?: WorkstreamItem }) {
   if (filters.quick === 'unassigned' && !isUnassignedSubtask(subtask) && !subtask.steps.some((step) => !step.ownerId)) return false
+
+  const assigneeId = getAssigneeFilterId(filters)
+  if (!subtaskMatchesAssignee(subtask, assigneeId)) return false
 
   const statusMatches =
     filters.status === 'all' ||
@@ -5927,17 +6066,20 @@ function matchesProjectWorkFilter(subtask: SubtaskItem, filters: ProjectFilters,
 }
 
 function matchesWorkstreamProjectFilter(workstream: WorkstreamItem, filters: ProjectFilters, project: ProjectWorkspace) {
+  const assigneeId = getAssigneeFilterId(filters)
   const directMatch =
     matchesStatusFilter(workstream.status, workstream.dueDate, filters.status) &&
     matchesDeadlineFilter(workstream.dueDate, workstream.status, filters.deadline) &&
     matchesSearchFilter([project.name, project.code, workstream.title, workstream.description], filters.search) &&
-    (filters.quick !== 'unassigned' || !workstream.ownerId)
+    (filters.quick !== 'unassigned' || !workstream.ownerId) &&
+    (!assigneeId || workstream.ownerId === assigneeId)
 
   return directMatch || workstream.subtasks.some((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
 }
 
 function matchesStepProjectFilter(step: StepItem, filters: ProjectFilters) {
   if (filters.quick === 'unassigned' && step.ownerId) return false
+  if (!stepMatchesAssignee(step, getAssigneeFilterId(filters))) return false
   if (!matchesStatusFilter(step.status, step.dueDate, filters.status)) return false
   if (!matchesDeadlineFilter(step.dueDate, step.status, filters.deadline)) return false
   return matchesSearchFilter([step.title, step.description, step.note], filters.search)

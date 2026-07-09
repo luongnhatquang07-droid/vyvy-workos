@@ -506,6 +506,11 @@ export default function UserManagementPage() {
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault()
+    if (requiresDepartmentForRole(form)) {
+      setNotice('')
+      setError('Trưởng bộ phận cần gắn phòng ban để phân quyền đúng.')
+      return
+    }
     await submitJson(
       '/api/admin/users',
       'POST',
@@ -517,6 +522,11 @@ export default function UserManagementPage() {
   async function handleEdit(event: React.FormEvent) {
     event.preventDefault()
     if (!selected) return
+    if (requiresDepartmentForRole(form)) {
+      setNotice('')
+      setError('Trưởng bộ phận cần gắn phòng ban để phân quyền đúng.')
+      return
+    }
     await submitJson(`/api/admin/users/${selected.profileId}`, 'PATCH', form, 'Đã cập nhật tài khoản.')
   }
 
@@ -1414,6 +1424,10 @@ function createDisabledReason(loading: boolean, error: string, canCreateUser: bo
   if (error) return 'Cần tải lại danh sách tài khoản trước khi thao tác.'
   if (!canCreateUser) return 'Tài khoản hiện tại chưa có quyền tạo tài khoản.'
   return undefined
+}
+
+function requiresDepartmentForRole(form: AccountForm) {
+  return form.roleCode === 'DEPARTMENT_HEAD' && !form.departmentId
 }
 
 function deleteDisabledActionReason(user: ManagedUser) {

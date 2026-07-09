@@ -7,6 +7,7 @@ import {
 } from '@/lib/localQaGuard'
 import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
 import {
+  canAssignWorkspaceOwner,
   canCreateWorkspaceEntity,
   canEditWorkspaceEntity,
   RBAC_FORBIDDEN_MESSAGE,
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
     if (guard) return guard
     const rbacGuard = await guardWorkspaceCreatePermission(auth, body.type, payload)
     if (rbacGuard) return rbacGuard
+    const ownerGuard = await guardOwnerAssignment(auth, body.type, null, payload)
+    if (ownerGuard) return ownerGuard
 
     if (body.type === 'project') {
       await assertReviewerColumnReadyForManualSelection(auth, 'projects', payload)
@@ -188,6 +191,8 @@ export async function PATCH(request: Request) {
     if (guard) return guard
     const rbacGuard = await guardWorkspaceExistingPermission(auth, body.type, body.id)
     if (rbacGuard) return rbacGuard
+    const ownerGuard = await guardOwnerAssignment(auth, body.type, body.id, patch)
+    if (ownerGuard) return ownerGuard
 
     let updated: unknown = null
     if (body.type === 'project') updated = await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status']))
@@ -340,6 +345,27 @@ async function guardWorkspaceExistingPermission(
 ) {
   const allowed = await canEditWorkspaceEntity(auth.actor, auth.workspaceId, type, id)
   return allowed ? null : NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 })
+}
+
+async function guardOwnerAssignment(
+  auth: WorkspaceAuth,
+  type: EntityType | undefined,
+  id: string | null,
+  payload: Record<string, unknown>,
+) {
+  if (!type || !Object.prototype.hasOwnProperty.call(payload, 'ownerId')) return null
+  const ownerId = text(payload.ownerId) || null
+  const allowed = await canAssignWorkspaceOwner(auth.actor, auth.workspaceId, ownerId, {
+    type,
+    id,
+    projectId: text(payload.projectId),
+    workstreamId: text(payload.workstreamId),
+    taskId: text(payload.taskId),
+    stepId: type === 'step' ? id : null,
+  })
+  return allowed
+    ? null
+    : NextResponse.json({ error: 'Bạn không có quyền gắn đầu việc cho nhân sự ngoài phạm vi của mình.' }, { status: 403 })
 }
 
 function workspaceEntityGuardConfig(type: EntityType) {

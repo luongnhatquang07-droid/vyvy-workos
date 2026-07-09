@@ -124,6 +124,7 @@ export function filterCommandCenterDataByUser(
     for (const person of data.people) {
       if (person.department_id && isUserDepartment(user, person.department_id)) addPerson(visiblePeopleIds, person.id)
     }
+    for (const projectId of visibleProjectIds) addProjectParticipants(projectId)
   }
 
   const visibleDeliverableVersions = data.deliverableVersions.filter((version) => visibleDeliverableIds.has(version.deliverable_id))
@@ -204,6 +205,37 @@ export function filterCommandCenterDataByUser(
     addStepContext(deliverable.step_id)
     addPerson(visiblePeopleIds, deliverable.submitter_id)
     addPerson(visiblePeopleIds, deliverable.reviewer_id)
+  }
+
+  function addProjectParticipants(projectId: string | null | undefined) {
+    if (!projectId) return
+    addPerson(visiblePeopleIds, projectsById.get(projectId)?.owner_id)
+
+    for (const workstream of data.workstreams) {
+      if (workstream.project_id !== projectId) continue
+      addPerson(visiblePeopleIds, workstream.owner_id)
+    }
+
+    const projectTaskIds = new Set<string>()
+    for (const task of data.tasks) {
+      if (task.project_id !== projectId) continue
+      projectTaskIds.add(task.id)
+      addPerson(visiblePeopleIds, task.owner_id)
+      addPerson(visiblePeopleIds, task.waiting_for_person_id)
+      for (const personId of task.assignee_ids ?? []) addPerson(visiblePeopleIds, personId)
+      for (const personId of task.supporter_ids ?? []) addPerson(visiblePeopleIds, personId)
+    }
+
+    for (const step of data.taskSteps) {
+      if (projectTaskIds.has(step.task_id)) addPerson(visiblePeopleIds, step.owner_id)
+    }
+
+    for (const deliverable of data.deliverables) {
+      const taskId = deliverable.task_id ?? null
+      if (deliverable.project_id !== projectId && (!taskId || !projectTaskIds.has(taskId))) continue
+      addPerson(visiblePeopleIds, deliverable.submitter_id)
+      addPerson(visiblePeopleIds, deliverable.reviewer_id)
+    }
   }
 }
 
