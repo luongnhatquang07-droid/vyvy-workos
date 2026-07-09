@@ -40,11 +40,11 @@ export function filterCommandCenterDataByUser(
   addPerson(visiblePeopleIds, user.personId)
 
   for (const project of data.projects) {
-    if (canViewProject(user, projectResource(project, peopleById))) addProjectContext(project.id)
+    if (canViewProject(user, projectResource(project, peopleById))) addProjectTreeContext(project.id)
   }
 
   for (const workstream of data.workstreams) {
-    if (canViewWorkstream(user, workstreamResource(workstream, peopleById))) addWorkstreamContext(workstream.id)
+    if (canViewWorkstream(user, workstreamResource(workstream, peopleById))) addWorkstreamTreeContext(workstream.id)
   }
 
   for (const task of data.tasks) {
@@ -162,8 +162,18 @@ export function filterCommandCenterDataByUser(
 
   function addProjectContext(projectId: string | null | undefined) {
     if (!projectId || !projectsById.has(projectId)) return
+    const project = projectsById.get(projectId)
     visibleProjectIds.add(projectId)
-    addPerson(visiblePeopleIds, projectsById.get(projectId)?.owner_id)
+    addPerson(visiblePeopleIds, project?.owner_id)
+    addPerson(visiblePeopleIds, project?.reviewer_id)
+  }
+
+  function addProjectTreeContext(projectId: string | null | undefined) {
+    if (!projectId) return
+    addProjectContext(projectId)
+    for (const workstream of data.workstreams) {
+      if (workstream.project_id === projectId) addWorkstreamTreeContext(workstream.id)
+    }
   }
 
   function addWorkstreamContext(workstreamId: string | null | undefined) {
@@ -173,6 +183,23 @@ export function filterCommandCenterDataByUser(
     visibleWorkstreamIds.add(workstream.id)
     addProjectContext(workstream.project_id)
     addPerson(visiblePeopleIds, workstream.owner_id)
+    addPerson(visiblePeopleIds, workstream.reviewer_id)
+  }
+
+  function addWorkstreamTreeContext(workstreamId: string | null | undefined) {
+    if (!workstreamId) return
+    addWorkstreamContext(workstreamId)
+    for (const task of data.tasks) {
+      if (task.workstream_id === workstreamId) addTaskTreeContext(task.id)
+    }
+  }
+
+  function addTaskTreeContext(taskId: string | null | undefined) {
+    if (!taskId) return
+    addTaskContext(taskId)
+    for (const step of data.taskSteps) {
+      if (step.task_id === taskId) addStepContext(step.id)
+    }
   }
 
   function addTaskContext(taskId: string | null | undefined) {
@@ -183,6 +210,7 @@ export function filterCommandCenterDataByUser(
     addProjectContext(task.project_id)
     addWorkstreamContext(task.workstream_id)
     addPerson(visiblePeopleIds, task.owner_id)
+    addPerson(visiblePeopleIds, task.reviewer_id)
     addPerson(visiblePeopleIds, task.waiting_for_person_id)
   }
 
@@ -193,6 +221,7 @@ export function filterCommandCenterDataByUser(
     visibleStepIds.add(step.id)
     addTaskContext(step.task_id)
     addPerson(visiblePeopleIds, step.owner_id)
+    addPerson(visiblePeopleIds, step.reviewer_id)
   }
 
   function addDeliverableContext(deliverableId: string | null | undefined) {
@@ -210,10 +239,12 @@ export function filterCommandCenterDataByUser(
   function addProjectParticipants(projectId: string | null | undefined) {
     if (!projectId) return
     addPerson(visiblePeopleIds, projectsById.get(projectId)?.owner_id)
+    addPerson(visiblePeopleIds, projectsById.get(projectId)?.reviewer_id)
 
     for (const workstream of data.workstreams) {
       if (workstream.project_id !== projectId) continue
       addPerson(visiblePeopleIds, workstream.owner_id)
+      addPerson(visiblePeopleIds, workstream.reviewer_id)
     }
 
     const projectTaskIds = new Set<string>()
@@ -221,13 +252,16 @@ export function filterCommandCenterDataByUser(
       if (task.project_id !== projectId) continue
       projectTaskIds.add(task.id)
       addPerson(visiblePeopleIds, task.owner_id)
+      addPerson(visiblePeopleIds, task.reviewer_id)
       addPerson(visiblePeopleIds, task.waiting_for_person_id)
       for (const personId of task.assignee_ids ?? []) addPerson(visiblePeopleIds, personId)
       for (const personId of task.supporter_ids ?? []) addPerson(visiblePeopleIds, personId)
     }
 
     for (const step of data.taskSteps) {
-      if (projectTaskIds.has(step.task_id)) addPerson(visiblePeopleIds, step.owner_id)
+      if (!projectTaskIds.has(step.task_id)) continue
+      addPerson(visiblePeopleIds, step.owner_id)
+      addPerson(visiblePeopleIds, step.reviewer_id)
     }
 
     for (const deliverable of data.deliverables) {
@@ -246,8 +280,9 @@ function projectResource(
   return {
     id: project.id,
     owner_id: project.owner_id,
+    reviewer_id: project.reviewer_id,
     owner_department_id: departmentFor(project.owner_id, peopleById),
-    member_ids: compact([project.owner_id]),
+    member_ids: compact([project.owner_id, project.reviewer_id]),
   }
 }
 
@@ -259,8 +294,9 @@ function workstreamResource(
     id: workstream.id,
     project_id: workstream.project_id,
     owner_id: workstream.owner_id,
+    reviewer_id: workstream.reviewer_id,
     owner_department_id: departmentFor(workstream.owner_id, peopleById),
-    member_ids: compact([workstream.owner_id]),
+    member_ids: compact([workstream.owner_id, workstream.reviewer_id]),
   }
 }
 
@@ -273,10 +309,11 @@ function taskResource(
     project_id: task.project_id,
     workstream_id: task.workstream_id,
     owner_id: task.owner_id,
+    reviewer_id: task.reviewer_id,
     owner_department_id: departmentFor(task.owner_id, peopleById),
     assignee_ids: task.assignee_ids ?? [],
     supporter_ids: task.supporter_ids ?? [],
-    member_ids: compact([task.owner_id, task.waiting_for_person_id, ...(task.assignee_ids ?? []), ...(task.supporter_ids ?? [])]),
+    member_ids: compact([task.owner_id, task.reviewer_id, task.waiting_for_person_id, ...(task.assignee_ids ?? []), ...(task.supporter_ids ?? [])]),
   }
 }
 
@@ -292,10 +329,11 @@ function stepResource(
     project_id: task?.project_id ?? null,
     workstream_id: task?.workstream_id ?? null,
     owner_id: step.owner_id,
+    reviewer_id: step.reviewer_id ?? task?.reviewer_id ?? null,
     owner_department_id: departmentFor(step.owner_id ?? task?.owner_id, peopleById),
     assignee_ids: task?.assignee_ids ?? [],
     supporter_ids: task?.supporter_ids ?? [],
-    member_ids: compact([step.owner_id, task?.owner_id, task?.waiting_for_person_id, ...(task?.assignee_ids ?? []), ...(task?.supporter_ids ?? [])]),
+    member_ids: compact([step.owner_id, step.reviewer_id, task?.owner_id, task?.reviewer_id, task?.waiting_for_person_id, ...(task?.assignee_ids ?? []), ...(task?.supporter_ids ?? [])]),
   }
 }
 
@@ -319,12 +357,14 @@ function deliverableResource(
       peopleById,
       deliverable.submitter_id,
       deliverable.reviewer_id,
+      step?.reviewer_id,
+      task?.reviewer_id,
       step?.owner_id,
       task?.owner_id,
     ),
     assignee_ids: task?.assignee_ids ?? [],
     supporter_ids: task?.supporter_ids ?? [],
-    member_ids: compact([deliverable.submitter_id, deliverable.reviewer_id, step?.owner_id, task?.owner_id, ...(task?.assignee_ids ?? []), ...(task?.supporter_ids ?? [])]),
+    member_ids: compact([deliverable.submitter_id, deliverable.reviewer_id, step?.reviewer_id, task?.reviewer_id, step?.owner_id, task?.owner_id, ...(task?.assignee_ids ?? []), ...(task?.supporter_ids ?? [])]),
   }
 }
 
