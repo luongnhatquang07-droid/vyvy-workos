@@ -29,12 +29,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   useFocusTrap(open, containerRef)
 
-  const projectById = React.useMemo(
-    () => Object.fromEntries((data?.projects ?? []).map((project) => [project.id, project])),
-    [data?.projects],
-  )
+  const projectById = React.useMemo<Record<string, { name: string }>>(() => {
+    if (!open) return {}
+    return Object.fromEntries((data?.projects ?? []).map((project) => [project.id, { name: project.name }]))
+  }, [data?.projects, open])
 
   const items = React.useMemo<PaletteItem[]>(() => {
+    if (!open) return []
+
     const navItems: PaletteItem[] = NAV_ITEMS.map((item) => ({
       key: `nav-${item.key}`,
       title: item.label,
@@ -96,15 +98,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       }))
 
     return [...navItems, ...projectItems, ...taskItems, ...meetingItems, ...peopleItems, ...reminderItems]
-  }, [data?.meetings, data?.people, data?.projects, data?.reminders, data?.tasks, projectById])
+  }, [data?.meetings, data?.people, data?.projects, data?.reminders, data?.tasks, open, projectById])
 
   const normalizedQuery = query.trim().toLowerCase()
   const filtered = React.useMemo(() => {
+    if (!open) return []
     if (!normalizedQuery) return items
     return items.filter((item) =>
       `${item.title} ${item.subtitle} ${item.group}`.toLowerCase().includes(normalizedQuery),
     )
-  }, [items, normalizedQuery])
+  }, [items, normalizedQuery, open])
 
   React.useEffect(() => {
     if (!open) return

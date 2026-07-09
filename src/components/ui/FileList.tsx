@@ -9,6 +9,7 @@ import {
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
 import { readJsonResponse } from '@/lib/api/readJsonResponse'
+import { uploadFormDataWithProgress } from '@/lib/api/uploadWithProgress'
 import { externalLinkDisplayName, parseExternalLinkChangeNote } from '@/lib/files/externalLinks'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -123,6 +124,7 @@ export function FileList({
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
   const [replacingId, setReplacingId] = React.useState<string | null>(null)
+  const [replaceProgress, setReplaceProgress] = React.useState<number | null>(null)
   const [replaceDraft, setReplaceDraft] = React.useState<{ versionId: string; reason: string } | null>(null)
   const [reasonDialog, setReasonDialog] = React.useState<ReasonDialogState | null>(null)
   const [reasonInput, setReasonInput] = React.useState('')
@@ -343,6 +345,7 @@ export function FileList({
     }
 
     setReplacingId(replaceDraft.versionId)
+    setReplaceProgress(0)
     setError('')
     setNotice('')
 
@@ -359,9 +362,9 @@ export function FileList({
       if (effectiveReviewerId) formData.append('approverId', effectiveReviewerId)
       if (requiresApproval) formData.append('requiresApproval', 'true')
 
-      const response = await fetch('/api/upload', { method: 'POST', body: formData })
-      const payload = await readJsonResponse<{ error?: string; versionNumber?: number }>(response, 'Không upload được file.')
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không thay file được.')
+      const payload = await uploadFormDataWithProgress<{ error?: string; versionNumber?: number }>('/api/upload', formData, {
+        onProgress: (progress) => setReplaceProgress(progress),
+      })
 
       await loadFiles()
       setNotice(payload.versionNumber ? `Đã tạo Version ${payload.versionNumber} thay thế.` : 'Đã tạo version thay thế.')
@@ -370,6 +373,7 @@ export function FileList({
       setError(err instanceof Error ? err.message : 'Không thay file được.')
     } finally {
       setReplacingId(null)
+      setReplaceProgress(null)
       setReplaceDraft(null)
       if (replaceInputRef.current) replaceInputRef.current.value = ''
     }
@@ -419,6 +423,17 @@ export function FileList({
             if (file) void uploadReplacement(file)
           }}
         />
+        {replaceProgress !== null ? (
+          <div style={progressWrapStyle}>
+            <div style={progressMetaStyle}>
+              <span>{replaceProgress >= 100 ? 'Đang xử lý file...' : `Đang tải lên ${replaceProgress}%...`}</span>
+              <strong>{replaceProgress}%</strong>
+            </div>
+            <div style={progressTrackStyle}>
+              <div style={progressBarStyle(replaceProgress)} />
+            </div>
+          </div>
+        ) : null}
         {notice ? <div style={noticeText}>{notice}</div> : null}
         {versions.map((version) => {
           const isExternalLink = Boolean(version.external_url)
@@ -604,6 +619,39 @@ const noticeText: React.CSSProperties = {
   borderRadius: 8,
   padding: '7px 9px',
 }
+
+const progressWrapStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+}
+
+const progressMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  fontSize: 12,
+  color: 'var(--color-text-muted)',
+  fontWeight: 700,
+}
+
+const progressTrackStyle: React.CSSProperties = {
+  marginTop: 7,
+  height: 7,
+  borderRadius: 999,
+  overflow: 'hidden',
+  background: 'var(--color-border)',
+}
+
+const progressBarStyle = (progress: number): React.CSSProperties => ({
+  width: `${Math.max(0, Math.min(100, progress))}%`,
+  height: '100%',
+  borderRadius: 999,
+  background: 'var(--color-lime)',
+  transition: 'width 0.18s ease',
+})
 
 const reasonDialogStyle: React.CSSProperties = {
   display: 'flex',

@@ -29,15 +29,6 @@ export function Topbar({ onToggleSidebar, onOpenCommandPalette }: TopbarProps) {
     NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'))?.label ??
     'VyVy WorkOS'
 
-  const peopleById = React.useMemo(
-    () => Object.fromEntries((data?.people ?? []).map((person) => [person.id, person])),
-    [data?.people],
-  )
-  const projectsById = React.useMemo(
-    () => Object.fromEntries((data?.projects ?? []).map((project) => [project.id, project])),
-    [data?.projects],
-  )
-
   const quickActions = React.useMemo(
     () => [
       {
@@ -73,11 +64,13 @@ export function Topbar({ onToggleSidebar, onOpenCommandPalette }: TopbarProps) {
   )
 
   const notifications = React.useMemo(() => {
+    const people = data?.people ?? []
+    const projects = data?.projects ?? []
     const reminderItems = (data?.reminders ?? [])
       .filter((item) => item.response_status !== 'CLOSED')
       .slice(0, 4)
       .map((item) => {
-        const person = item.person_id ? peopleById[item.person_id] : null
+        const person = item.person_id ? people.find((record) => record.id === item.person_id) : null
         return {
           id: `reminder-${item.id}`,
           title: person?.full_name ?? 'Có mục cần nhắc việc',
@@ -92,7 +85,7 @@ export function Topbar({ onToggleSidebar, onOpenCommandPalette }: TopbarProps) {
       .filter((item) => item.status === 'PENDING')
       .slice(0, 3)
       .map((item) => {
-        const project = item.project_id ? projectsById[item.project_id] : null
+        const project = item.project_id ? projects.find((record) => record.id === item.project_id) : null
         return {
           id: `approval-${item.id}`,
           title: 'Có mục đang chờ duyệt',
@@ -113,7 +106,7 @@ export function Topbar({ onToggleSidebar, onOpenCommandPalette }: TopbarProps) {
     }))
 
     return [...reminderItems, ...approvalItems, ...ceoItems].slice(0, 7)
-  }, [data?.approvals, data?.ceoRequests, data?.reminders, peopleById, projectsById])
+  }, [data?.approvals, data?.ceoRequests, data?.people, data?.projects, data?.reminders])
 
   React.useEffect(() => {
     function syncThemeFromClient() {

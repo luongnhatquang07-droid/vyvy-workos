@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { uploadFormDataWithProgress } from '@/lib/api/uploadWithProgress'
 import { normalizeExternalSubmissionUrl } from '@/lib/files/externalLinks'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -121,6 +122,7 @@ export function FileUpload({
   const [externalUrl, setExternalUrl] = React.useState<string>('')
   const [externalTitle, setExternalTitle] = React.useState<string>('')
   const [lastStatus, setLastStatus] = React.useState('')
+  const [uploadProgress, setUploadProgress] = React.useState<number | null>(null)
   const [approverId, setApproverId] = React.useState<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const activePeople = React.useMemo(
@@ -146,7 +148,8 @@ export function FileUpload({
     }
 
     setUploading(true)
-    setLastStatus('Đang tải file...')
+    setUploadProgress(0)
+    setLastStatus(file.size > 10 * 1024 * 1024 ? 'File lớn, đang tải lên 0%...' : 'Đang tải lên 0%...')
     setError('')
 
     try {
@@ -160,9 +163,12 @@ export function FileUpload({
       if (selectedApproverId) formData.append('approverId', selectedApproverId)
       if (requiresApproval) formData.append('requiresApproval', 'true')
 
-      const response = await fetch('/api/upload', { method: 'POST', body: formData })
-      const payload = (await response.json()) as UploadResponse
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Upload thất bại')
+      const payload = await uploadFormDataWithProgress<UploadResponse>('/api/upload', formData, {
+        onProgress: (progress) => {
+          setUploadProgress(progress)
+          setLastStatus(progress >= 100 ? 'Đang xử lý file...' : `Đang tải lên ${progress}%...`)
+        },
+      })
 
       if (!payload.fileName || !payload.fileSize || !payload.mimeType || !payload.storagePath) {
         throw new Error('Phản hồi upload thiếu dữ liệu')
@@ -183,10 +189,12 @@ export function FileUpload({
 
       setUploads((current) => [uploaded, ...current])
       setLastStatus(uploaded.versionNumber ? `Đã lưu Version ${uploaded.versionNumber}` : 'Đã lưu file')
+      setUploadProgress(null)
       setChangeNote('')
       onUploaded?.(uploaded)
     } catch (err) {
       setLastStatus('')
+      setUploadProgress(null)
       setError(errorMessage(err))
     } finally {
       setUploading(false)
@@ -259,15 +267,17 @@ export function FileUpload({
     }
   }
 
-  function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    Array.from(files).forEach((file) => void uploadFile(file))
+    for (const file of Array.from(files)) {
+      await uploadFile(file)
+    }
   }
 
   function onDrop(event: React.DragEvent) {
     event.preventDefault()
     setDragging(false)
-    handleFiles(event.dataTransfer.files)
+    void handleFiles(event.dataTransfer.files)
   }
 
   return (
@@ -319,12 +329,12 @@ export function FileUpload({
             multiple
             hidden
             accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip,.html,.htm"
-            onChange={(event) => handleFiles(event.target.files)}
+            onChange={(event) => void handleFiles(event.target.files)}
           />
           {uploading ? (
             <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
               <i className="ti ti-loader-2" style={loaderStyle} />
-              Đang tải lên...
+              {uploadProgress !== null ? `Đang tải lên ${uploadProgress}%...` : 'Đang tải lên...'}
             </div>
           ) : (
             <div>
@@ -362,6 +372,18 @@ export function FileUpload({
         </div>
       )}
 
+      {uploadProgress !== null ? (
+        <div style={progressWrapStyle}>
+          <div style={progressMetaStyle}>
+            <span>{lastStatus || 'Đang tải lên...'}</span>
+            <strong>{uploadProgress}%</strong>
+          </div>
+          <div style={progressTrackStyle}>
+            <div style={progressBarStyle(uploadProgress)} />
+          </div>
+        </div>
+      ) : null}
+
       <textarea
         value={changeNote ?? ''}
         onChange={(event) => setChangeNote(event.currentTarget.value ?? '')}
@@ -370,7 +392,7 @@ export function FileUpload({
         disabled={uploading}
       />
 
-      {lastStatus ? <div style={successNoticeStyle}>{lastStatus}</div> : null}
+      {lastStatus && uploadProgress === null ? <div style={successNoticeStyle}>{lastStatus}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
 
       {uploads.length > 0 ? (
@@ -530,6 +552,40 @@ const primaryButtonStyle = (disabled: boolean): React.CSSProperties => ({
   fontSize: 12,
   fontWeight: 800,
   cursor: disabled ? 'wait' : 'pointer',
+})
+
+const progressWrapStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: '8px 10px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+}
+
+const progressMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  fontSize: 12,
+  color: 'var(--color-text-muted)',
+  fontWeight: 700,
+}
+
+const progressTrackStyle: React.CSSProperties = {
+  marginTop: 7,
+  height: 7,
+  borderRadius: 999,
+  overflow: 'hidden',
+  background: 'var(--color-border)',
+}
+
+const progressBarStyle = (progress: number): React.CSSProperties => ({
+  width: `${Math.max(0, Math.min(100, progress))}%`,
+  height: '100%',
+  borderRadius: 999,
+  background: 'var(--color-lime)',
+  transition: 'width 0.18s ease',
 })
 
 const errorStyle: React.CSSProperties = {
