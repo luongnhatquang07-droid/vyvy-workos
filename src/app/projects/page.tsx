@@ -2752,11 +2752,21 @@ function KanbanTab({
         )
       })}
       </div>
-      {selectedKanbanSubtask ? (
-        <div style={kanbanDetailPanel}>
+      {selectedKanbanSubtask && typeof document !== 'undefined' ? createPortal((
+        <aside aria-label="Kanban task detail" style={kanbanDetailDrawer}>
+          <div style={kanbanDetailDrawerHeader}>
+            <div style={kanbanDetailDrawerTitle}>{'Chi ti\u1ebft \u0111\u1ea7u vi\u1ec7c con'}</div>
+            <button
+              type="button"
+              onClick={() => onSelectSubtask(selectedKanbanSubtask.id)}
+              style={kanbanDetailDrawerClose}
+            >
+              {'\u0110\u00f3ng'}
+            </button>
+          </div>
           {renderSubtaskDetail(selectedKanbanSubtask)}
-        </div>
-      ) : null}
+        </aside>
+      ), document.body) : null}
     </div>
   )
 }
@@ -7219,10 +7229,56 @@ function kanbanOpenDetailButton(active: boolean): React.CSSProperties {
   }
 }
 
-const kanbanDetailPanel: React.CSSProperties = {
-  width: '100%',
+const kanbanDetailDrawer: React.CSSProperties = {
+  position: 'fixed',
+  top: 76,
+  right: 18,
+  zIndex: 90,
+  width: 'min(560px, calc(100vw - 32px))',
+  maxHeight: 'calc(100vh - 96px)',
+  overflowY: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: 12,
+  borderRadius: 18,
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+  boxShadow: '0 24px 80px rgba(0,0,0,.34)',
+}
+
+const kanbanDetailDrawerHeader: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '10px 10px 12px',
+  margin: '-12px -12px 0',
+  borderBottom: '1px solid var(--line)',
+  borderRadius: '18px 18px 0 0',
+  background: 'var(--surface)',
+}
+
+const kanbanDetailDrawerTitle: React.CSSProperties = {
   minWidth: 0,
-  paddingTop: 4,
+  color: 'var(--txt)',
+  fontSize: 14,
+  fontWeight: 900,
+}
+
+const kanbanDetailDrawerClose: React.CSSProperties = {
+  minWidth: 72,
+  minHeight: 34,
+  borderRadius: 10,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt)',
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: 'pointer',
 }
 
 const kanbanEmptyState: React.CSSProperties = {
