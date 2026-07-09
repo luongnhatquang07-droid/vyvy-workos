@@ -149,6 +149,8 @@ const emptyForm: AccountForm = {
   status: 'active',
 }
 
+const USERS_PAGE_SIZE = 20
+
 const statusOptions = [
   { value: 'active', label: 'Đang hoạt động' },
   { value: 'inactive', label: 'Tạm khóa' },
@@ -191,6 +193,9 @@ export default function UserManagementPage() {
   const [resetPassword, setResetPassword] = React.useState('')
   const [statusDialog, setStatusDialog] = React.useState<{ user: ManagedUser; nextStatus: AccountStatus } | null>(null)
   const [deleteDialog, setDeleteDialog] = React.useState<{ user: ManagedUser } | null>(null)
+  const [actionMenuUserId, setActionMenuUserId] = React.useState<string | null>(null)
+  const [pageIndex, setPageIndex] = React.useState(0)
+  const [closeConfirmOpen, setCloseConfirmOpen] = React.useState(false)
 
   const loadUsers = React.useCallback(async () => {
     setLoading(true)
@@ -243,6 +248,7 @@ export default function UserManagementPage() {
   function openCreate() {
     setSelected(null)
     setResetPassword('')
+    setActionMenuUserId(null)
     const roleCode = lookups.roles.find((role) => role.code === 'EMPLOYEE')?.code ?? 'EMPLOYEE'
     setPanelTab('account')
     setPermissionModalOpen(false)
@@ -257,6 +263,7 @@ export default function UserManagementPage() {
   function openEdit(user: ManagedUser) {
     setSelected(user)
     setResetPassword('')
+    setActionMenuUserId(null)
     setPanelTab('account')
     setPermissionModalOpen(false)
     setUseCustomPermissions(false)
@@ -281,24 +288,104 @@ export default function UserManagementPage() {
     setSelected(user)
     setResetPassword('')
     setPermissionModalOpen(false)
+    setActionMenuUserId(null)
     setMode('reset')
   }
 
   function openStatusDialog(user: ManagedUser, nextStatus: AccountStatus) {
+    setActionMenuUserId(null)
     setStatusDialog({ user, nextStatus })
   }
 
   function openDeleteDialog(user: ManagedUser) {
+    setActionMenuUserId(null)
     setDeleteDialog({ user })
   }
 
-  function closePanel() {
+  const closePanel = React.useCallback(() => {
+    setCloseConfirmOpen(false)
     setPermissionModalOpen(false)
     setMode(null)
     setSelected(null)
     setStatusDialog(null)
     setDeleteDialog(null)
-  }
+    setActionMenuUserId(null)
+  }, [])
+
+  const hasUnsavedPanelChanges = React.useCallback(() => {
+    if (mode === 'reset') return resetPassword.trim().length > 0
+    if (mode === 'create') {
+      return Boolean(
+        form.existingPersonId ||
+        form.fullName.trim() ||
+        form.username.trim() ||
+        form.password.trim() ||
+        form.departmentId ||
+        form.managerId ||
+        form.defaultApproverId ||
+        form.status !== 'active' ||
+        form.roleCode !== 'EMPLOYEE' ||
+        useCustomPermissions,
+      )
+    }
+    if (mode === 'edit' && selected) {
+      return (
+        form.fullName !== selected.fullName ||
+        form.roleCode !== (selected.roleCode ?? 'EMPLOYEE') ||
+        form.departmentId !== (selected.departmentId ?? '') ||
+        form.managerId !== (selected.managerId ?? '') ||
+        form.defaultApproverId !== (selected.defaultApproverId ?? '') ||
+        form.status !== normalizeStatus(selected.status) ||
+        useCustomPermissions !== (permissionState?.mode === 'custom')
+      )
+    }
+    return false
+  }, [form, mode, permissionState?.mode, resetPassword, selected, useCustomPermissions])
+
+  const requestClosePanel = React.useCallback(() => {
+    if (saving) return
+    if (hasUnsavedPanelChanges()) {
+      setCloseConfirmOpen(true)
+      return
+    }
+    closePanel()
+  }, [closePanel, hasUnsavedPanelChanges, saving])
+
+  React.useEffect(() => {
+    if (!mode && !statusDialog && !deleteDialog && !permissionModalOpen && !closeConfirmOpen) return
+
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      if (closeConfirmOpen) {
+        setCloseConfirmOpen(false)
+      } else if (permissionModalOpen) {
+        setPermissionModalOpen(false)
+      } else if (statusDialog) {
+        setStatusDialog(null)
+      } else if (deleteDialog) {
+        setDeleteDialog(null)
+      } else {
+        requestClosePanel()
+      }
+    }
+
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [
+    closeConfirmOpen,
+    deleteDialog,
+    form,
+    mode,
+    permissionModalOpen,
+    permissionState?.mode,
+    resetPassword,
+    requestClosePanel,
+    saving,
+    selected,
+    statusDialog,
+    useCustomPermissions,
+  ])
 
   function resetPermissionDraftToRoleDefault() {
     setUseCustomPermissions(false)
@@ -522,6 +609,15 @@ export default function UserManagementPage() {
     })
   }, [departmentFilter, query, roleFilter, statusFilter, users])
 
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE))
+  const safePageIndex = Math.min(pageIndex, pageCount - 1)
+  const paginatedUsers = filteredUsers.slice(
+    safePageIndex * USERS_PAGE_SIZE,
+    safePageIndex * USERS_PAGE_SIZE + USERS_PAGE_SIZE,
+  )
+  const rangeStart = filteredUsers.length ? safePageIndex * USERS_PAGE_SIZE + 1 : 0
+  const rangeEnd = Math.min(filteredUsers.length, (safePageIndex + 1) * USERS_PAGE_SIZE)
+
   const warningMessages = React.useMemo(() => {
     const partialActionMessage = source === 'auth_admin_profiles_partial'
       ? capabilities.canCreateUser
@@ -531,7 +627,7 @@ export default function UserManagementPage() {
     return Array.from(new Set([partialActionMessage, authAdminError, ...warnings].filter(Boolean)))
   }, [authAdminError, capabilities.canCreateUser, source, warnings])
   const formRoleOptions = lookups.roles.map((role) => ({ value: role.code, label: role.label }))
-  const departmentOptions = [{ value: '', label: 'Chưa gán phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: department.name }))]
+  const departmentOptions = [{ value: '', label: 'Chưa gán phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: repairVietnameseText(department.name) }))]
   const existingPersonOptions = [
     { value: '', label: 'Chọn nhân sự có sẵn hoặc tạo mới' },
     ...(lookups.people ?? [])
@@ -557,22 +653,34 @@ export default function UserManagementPage() {
       <PageHead
         icon="ti-user-cog"
         title="Quản lý tài khoản"
-        desc="Tạo, phân quyền và khóa/mở tài khoản trên staging hoặc production đã bật env phê duyệt. Phase 2 chưa enforce toàn app."
-        actions={!forbidden ? <Button variant="primary" onClick={openCreate} disabled={createActionDisabled}><i className="ti ti-user-plus" /> Tạo tài khoản</Button> : null}
+        desc="Tạo tài khoản, phân quyền, quản lý trạng thái và liên kết nhân sự trong workspace."
+        actions={!forbidden ? (
+          <Button
+            variant="primary"
+            onClick={openCreate}
+            disabled={createActionDisabled}
+            title={createActionDisabled ? createDisabledReason(loading, error, capabilities.canCreateUser) : undefined}
+          >
+            <i className="ti ti-user-plus" /> Tạo tài khoản
+          </Button>
+        ) : null}
       />
 
       {!forbidden ? (
-        <div style={metaRow}>
-          <span>Env: <strong>{meta?.appEnv ?? 'Đang tải'}</strong></span>
-          <span>Ref: <strong>{meta?.supabaseRef ?? 'Đang tải'}</strong></span>
-          <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'Đang tải'}</strong></span>
-          <span>Source: <strong>{source}</strong></span>
-          {diagnostics ? (
-            <span>
-              Mapping: <strong>{diagnostics.completeRows ?? 0}/{(diagnostics.completeRows ?? 0) + (diagnostics.partialRows ?? 0)}</strong>
-            </span>
-          ) : null}
-        </div>
+        <details style={debugDetailsStyle}>
+          <summary style={debugSummaryStyle}>Thông tin hệ thống</summary>
+          <div style={metaRow}>
+            <span>Env: <strong>{meta?.appEnv ?? 'Đang tải'}</strong></span>
+            <span>Ref: <strong>{meta?.supabaseRef ?? 'Đang tải'}</strong></span>
+            <span>Quyền hiện tại: <strong>{meta?.currentRole ?? 'Đang tải'}</strong></span>
+            <span>Source: <strong>{source}</strong></span>
+            {diagnostics ? (
+              <span>
+                Mapping: <strong>{diagnostics.completeRows ?? 0}/{(diagnostics.completeRows ?? 0) + (diagnostics.partialRows ?? 0)}</strong>
+              </span>
+            ) : null}
+          </div>
+        </details>
       ) : null}
 
       {error && !forbidden ? <div style={alertStyle('error')}>{error}</div> : null}
@@ -600,15 +708,54 @@ export default function UserManagementPage() {
           aria-label="Tìm tài khoản"
           placeholder="Tìm theo tên, tên đăng nhập, role, phòng ban..."
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setPageIndex(0)
+          }}
           style={{ minWidth: 240 }}
         />
-        <SelectField value={roleFilter} onChange={setRoleFilter} options={[{ value: '', label: 'Tất cả role' }, ...formRoleOptions]} />
-        <SelectField value={departmentFilter} onChange={setDepartmentFilter} options={[{ value: '', label: 'Tất cả phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: department.name }))]} />
-        <SelectField value={statusFilter} onChange={setStatusFilter} options={[{ value: '', label: 'Tất cả trạng thái' }, ...statusOptions]} />
+        <SelectField value={roleFilter} onChange={(value) => {
+          setRoleFilter(value)
+          setPageIndex(0)
+        }} options={[{ value: '', label: 'Tất cả role' }, ...formRoleOptions]} />
+        <SelectField value={departmentFilter} onChange={(value) => {
+          setDepartmentFilter(value)
+          setPageIndex(0)
+        }} options={[{ value: '', label: 'Tất cả phòng ban' }, ...lookups.departments.map((department) => ({ value: department.id, label: repairVietnameseText(department.name) }))]} />
+        <SelectField value={statusFilter} onChange={(value) => {
+          setStatusFilter(value)
+          setPageIndex(0)
+        }} options={[{ value: '', label: 'Tất cả trạng thái' }, ...statusOptions]} />
       </section>
 
       <section style={layoutStyle}>
+        <div style={tableSummaryStyle}>
+          <div>
+            <strong>{filteredUsers.length}</strong> tài khoản đang hiển thị
+            <span style={summaryMutedStyle}> · Tổng {users.length} tài khoản</span>
+          </div>
+          <div style={paginationStyle}>
+            <span style={summaryMutedStyle}>
+              Hiển thị {rangeStart}-{rangeEnd} / {filteredUsers.length}
+            </span>
+            <button
+              type="button"
+              style={pageButtonStyle}
+              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+              disabled={safePageIndex === 0}
+            >
+              Trước
+            </button>
+            <button
+              type="button"
+              style={pageButtonStyle}
+              onClick={() => setPageIndex((value) => Math.min(pageCount - 1, value + 1))}
+              disabled={safePageIndex >= pageCount - 1}
+            >
+              Sau
+            </button>
+          </div>
+        </div>
         <div style={tableWrapStyle}>
           {loading ? (
             <div style={emptyState}>Đang tải danh sách tài khoản...</div>
@@ -622,14 +769,12 @@ export default function UserManagementPage() {
                   <Th style={{ minWidth: 170 }}>Phòng ban</Th>
                   <Th style={{ minWidth: 180 }}>Quản lý</Th>
                   <Th style={{ minWidth: 200 }}>Người duyệt</Th>
-                  <Th style={{ minWidth: 140 }}>Trạng thái</Th>
-                  <Th style={{ minWidth: 110 }}>Auth linked</Th>
-                  <Th style={{ minWidth: 170 }}>Mapping status</Th>
+                  <Th style={{ minWidth: 230 }}>Tình trạng</Th>
                   <ActionTh>Thao tác</ActionTh>
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user) => {
+                {paginatedUsers.map((user) => {
                   const active = normalizeStatus(user.status) === 'active'
                   const editActionDisabled = loading || saving || Boolean(error) || !canEditUser(user)
                   const resetActionDisabled = loading || saving || Boolean(error) || !canResetUser(user)
@@ -646,39 +791,51 @@ export default function UserManagementPage() {
                         <div style={mutedText}>{user.email ?? 'Chưa có email nội bộ'}</div>
                       </Td>
                       <Td><BadgeLike tone="lime">{user.roleLabel}</BadgeLike></Td>
-                      <Td>{user.departmentName ?? 'Chưa gán'}</Td>
-                      <Td>{user.managerName ?? 'Chưa gán'}</Td>
-                      <Td>{user.defaultApproverName ?? 'Chưa gắn'}</Td>
-                      <Td><BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike></Td>
+                      <Td>{displayValue(user.departmentName, 'Chưa gán')}</Td>
+                      <Td>{displayValue(user.managerName, 'Chưa gán')}</Td>
+                      <Td>{displayValue(user.defaultApproverName, 'Chưa gắn')}</Td>
                       <Td>
-                        <div style={primaryText}>{user.authLinked ? 'Có' : 'Không'}</div>
-                      </Td>
-                      <Td>
-                        <div style={primaryText}>{mappingStatusLabel(user.mappingStatus)}</div>
-                        <div style={mutedText}>{user.mappingStatus ?? 'profile_only'}</div>
+                        <div style={statusStackStyle}>
+                          <BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike>
+                          <BadgeLike tone={user.authLinked ? 'success' : 'warning'}>{user.authLinked ? 'Auth linked' : 'Chưa liên kết Auth'}</BadgeLike>
+                          <span style={mappingPillStyle(user.mappingStatus)}>{mappingStatusLabel(user.mappingStatus)}</span>
+                        </div>
                       </Td>
                       <ActionTd>
-                        <div style={actionStack}>
-                          <button type="button" style={actionButtonStyle('normal', editActionDisabled)} onClick={() => openEdit(user)} disabled={editActionDisabled} title={editActionDisabled ? disabledActionReason(user) : undefined}>Sửa</button>
-                          <button type="button" style={actionButtonStyle('normal', resetActionDisabled)} onClick={() => openReset(user)} disabled={resetActionDisabled} title={resetActionDisabled ? disabledActionReason(user) : undefined}>Reset mật khẩu</button>
+                        <div style={actionMenuWrapStyle}>
                           <button
                             type="button"
-                            style={actionButtonStyle(active ? 'danger' : 'normal', statusActionDisabled)}
-                            onClick={() => openStatusDialog(user, active ? 'suspended' : 'active')}
-                            disabled={statusActionDisabled}
-                            title={statusActionDisabled ? disabledActionReason(user) : undefined}
+                            style={actionMenuTriggerStyle}
+                            onClick={() => setActionMenuUserId((value) => value === user.profileId ? null : user.profileId)}
+                            aria-label={`Mở thao tác cho ${user.fullName}`}
+                            aria-expanded={actionMenuUserId === user.profileId}
                           >
-                            {active ? 'Khóa' : 'Mở'}
+                            <i className="ti ti-dots-vertical" />
                           </button>
-                          <button
-                            type="button"
-                            style={actionButtonStyle('danger', deleteActionDisabled)}
-                            onClick={() => openDeleteDialog(user)}
-                            disabled={deleteActionDisabled}
-                            title={deleteActionDisabled ? deleteDisabledActionReason(user) : undefined}
-                          >
-                            Xóa
-                          </button>
+                          {actionMenuUserId === user.profileId ? (
+                            <div style={actionMenuStyle}>
+                              <button type="button" style={menuActionButtonStyle('normal', editActionDisabled)} onClick={() => openEdit(user)} disabled={editActionDisabled} title={editActionDisabled ? disabledActionReason(user) : undefined}>Sửa</button>
+                              <button type="button" style={menuActionButtonStyle('normal', resetActionDisabled)} onClick={() => openReset(user)} disabled={resetActionDisabled} title={resetActionDisabled ? disabledActionReason(user) : undefined}>Reset mật khẩu</button>
+                              <button
+                                type="button"
+                                style={menuActionButtonStyle(active ? 'danger' : 'normal', statusActionDisabled)}
+                                onClick={() => openStatusDialog(user, active ? 'suspended' : 'active')}
+                                disabled={statusActionDisabled}
+                                title={statusActionDisabled ? disabledActionReason(user) : undefined}
+                              >
+                                {active ? 'Khóa' : 'Mở'}
+                              </button>
+                              <button
+                                type="button"
+                                style={menuActionButtonStyle('danger', deleteActionDisabled)}
+                                onClick={() => openDeleteDialog(user)}
+                                disabled={deleteActionDisabled}
+                                title={deleteActionDisabled ? deleteDisabledActionReason(user) : undefined}
+                              >
+                                Xóa mềm
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </ActionTd>
                     </tr>
@@ -692,10 +849,12 @@ export default function UserManagementPage() {
         </div>
 
         {mode && typeof document !== 'undefined' ? createPortal((
-          <aside style={panelStyle} role="presentation">
+          <aside style={panelStyle} role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) requestClosePanel()
+          }}>
             {mode === 'reset' && selected ? (
               <form onSubmit={handleReset} style={resetPanelFormStyle}>
-                <PanelHead title="Reset mật khẩu tạm" onClose={closePanel} />
+                <PanelHead title="Reset mật khẩu tạm" onClose={requestClosePanel} />
                 <div style={panelBodyStyle}>
                   <div style={confirmBoxStyle}>
                     <div style={primaryText}>Tài khoản: {selected.fullName}</div>
@@ -712,7 +871,7 @@ export default function UserManagementPage() {
                   />
                 </div>
                 <div style={panelFooterStyle}>
-                  <button type="button" style={modalSecondaryButtonStyle} onClick={closePanel}>Hủy</button>
+                  <button type="button" style={modalSecondaryButtonStyle} onClick={requestClosePanel}>Hủy</button>
                   <Button type="submit" variant="primary" loading={saving}>Reset mật khẩu</Button>
                 </div>
               </form>
@@ -723,7 +882,7 @@ export default function UserManagementPage() {
                 style={accountPanelFormStyle(mode)}
                 autoComplete={mode === 'create' ? 'off' : undefined}
               >
-                <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={closePanel} />
+                <PanelHead title={mode === 'create' ? 'Tạo tài khoản' : 'Sửa tài khoản'} onClose={requestClosePanel} />
                 {mode === 'edit' ? (
                   <div style={tabRowStyle}>
                     <button type="button" style={tabButtonStyle(panelTab === 'account')} onClick={() => setPanelTab('account')}>Thông tin tài khoản</button>
@@ -827,7 +986,7 @@ export default function UserManagementPage() {
                 </div>
                 {(mode === 'create' || panelTab === 'account') ? (
                   <div style={panelFooterStyle}>
-                    <button type="button" style={modalSecondaryButtonStyle} onClick={closePanel}>Hủy</button>
+                    <button type="button" style={modalSecondaryButtonStyle} onClick={requestClosePanel}>Hủy</button>
                     <Button type="submit" variant="primary" loading={saving}>{mode === 'create' ? 'Tạo tài khoản' : 'Lưu thay đổi'}</Button>
                   </div>
                 ) : null}
@@ -836,7 +995,9 @@ export default function UserManagementPage() {
           </aside>
         ), document.body) : null}
         {statusDialog && typeof document !== 'undefined' ? createPortal((
-          <aside style={panelStyle} role="presentation">
+          <aside style={panelStyle} role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setStatusDialog(null)
+          }}>
             <section style={confirmPanelStyle} role="dialog" aria-modal="true" aria-label="Xác nhận đổi trạng thái tài khoản">
               <PanelHead
                 title={statusDialog.nextStatus === 'active' ? 'Mở lại tài khoản' : 'Khóa tài khoản'}
@@ -867,7 +1028,9 @@ export default function UserManagementPage() {
           </aside>
         ), document.body) : null}
         {deleteDialog && typeof document !== 'undefined' ? createPortal((
-          <aside style={panelStyle} role="presentation">
+          <aside style={panelStyle} role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDeleteDialog(null)
+          }}>
             <section style={confirmPanelStyle} role="dialog" aria-modal="true" aria-label="Xác nhận xóa tài khoản">
               <PanelHead
                 title="Xóa tài khoản"
@@ -891,6 +1054,25 @@ export default function UserManagementPage() {
                 >
                   Xóa tài khoản
                 </Button>
+              </div>
+            </section>
+          </aside>
+        ), document.body) : null}
+        {closeConfirmOpen && typeof document !== 'undefined' ? createPortal((
+          <aside style={panelStyle} role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCloseConfirmOpen(false)
+          }}>
+            <section style={confirmPanelStyle} role="dialog" aria-modal="true" aria-label="Xác nhận đóng form">
+              <PanelHead title="Đóng form đang nhập?" onClose={() => setCloseConfirmOpen(false)} />
+              <div style={panelBodyStyle}>
+                <div style={confirmBoxStyle}>
+                  <div style={primaryText}>Form đang có dữ liệu chưa lưu.</div>
+                  <div style={smallNote}>Nếu đóng bây giờ, nội dung vừa nhập sẽ bị bỏ qua.</div>
+                </div>
+              </div>
+              <div style={panelFooterStyle}>
+                <button type="button" style={modalSecondaryButtonStyle} onClick={() => setCloseConfirmOpen(false)}>Tiếp tục nhập</button>
+                <Button type="button" variant="danger" onClick={closePanel}>Đóng form</Button>
               </div>
             </section>
           </aside>
@@ -991,7 +1173,9 @@ function PermissionMatrixPanel({
       </section>
 
       {open ? (
-        <div style={permissionModalBackdropStyle} role="presentation">
+        <div style={permissionModalBackdropStyle} role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose()
+        }}>
           <section style={permissionModalStyle} role="dialog" aria-modal="true" aria-label="Bảng phân quyền tài khoản">
             <div style={permissionModalHeaderStyle}>
               <div>
@@ -1159,8 +1343,31 @@ function mappingStatusLabel(value: UserMappingStatus | undefined) {
   return 'Hồ sơ cũ / chưa liên kết'
 }
 
+function displayValue(value: string | null | undefined, fallback: string) {
+  const repaired = repairVietnameseText(value?.trim() ?? '')
+  return repaired || fallback
+}
+
+function repairVietnameseText(value: string) {
+  const replacements: Record<string, string> = {
+    'V?n h?nh (OPS)': 'Vận hành (OPS)',
+    'V?n h?nh': 'Vận hành',
+  }
+  return replacements[value] ?? value
+}
+
+function mappingPillStyle(value: UserMappingStatus | undefined): React.CSSProperties {
+  const complete = value === 'complete'
+  return {
+    ...compactPillStyle,
+    color: complete ? '#3A7A4A' : '#A8621A',
+    background: complete ? '#E8F5ED' : '#FEF0DC',
+    borderColor: complete ? 'rgba(74,140,92,0.28)' : 'rgba(168,98,26,0.26)',
+  }
+}
+
 function formatPersonOption(person: LookupData['managers'][number]) {
-  return [person.name, person.roleLabel, person.departmentName].filter(Boolean).join(' — ')
+  return [person.name, person.roleLabel, repairVietnameseText(person.departmentName ?? '')].filter(Boolean).join(' — ')
 }
 
 function shouldSuggestUsername(value: string) {
@@ -1202,6 +1409,13 @@ function disabledActionReason(user: ManagedUser) {
   return 'Thao tác đang bị khóa để đảm bảo an toàn.'
 }
 
+function createDisabledReason(loading: boolean, error: string, canCreateUser: boolean) {
+  if (loading) return 'Đang tải quyền tạo tài khoản.'
+  if (error) return 'Cần tải lại danh sách tài khoản trước khi thao tác.'
+  if (!canCreateUser) return 'Tài khoản hiện tại chưa có quyền tạo tài khoản.'
+  return undefined
+}
+
 function deleteDisabledActionReason(user: ManagedUser) {
   if (user.roleCode === 'ADMIN') return 'Không xóa tài khoản ADMIN bằng thao tác nhanh.'
   return disabledActionReason(user)
@@ -1229,6 +1443,21 @@ const metaRow: React.CSSProperties = {
   color: 'var(--color-text-muted)',
 }
 
+const debugDetailsStyle: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  borderRadius: 9,
+  background: 'var(--color-surface)',
+  padding: '8px 12px',
+  color: 'var(--color-text-muted)',
+  fontSize: 12,
+}
+
+const debugSummaryStyle: React.CSSProperties = {
+  cursor: 'pointer',
+  fontWeight: 750,
+  color: 'var(--color-text)',
+}
+
 const toolbarStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'minmax(260px, 1fr) repeat(3, minmax(150px, 180px))',
@@ -1240,6 +1469,39 @@ const layoutStyle: React.CSSProperties = {
   display: 'block',
   width: '100%',
   minWidth: 0,
+}
+
+const tableSummaryStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  flexWrap: 'wrap',
+  marginBottom: 10,
+  color: 'var(--color-text)',
+  fontSize: 13,
+}
+
+const summaryMutedStyle: React.CSSProperties = {
+  color: 'var(--color-text-muted)',
+}
+
+const paginationStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+}
+
+const pageButtonStyle: React.CSSProperties = {
+  minHeight: 32,
+  borderRadius: 8,
+  border: '1px solid var(--color-border)',
+  padding: '0 10px',
+  color: 'var(--color-text)',
+  background: 'var(--color-surface)',
+  fontSize: 12,
+  fontWeight: 750,
 }
 
 const tableWrapStyle: React.CSSProperties = {
@@ -1254,7 +1516,7 @@ const tableWrapStyle: React.CSSProperties = {
 
 const tableStyle: React.CSSProperties = {
   width: '100%',
-  minWidth: 1620,
+  minWidth: 1180,
   borderCollapse: 'separate',
   borderSpacing: 0,
 }
@@ -1285,7 +1547,8 @@ const tdStyle: React.CSSProperties = {
 const actionHeaderCellStyle: React.CSSProperties = {
   right: 0,
   zIndex: 4,
-  minWidth: 260,
+  width: 88,
+  minWidth: 88,
   boxShadow: '-10px 0 18px rgba(17,20,24,0.06)',
 }
 
@@ -1293,7 +1556,8 @@ const actionCellStyle: React.CSSProperties = {
   position: 'sticky',
   right: 0,
   zIndex: 3,
-  minWidth: 260,
+  width: 88,
+  minWidth: 88,
   boxShadow: '-10px 0 18px rgba(17,20,24,0.04)',
 }
 
@@ -1448,12 +1712,74 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--color-text-muted)',
 }
 
-const actionStack: React.CSSProperties = {
+const statusStackStyle: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 10,
-  minWidth: 220,
+  gap: 6,
+  alignItems: 'center',
 }
+
+const compactPillStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  borderRadius: 999,
+  border: '1px solid transparent',
+  padding: '3px 8px',
+  fontSize: 11,
+  fontWeight: 750,
+  whiteSpace: 'nowrap',
+}
+
+const actionMenuWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  display: 'flex',
+  justifyContent: 'center',
+}
+
+const actionMenuTriggerStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 9,
+  border: '1px solid var(--color-border-strong)',
+  background: 'var(--color-surface)',
+  color: 'var(--color-text)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 18,
+}
+
+const actionMenuStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 40,
+  right: 0,
+  zIndex: 8,
+  width: 184,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  background: 'var(--color-surface)',
+  boxShadow: '0 18px 40px rgba(0,0,0,0.18)',
+  padding: 6,
+}
+
+const menuActionButtonStyle = (tone: 'normal' | 'danger', disabled: boolean): React.CSSProperties => ({
+  width: '100%',
+  minHeight: 34,
+  borderRadius: 8,
+  border: '1px solid transparent',
+  padding: '0 10px',
+  background: disabled ? 'var(--color-surface-2)' : 'transparent',
+  color: disabled ? 'var(--color-text-muted)' : tone === 'danger' ? 'var(--color-danger)' : 'var(--color-text)',
+  fontSize: 12,
+  fontWeight: 750,
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.72 : 1,
+  textAlign: 'left',
+  whiteSpace: 'nowrap',
+})
 
 const textButton: React.CSSProperties = {
   color: 'var(--color-charcoal)',
@@ -1461,20 +1787,6 @@ const textButton: React.CSSProperties = {
   fontWeight: 700,
   textDecoration: 'underline',
 }
-
-const actionButtonStyle = (tone: 'normal' | 'danger', disabled: boolean): React.CSSProperties => ({
-  minHeight: 32,
-  borderRadius: 8,
-  border: `1px solid ${tone === 'danger' ? 'rgba(184,64,64,0.38)' : 'var(--color-border)'}`,
-  padding: '0 10px',
-  background: disabled ? 'var(--color-surface-2)' : 'var(--color-surface)',
-  color: disabled ? 'var(--color-text-muted)' : tone === 'danger' ? 'var(--color-danger)' : 'var(--color-charcoal)',
-  fontSize: 12,
-  fontWeight: 750,
-  cursor: disabled ? 'not-allowed' : 'pointer',
-  opacity: disabled ? 0.55 : 1,
-  whiteSpace: 'nowrap',
-})
 
 const emptyState: React.CSSProperties = {
   padding: 28,
