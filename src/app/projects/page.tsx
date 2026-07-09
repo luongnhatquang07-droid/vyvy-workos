@@ -2611,6 +2611,9 @@ function KanbanTab({
     showAllColumns || CORE_KANBAN_COLUMNS.includes(status) || columnItems[status].length > 0,
   )
   const hiddenEmptyCount = KANBAN_COLUMNS.length - visibleColumns.length
+  const selectedKanbanSubtask = selectedSubtaskId
+    ? subtasks.find((subtask) => subtask.id === selectedSubtaskId) ?? null
+    : null
 
   async function handleDrop(event: React.DragEvent<HTMLElement>, status: TaskStatus) {
     event.preventDefault()
@@ -2730,8 +2733,18 @@ function KanbanTab({
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onSelectSubtask(subtask.id)
+                    }}
+                    style={kanbanOpenDetailButton(selectedSubtaskId === subtask.id)}
+                  >
+                    {selectedSubtaskId === subtask.id ? '\u0110ang m\u1edf chi ti\u1ebft' : 'M\u1edf chi ti\u1ebft'}
+                  </button>
                 </div>
-                  {renderSubtaskDetail(subtask)}
                 </div>
               ))}
             </div>
@@ -2739,6 +2752,11 @@ function KanbanTab({
         )
       })}
       </div>
+      {selectedKanbanSubtask ? (
+        <div style={kanbanDetailPanel}>
+          {renderSubtaskDetail(selectedKanbanSubtask)}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -6671,6 +6689,7 @@ function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): R
   const alert = urgent && unassigned
   return {
     width: '100%',
+    minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
@@ -6682,6 +6701,9 @@ function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): R
     cursor: dragging ? 'grabbing' : 'grab',
     opacity: dragging ? 0.62 : 1,
     boxShadow: dragging ? '0 18px 36px rgba(0,0,0,.28)' : 'none',
+    overflow: 'hidden',
+    wordBreak: 'normal',
+    overflowWrap: 'normal',
     transition: 'border-color .16s ease, background .16s ease, opacity .16s ease, box-shadow .16s ease',
   }
 }
@@ -6941,6 +6963,11 @@ const inlineMetaStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   gap: 8,
+  minWidth: 0,
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+  wordBreak: 'normal',
   fontSize: 11.5,
   color: 'var(--txt-3)',
 }
@@ -7080,8 +7107,8 @@ function kanbanGridStyle(columnCount: number, showAllColumns: boolean): React.CS
   return {
     display: 'grid',
     gridTemplateColumns: showAllColumns
-      ? 'repeat(8, minmax(180px, 1fr))'
-      : `repeat(${Math.max(columnCount, 1)}, minmax(220px, 1fr))`,
+      ? 'repeat(8, minmax(240px, 1fr))'
+      : `repeat(${Math.max(columnCount, 1)}, minmax(260px, 1fr))`,
     gap: 14,
     overflowX: 'auto',
     maxWidth: '100%',
@@ -7122,6 +7149,7 @@ const kanbanColumn: React.CSSProperties = {
   borderRadius: 16,
   background: 'var(--surface)',
   border: '1px solid var(--line)',
+  minWidth: 0,
 }
 
 const kanbanColumnDropActive: React.CSSProperties = {
@@ -7155,6 +7183,13 @@ const kanbanTitle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 700,
   color: 'var(--txt)',
+  lineHeight: 1.35,
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  wordBreak: 'normal',
+  overflowWrap: 'break-word',
 }
 
 const kanbanStatusSelect: React.CSSProperties = {
@@ -7168,6 +7203,26 @@ const kanbanStatusSelect: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   cursor: 'pointer',
+}
+
+function kanbanOpenDetailButton(active: boolean): React.CSSProperties {
+  return {
+    width: '100%',
+    minHeight: 34,
+    borderRadius: 10,
+    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : 'var(--line)'}`,
+    background: active ? 'rgba(218,223,33,.14)' : 'var(--surface)',
+    color: active ? 'var(--txt)' : 'var(--txt-2)',
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: 'pointer',
+  }
+}
+
+const kanbanDetailPanel: React.CSSProperties = {
+  width: '100%',
+  minWidth: 0,
+  paddingTop: 4,
 }
 
 const kanbanEmptyState: React.CSSProperties = {
