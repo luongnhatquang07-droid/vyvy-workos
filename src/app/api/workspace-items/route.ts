@@ -996,7 +996,34 @@ function requiredText(value: unknown, message: string) {
 
 function dateOrNull(value: unknown) {
   const next = text(value)
-  return /^\d{4}-\d{2}-\d{2}$/.test(next) ? next : null
+  if (!next) return null
+
+  const isoMatch = next.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch
+    return assertValidDateParts(Number(year), Number(month), Number(day), next)
+  }
+
+  const vnMatch = next.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (vnMatch) {
+    const [, day, month, year] = vnMatch
+    return assertValidDateParts(Number(year), Number(month), Number(day), next)
+  }
+
+  throw new Error('Deadline không hợp lệ. Vui lòng dùng định dạng ngày hợp lệ.')
+}
+
+function assertValidDateParts(year: number, month: number, day: number, raw: string) {
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error(`Deadline không hợp lệ: ${raw}`)
+  }
+  return parsed.toISOString().slice(0, 10)
 }
 
 function dateTimeOrNull(value: unknown) {

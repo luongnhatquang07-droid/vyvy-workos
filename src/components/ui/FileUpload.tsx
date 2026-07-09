@@ -7,6 +7,7 @@ const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 
 
 export interface UploadedFile {
   attachmentId?: string
+  deliverableId?: string | null
   fileName: string
   fileSize: number
   mimeType: string
@@ -166,6 +167,7 @@ export function FileUpload({
 
       const uploaded: UploadedFile = {
         attachmentId: payload.attachmentId,
+        deliverableId: payload.deliverableId ?? null,
         fileName: payload.fileName,
         fileSize: payload.fileSize,
         mimeType: payload.mimeType,

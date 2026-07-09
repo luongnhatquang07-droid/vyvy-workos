@@ -55,6 +55,7 @@ interface AttachmentItem {
   name: string
   url: string | null
   deliverableId?: string | null
+  versionId?: string | null
   stepId?: string | null
   mimeType?: string | null
   sizeBytes?: number | null
@@ -1762,6 +1763,9 @@ function SubtaskCompactDetail({
                   id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
                   name: file.fileName,
                   url: file.url,
+                  deliverableId: file.deliverableId ?? activeUploadStep?.deliverableId ?? null,
+                  versionId: file.versionId ?? null,
+                  status: file.versionId ? 'PENDING_REVIEW' : undefined,
                 },
                 ...subtask.attachments,
               ])
@@ -2312,8 +2316,14 @@ function EditWorkItemDrawerBody({
             <input
               type="date"
               value={draft.startDate}
-              onInput={(event) => setDraft((current) => ({ ...current, startDate: event.currentTarget.value }))}
-              onChange={(event) => setDraft((current) => ({ ...current, startDate: event.target.value }))}
+              onInput={(event) => {
+                const { value } = event.currentTarget
+                setDraft((current) => ({ ...current, startDate: value }))
+              }}
+              onChange={(event) => {
+                const { value } = event.target
+                setDraft((current) => ({ ...current, startDate: value }))
+              }}
               style={inputStyle}
             />
           </Field>
@@ -2322,8 +2332,14 @@ function EditWorkItemDrawerBody({
           <input
             type="date"
             value={draft.dueDate}
-            onInput={(event) => setDraft((current) => ({ ...current, dueDate: event.currentTarget.value }))}
-            onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))}
+            onInput={(event) => {
+              const { value } = event.currentTarget
+              setDraft((current) => ({ ...current, dueDate: value }))
+            }}
+            onChange={(event) => {
+              const { value } = event.target
+              setDraft((current) => ({ ...current, dueDate: value }))
+            }}
             style={inputStyle}
           />
         </Field>
@@ -4717,7 +4733,7 @@ function seedWorkspace(
   return normalizeWorkspaceTree(projects.map((project, index) => {
     const projectTasks = tasks.filter((task) => task.project_id === project.id)
     const projectWorkstreams = workstreams.filter((workstream) => workstream.project_id === project.id)
-    const startDate = project.start_date ?? shiftDate(today, index * 3)
+    const startDate = normalizeDateKey(project.start_date) ?? shiftDate(today, index * 3)
     const mappedWorkstreams = projectWorkstreams.map((workstream) => {
       const streamTasks = projectTasks.filter((task) => task.workstream_id === workstream.id)
       const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments))
@@ -4734,13 +4750,13 @@ function seedWorkspace(
           reviewerId: project.reviewer_id ?? null,
           storedStatus: 'NOT_STARTED',
           startDate,
-          dueDate: project.due_date ?? shiftDate(startDate, 21),
+          dueDate: normalizeDateKey(project.due_date) ?? shiftDate(startDate, 21),
           status: 'NOT_STARTED',
           subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments)),
         }
       : null
     const projectTree = ungroupedWorkstream ? [...mappedWorkstreams, ungroupedWorkstream] : mappedWorkstreams
-    const dueDate = project.due_date ?? projectTree.map((item) => item.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(startDate, 21)
+    const dueDate = normalizeDateKey(project.due_date) ?? projectTree.map((item) => item.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(startDate, 21)
 
     return {
       id: project.id,
@@ -4783,8 +4799,8 @@ function toWorkstreamItem(
     ownerId: workstream.owner_id ?? fallbackOwner,
     reviewerId: workstream.reviewer_id ?? null,
     storedStatus: workstream.status,
-    startDate: workstream.start_date ?? subtasks[0]?.startDate ?? projectStart,
-    dueDate: workstream.due_date ?? subtasks.map((task) => task.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(projectStart, 14),
+    startDate: normalizeDateKey(workstream.start_date) ?? subtasks[0]?.startDate ?? projectStart,
+    dueDate: normalizeDateKey(workstream.due_date) ?? subtasks.map((task) => task.dueDate).filter(Boolean).sort().at(-1) ?? shiftDate(projectStart, 14),
     status: isTaskStatus(workstream.status) ? normalizeStatus(workstream.status) : deriveWorkstreamStatus(subtasks),
     subtasks,
   }
@@ -4799,8 +4815,8 @@ function toSeedSubtask(
   deliverableVersions: CommandCenterDeliverableVersionRow[],
   attachments: CommandCenterAttachmentRow[],
 ): SubtaskItem {
-  const dueDate = task.due_date ?? shiftDate(projectStart, 5 + index * 2)
-  const startDate = task.start_date ?? shiftDate(dueDate, -3)
+  const dueDate = normalizeDateKey(task.due_date) ?? shiftDate(projectStart, 5 + index * 2)
+  const startDate = normalizeDateKey(task.start_date) ?? shiftDate(dueDate, -3)
   const taskDeliverables = deliverables.filter((deliverable) => deliverable.task_id === task.id)
   const taskAttachments = buildDeliverableFileItems(taskDeliverables, deliverableVersions, attachments)
   const persistedSteps = taskSteps
@@ -4816,8 +4832,8 @@ function toSeedSubtask(
         description: stepText.description,
         ownerId: step.owner_id,
         reviewerId: step.reviewer_id ?? null,
-        dueDate: step.due_date ?? dueDate,
-        missingDueDate: !step.due_date,
+        dueDate: normalizeDateKey(step.due_date) ?? dueDate,
+        missingDueDate: !normalizeDateKey(step.due_date),
         status: evidence.valid ? 'COMPLETED' : stepStatus,
         note: stepText.expectedResult,
         isRequired: step.is_required !== false,
@@ -6308,28 +6324,40 @@ function requiresEvidence(status: TaskStatus) {
 }
 
 function isOverdue(dueDate: string, status: TaskStatus) {
-  return dueDate < getVietnamDateKey() && !['COMPLETED', 'CANCELLED'].includes(status)
+  const date = normalizeDateKey(dueDate)
+  return Boolean(date && date < getVietnamDateKey() && !['COMPLETED', 'CANCELLED'].includes(status))
 }
 
 function dayDiff(from: string, to: string) {
-  return Math.round((new Date(to).getTime() - new Date(from).getTime()) / DAY_MS)
+  const fromDate = normalizeDateKey(from)
+  const toDate = normalizeDateKey(to)
+  if (!fromDate || !toDate) return 0
+  return Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / DAY_MS)
 }
 
 function shiftDate(date: string, delta: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + delta)
+  const normalized = normalizeDateKey(date) ?? getVietnamDateKey()
+  const next = new Date(`${normalized}T00:00:00Z`)
+  next.setUTCDate(next.getUTCDate() + delta)
   return next.toISOString().slice(0, 10)
 }
 
 function toShortDate(value: string) {
-  return new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
+  const normalized = normalizeDateKey(value)
+  if (!normalized) return value || 'Chưa có'
+  return new Date(`${normalized}T00:00:00Z`).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', timeZone: 'UTC' })
 }
 
 function toFullDate(value: string) {
-  return new Date(value).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const normalized = normalizeDateKey(value)
+  if (!normalized) return value || 'Chưa có'
+  return new Date(`${normalized}T00:00:00Z`).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })
 }
 
 function formatDeadlineLabel(value: string, status: TaskStatus) {
+  const normalized = normalizeDateKey(value)
+  if (!normalized) return 'Chưa có deadline'
+  value = normalized
   if (!value) return 'Chưa có deadline'
   if (status === 'COMPLETED') return `Đã xong · ${toShortDate(value)}`
   if (status === 'CANCELLED') return `Đã hủy · ${toShortDate(value)}`
@@ -6338,6 +6366,32 @@ function formatDeadlineLabel(value: string, status: TaskStatus) {
   if (days === 0) return 'Hôm nay'
   if (days <= 14) return `Còn ${days} ngày`
   return toShortDate(value)
+}
+
+function normalizeDateKey(value: string | null | undefined) {
+  const raw = value?.trim()
+  if (!raw) return null
+
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+  if (isoMatch) return validDateKey(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]))
+
+  const vnMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (vnMatch) return validDateKey(Number(vnMatch[3]), Number(vnMatch[2]), Number(vnMatch[1]))
+
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return null
+  return validDateKey(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate())
+}
+
+function validDateKey(year: number, month: number, day: number) {
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) return null
+  return parsed.toISOString().slice(0, 10)
 }
 
 function makeId(prefix: string) {

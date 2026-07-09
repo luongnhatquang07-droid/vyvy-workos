@@ -196,6 +196,87 @@ async function loadDeliverableForUpload(workspaceId: string, deliverableId: stri
   return data
 }
 
+async function ensureTaskDeliverableForUpload({
+  workspaceId,
+  projectId,
+  taskId,
+  uploaderId,
+  reviewerId,
+}: {
+  workspaceId: string
+  projectId: string | null
+  taskId: string | null
+  uploaderId: string | null
+  reviewerId: string | null
+}) {
+  if (!taskId) return null
+
+  const client = createServiceClient()
+  const existing = await client
+    .from('deliverables')
+    .select('id,workspace_id,project_id,task_id,step_id,name,description,reviewer_id,due_date')
+    .eq('workspace_id', workspaceId)
+    .eq('task_id', taskId)
+    .is('step_id', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (existing.error) throw existing.error
+  if (existing.data) return existing.data
+
+  const anyExisting = await client
+    .from('deliverables')
+    .select('id,workspace_id,project_id,task_id,step_id,name,description,reviewer_id,due_date')
+    .eq('workspace_id', workspaceId)
+    .eq('task_id', taskId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+
+  if (anyExisting.error) throw anyExisting.error
+  if (anyExisting.data) return anyExisting.data
+
+  const taskRes = await client
+    .from('tasks')
+    .select('id,project_id,title,owner_id,reviewer_id,due_date')
+    .eq('workspace_id', workspaceId)
+    .eq('id', taskId)
+    .is('deleted_at', null)
+    .maybeSingle()
+
+  if (taskRes.error) throw taskRes.error
+  if (!taskRes.data) throw new Error('Không tìm thấy đầu việc để gắn file/bàn giao.')
+
+  const insertRes = await client
+    .from('deliverables')
+    .insert({
+      workspace_id: workspaceId,
+      project_id: taskRes.data.project_id ?? projectId,
+      task_id: taskRes.data.id,
+      step_id: null,
+      name: `Kết quả: ${taskRes.data.title}`,
+      type: 'file',
+      submitter_id: taskRes.data.owner_id ?? uploaderId,
+      reviewer_id: reviewerId ?? taskRes.data.reviewer_id ?? null,
+      due_date: taskRes.data.due_date,
+      status: 'NOT_SUBMITTED',
+      is_required: true,
+      created_by: uploaderId,
+      updated_by: uploaderId,
+    })
+    .select('id,workspace_id,project_id,task_id,step_id,name,description,reviewer_id,due_date')
+    .single()
+
+  if (insertRes.error || !insertRes.data) {
+    throw insertRes.error ?? new Error('Không tạo được bàn giao cho đầu việc.')
+  }
+
+  return insertRes.data
+}
+
 async function ensureApproval({
   workspaceId,
   deliverableId,
@@ -513,7 +594,7 @@ export async function POST(req: NextRequest) {
     }
 
     const client = createServiceClient()
-    const deliverable = await loadDeliverableForUpload(workspaceId, deliverableId)
+    let deliverable = await loadDeliverableForUpload(workspaceId, deliverableId)
     const guard = await guardUploadTarget({
       request: req,
       workspaceId,
@@ -535,6 +616,18 @@ export async function POST(req: NextRequest) {
     if (finalApproverId && !(await belongsToWorkspace('people', finalApproverId, workspaceId))) {
       return NextResponse.json({ error: 'Người duyệt không thuộc workspace hiện tại.' }, { status: 403 })
     }
+
+    if (!deliverable && taskId) {
+      deliverable = await ensureTaskDeliverableForUpload({
+        workspaceId,
+        projectId,
+        taskId,
+        uploaderId: context.uploaderId,
+        reviewerId: finalApproverId,
+      })
+    }
+    const activeDeliverableId = deliverable?.id ?? deliverableId
+    const activeApproverId = finalApproverId ?? deliverable?.reviewer_id ?? null
 
     await ensureStorageBucket()
     const folder = [workspaceId, projectId, taskId].filter(Boolean).join('/')
@@ -570,15 +663,15 @@ export async function POST(req: NextRequest) {
     let versionId: string | null = null
     let versionNumber: number | null = null
 
-    if (deliverableId) {
+    if (activeDeliverableId) {
       const { count } = await client
         .from('deliverable_versions')
         .select('*', { count: 'exact', head: true })
-        .eq('deliverable_id', deliverableId)
+        .eq('deliverable_id', activeDeliverableId)
 
       versionNumber = (count ?? 0) + 1
       const versionRes = await client.from('deliverable_versions').insert({
-        deliverable_id: deliverableId,
+        deliverable_id: activeDeliverableId,
         version_number: versionNumber,
         attachment_id: attachment.id,
         submitted_by: context.uploaderId,
@@ -596,37 +689,37 @@ export async function POST(req: NextRequest) {
           client,
           workspaceId,
           actorId: context.uploaderId,
-          deliverableId,
+          deliverableId: activeDeliverableId,
           versionId: supersedesVersionId,
           reason: replaceReason,
         })
       }
 
-      if (finalApproverId && deliverable?.reviewer_id !== finalApproverId) {
+      if (activeApproverId && deliverable?.reviewer_id !== activeApproverId) {
         const reviewerRes = await client
           .from('deliverables')
           .update({
-            reviewer_id: finalApproverId,
+            reviewer_id: activeApproverId,
             updated_by: context.uploaderId,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', deliverableId)
+          .eq('id', activeDeliverableId)
           .eq('workspace_id', workspaceId)
         if (reviewerRes.error) throw reviewerRes.error
       }
 
       await ensureApproval({
         workspaceId,
-        deliverableId,
+        deliverableId: activeDeliverableId,
         projectId: deliverable?.project_id ?? projectId,
         taskId: deliverable?.task_id ?? taskId,
         stepId: deliverable?.step_id ?? null,
         requesterId: context.uploaderId,
-        approverId: finalApproverId,
+        approverId: activeApproverId,
         dueAt: deliverable?.due_date ?? null,
       })
 
-      await recomputeDeliverableStatus(client, workspaceId, context.uploaderId, deliverableId)
+      await recomputeDeliverableStatus(client, workspaceId, context.uploaderId, activeDeliverableId)
 
       await client
         .from('reminders')
@@ -636,9 +729,9 @@ export async function POST(req: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq('workspace_id', workspaceId)
-        .eq('deliverable_id', deliverableId)
+        .eq('deliverable_id', activeDeliverableId)
 
-      await logActivity(context.workspaceId, context.uploaderId, 'deliverable.version.uploaded_file', deliverableId, {
+      await logActivity(context.workspaceId, context.uploaderId, 'deliverable.version.uploaded_file', activeDeliverableId, {
         versionId,
         versionNumber,
         attachmentId: attachment.id,
@@ -661,6 +754,7 @@ export async function POST(req: NextRequest) {
       fileSize: file.size,
       mimeType,
       url: signedUrl?.signedUrl ?? null,
+      deliverableId: activeDeliverableId ?? null,
       versionId,
       versionNumber,
     })

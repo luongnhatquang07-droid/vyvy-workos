@@ -87,7 +87,34 @@ function isMissingDelegatedAuditColumn(error: unknown) {
 
 function cleanDate(value: unknown) {
   const text = cleanText(value)
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null
+  if (!text) return null
+
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:T.*)?$/)
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch
+    return assertValidDateParts(Number(year), Number(month), Number(day), text)
+  }
+
+  const vnMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (vnMatch) {
+    const [, day, month, year] = vnMatch
+    return assertValidDateParts(Number(year), Number(month), Number(day), text)
+  }
+
+  throw new Error('Deadline không hợp lệ. Vui lòng dùng định dạng ngày hợp lệ.')
+}
+
+function assertValidDateParts(year: number, month: number, day: number, raw: string) {
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error(`Deadline không hợp lệ: ${raw}`)
+  }
+  return parsed.toISOString().slice(0, 10)
 }
 
 async function getWorkspaceContext(workspaceId: string): Promise<WorkspaceContext> {
