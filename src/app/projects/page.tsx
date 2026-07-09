@@ -1341,10 +1341,12 @@ function ProjectsPageContent() {
                     }}
                     style={projectCardStyle(project.id === selectedProject?.id)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={projectNameStyle}>{project.name}</div>
-                        <div style={mutedMetaStyle}>{project.code} · {project.workstreams.length} đầu việc lớn</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', minWidth: 0 }}>
+                      <div style={projectCardTitleBlock}>
+                        <div style={projectNameStyle} title={project.name}>{project.name}</div>
+                        <div style={projectCardMetaStyle} title={`${project.code} · ${project.workstreams.length} đầu việc lớn`}>
+                          {project.code} · {project.workstreams.length} đầu việc lớn
+                        </div>
                       </div>
                       <ProgressBadge value={progress} label={projectHealth(project).label} />
                     </div>
@@ -6727,10 +6729,35 @@ const sectionTitle: React.CSSProperties = {
   color: 'var(--txt)',
 }
 
+const projectCardTitleBlock: React.CSSProperties = {
+  flex: '1 1 auto',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+}
+
 const projectNameStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 700,
   color: 'var(--txt)',
+  lineHeight: 1.35,
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  wordBreak: 'break-word',
+}
+
+const projectCardMetaStyle: React.CSSProperties = {
+  display: 'block',
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontSize: 12,
+  lineHeight: 1.45,
+  color: 'var(--txt-3)',
 }
 
 const mutedMetaStyle: React.CSSProperties = {

@@ -18,6 +18,7 @@ import type {
 } from '@/lib/database.types'
 
 type FilterKey = 'all' | 'not_submitted' | 'overdue' | 'submitted' | 'revision' | 'approved'
+type DrawerMode = null | 'create' | 'detail'
 type DeliverableStatus = CommandCenterDeliverableRow['status']
 
 interface DetailVersion {
@@ -94,7 +95,7 @@ export default function DeliverablesPage() {
   const [reviewComment, setReviewComment] = React.useState('')
   const [reminderMessage, setReminderMessage] = React.useState('')
   const [pendingReminder, setPendingReminder] = React.useState(false)
-  const [showCreate, setShowCreate] = React.useState(false)
+  const [drawerMode, setDrawerMode] = React.useState<DrawerMode>(null)
   const [draft, setDraft] = React.useState<CreateDraft>(createDraft)
   const [formError, setFormError] = React.useState('')
   const [busy, setBusy] = React.useState(false)
@@ -153,6 +154,8 @@ export default function DeliverablesPage() {
       setDetail(null)
       setDetailError('')
       setDetailLoading(true)
+      setDrawerMode('detail')
+      selectedIdRef.current = urlDeliverableId
       setSelectedId(urlDeliverableId)
     }, 0)
   }, [])
@@ -185,10 +188,42 @@ export default function DeliverablesPage() {
   }
 
   function openDeliverable(id: string) {
+    setDrawerMode('detail')
+    selectedIdRef.current = id
     setDetail(null)
     setDetailError('')
     setDetailLoading(true)
+    setPendingReminder(false)
+    setFormError('')
     setSelectedId(id)
+  }
+
+  function openCreateDrawer() {
+    selectedIdRef.current = null
+    setDrawerMode('create')
+    setSelectedId(null)
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+    setPendingReminder(false)
+    setReminderMessage('')
+    setReviewComment('')
+    setFormError('')
+    setDraft(createDraft())
+  }
+
+  function closeDrawer() {
+    selectedIdRef.current = null
+    setDrawerMode(null)
+    setSelectedId(null)
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+    setPendingReminder(false)
+    setReminderMessage('')
+    setReviewComment('')
+    setFormError('')
+    setDraft(createDraft())
   }
 
   async function reloadAll(id = selectedId) {
@@ -223,10 +258,13 @@ export default function DeliverablesPage() {
       })
       const result = await readJsonResponse<{ deliverableId?: string; error?: string }>(response, 'Không tạo được bàn giao.')
       if (!response.ok || result.error) throw new Error(result.error ?? 'Không tạo được bàn giao.')
-      setShowCreate(false)
       setDraft(createDraft())
       await refresh()
-      if (result.deliverableId) setSelectedId(result.deliverableId)
+      if (result.deliverableId) {
+        openDeliverable(result.deliverableId)
+      } else {
+        closeDrawer()
+      }
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Không tạo được bàn giao.')
     } finally {
@@ -340,7 +378,7 @@ export default function DeliverablesPage() {
         actions={(
           <>
             <button type="button" onClick={exportJson} style={ghostButtonStyle}><i className="ti ti-download" /> Export JSON</button>
-            <button type="button" onClick={() => setShowCreate(true)} style={primaryButtonStyle}><i className="ti ti-plus" /> Tạo bàn giao</button>
+            <button type="button" onClick={openCreateDrawer} style={primaryButtonStyle}><i className="ti ti-plus" /> Tạo bàn giao</button>
           </>
         )}
       />
@@ -402,8 +440,8 @@ export default function DeliverablesPage() {
         )}
       </section>
 
-      {selectedId ? (
-        <Drawer open onClose={() => { setSelectedId(null); setDetail(null); setDetailError(''); setPendingReminder(false) }} title="Chi tiết bàn giao" width={620}>
+      {drawerMode === 'detail' ? (
+        <Drawer open onClose={closeDrawer} title="Chi tiết bàn giao" width={620}>
         {!selected ? (
           <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : detailError || 'Chọn một bàn giao để xem chi tiết.'}</div>
         ) : (
@@ -433,19 +471,21 @@ export default function DeliverablesPage() {
         </Drawer>
       ) : null}
 
-      <Drawer open={showCreate} onClose={() => setShowCreate(false)} title="Tạo bàn giao" width={560}>
-        <CreateDeliverableForm
-          draft={draft}
-          onChange={setDraft}
-          people={people}
-          projects={projects}
-          tasks={tasks}
-          steps={steps}
-          error={formError}
-          busy={busy}
-          onSubmit={() => void createDeliverable()}
-        />
-      </Drawer>
+      {drawerMode === 'create' ? (
+        <Drawer open onClose={closeDrawer} title="Tạo bàn giao" width={560}>
+          <CreateDeliverableForm
+            draft={draft}
+            onChange={setDraft}
+            people={people}
+            projects={projects}
+            tasks={tasks}
+            steps={steps}
+            error={formError}
+            busy={busy}
+            onSubmit={() => void createDeliverable()}
+          />
+        </Drawer>
+      ) : null}
     </div>
   )
 }
