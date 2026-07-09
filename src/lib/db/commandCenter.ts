@@ -1,10 +1,15 @@
 import 'server-only'
 
 import { withSyntheticPendingApprovals } from '@/lib/approvalQueue'
-import type { RawCommandCenterData } from '@/lib/database.types'
+import type {
+  CommandCenterEntityCounts,
+  CommandCenterProjectVisibilitySummary,
+  CommandCenterVisibilitySummary,
+  RawCommandCenterData,
+} from '@/lib/database.types'
 import { buildDeadlineRollups } from '@/lib/deadlineRollup'
 import { filterCommandCenterDataByUser } from '@/lib/rbac/commandDataFilter'
-import type { RbacUserContext } from '@/lib/rbac/permissions'
+import { isExecutive, type RbacUserContext } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
 
 const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
@@ -25,7 +30,7 @@ const OPERATIONAL_ACTIVITY_ACTIONS = new Set([
 export async function getCommandCenterData(
   workspaceId: string,
   userContext?: RbacUserContext | null,
-): Promise<RawCommandCenterData> {
+): Promise<RawCommandCenterData & { visibilitySummary?: CommandCenterVisibilitySummary }> {
   const sb = await createClient()
 
   const [
@@ -252,27 +257,8 @@ export async function getCommandCenterData(
     taskSteps,
   })
 
-  if (userContext !== undefined) {
-    return filterCommandCenterDataByUser({
-      people: allPeople,
-      projects,
-      workstreams,
-      tasks,
-      taskSteps,
-      meetings,
-      taskDrafts,
-      deliverables,
-      deliverableVersions,
-      attachments,
-      approvals,
-      reminders,
-      ceoRequests,
-      activityLogs,
-    }, userContext)
-  }
-
-  return {
-    people: requireRows('nhân sự', peopleRes) as RawCommandCenterData['people'],
+  const rawData: RawCommandCenterData = {
+    people: allPeople,
     projects,
     workstreams,
     tasks,
@@ -286,6 +272,69 @@ export async function getCommandCenterData(
     reminders,
     ceoRequests,
     activityLogs,
+  }
+
+  if (userContext !== undefined) {
+    const filteredData = filterCommandCenterDataByUser(rawData, userContext)
+    return {
+      ...filteredData,
+      visibilitySummary: buildVisibilitySummary(rawData, filteredData, userContext),
+    }
+  }
+
+  return rawData
+}
+
+function buildVisibilitySummary(
+  rawData: RawCommandCenterData,
+  filteredData: RawCommandCenterData,
+  userContext: RbacUserContext | null | undefined,
+): CommandCenterVisibilitySummary {
+  return {
+    scope: userContext && isExecutive(userContext) ? 'full' : 'restricted',
+    role: userContext?.normalizedRole ?? userContext?.role ?? null,
+    departmentName: userContext?.departmentName ?? null,
+    total: countEntities(rawData),
+    visible: countEntities(filteredData),
+    projects: rawData.projects.map((project) => buildProjectVisibilitySummary(project.id, project.name, rawData, filteredData)),
+  }
+}
+
+function buildProjectVisibilitySummary(
+  projectId: string,
+  projectName: string,
+  rawData: RawCommandCenterData,
+  filteredData: RawCommandCenterData,
+): CommandCenterProjectVisibilitySummary {
+  return {
+    projectId,
+    projectName,
+    total: countProjectEntities(rawData, projectId),
+    visible: countProjectEntities(filteredData, projectId),
+  }
+}
+
+function countEntities(data: RawCommandCenterData): CommandCenterEntityCounts {
+  return {
+    projects: data.projects.length,
+    workstreams: data.workstreams.length,
+    subtasks: data.tasks.length,
+    steps: data.taskSteps.length,
+  }
+}
+
+function countProjectEntities(data: RawCommandCenterData, projectId: string): CommandCenterEntityCounts {
+  const workstreamIds = new Set(
+    data.workstreams.filter((workstream) => workstream.project_id === projectId).map((workstream) => workstream.id),
+  )
+  const tasks = data.tasks.filter((task) => task.project_id === projectId)
+  const taskIds = new Set(tasks.map((task) => task.id))
+
+  return {
+    projects: data.projects.some((project) => project.id === projectId) ? 1 : 0,
+    workstreams: workstreamIds.size,
+    subtasks: tasks.length,
+    steps: data.taskSteps.filter((step) => taskIds.has(step.task_id)).length,
   }
 }
 

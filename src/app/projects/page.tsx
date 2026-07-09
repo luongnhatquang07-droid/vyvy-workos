@@ -25,6 +25,7 @@ import type {
   CommandCenterMeetingRow,
   CommandCenterPersonRow,
   CommandCenterProjectRow,
+  CommandCenterVisibilitySummary,
   CommandCenterTaskStepRow,
   CommandCenterTaskRow,
   CommandCenterWorkstreamRow,
@@ -379,6 +380,10 @@ function createDefaultProjectFilters(): ProjectFilters {
     deadline: 'all',
     search: '',
   }
+}
+
+function hasActiveProjectFilters(filters: ProjectFilters) {
+  return filters.quick !== 'all' || filters.status !== 'all' || filters.deadline !== 'all' || Boolean(filters.search.trim())
 }
 
 export default function ProjectsPage() {
@@ -1442,6 +1447,8 @@ function ProjectsPageContent() {
                   project={selectedProject}
                   people={people}
                   projectFilters={projectFilters}
+                  visibilitySummary={data?.visibilitySummary}
+                  currentUser={data?.currentUser}
                   onSaveSubtaskReport={saveFlowchartSubtaskReport}
                   onOpenSubtask={(subtaskId) => {
                     setSelectedSubtaskId(subtaskId)
@@ -2995,6 +3002,8 @@ function FlowchartTab({
   project,
   people,
   projectFilters,
+  visibilitySummary,
+  currentUser,
   onSaveSubtaskReport,
   onOpenSubtask,
   onEditNode,
@@ -3002,6 +3011,12 @@ function FlowchartTab({
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
   projectFilters: ProjectFilters
+  visibilitySummary?: CommandCenterVisibilitySummary
+  currentUser?: {
+    personId: string | null
+    role: string | null
+    canApproveOnBehalf: boolean
+  }
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
   onOpenSubtask: (subtaskId: string) => void
   onEditNode: (target: EditTarget) => void
@@ -3117,6 +3132,21 @@ function FlowchartTab({
   const selectedNodeKey = getFlowchartNodeKey(selectedNode)
   const allSubtasks = project.workstreams.flatMap((workstream) => workstream.subtasks)
   const allSteps = allSubtasks.flatMap((subtask) => subtask.steps)
+  const projectVisibility = visibilitySummary?.projects.find((item) => item.projectId === project.id)
+  const permissionCounts = projectVisibility?.visible ?? {
+    projects: 1,
+    workstreams: project.workstreams.length,
+    subtasks: allSubtasks.length,
+    steps: allSteps.length,
+  }
+  const totalCounts = projectVisibility?.total ?? permissionCounts
+  const flowchartFiltersActive = filter !== 'all' || hasActiveProjectFilters(projectFilters)
+  const filteredSubtaskTotal = visibleWorkstreams.reduce((count, workstream) => count + workstream.subtasks.length, 0)
+  const filteredStepTotal = visibleWorkstreams.reduce((count, workstream) => (
+    count + workstream.subtasks.reduce((stepCount, subtask) => (
+      stepCount + getVisibleFlowchartSteps(subtask, filter, projectFilters).length
+    ), 0)
+  ), 0)
   const visibleSubtaskCount = visibleWorkstreams.reduce((count, workstream) => (
     collapsedIds.has(flowchartNodeId('workstream', workstream.id)) ? count : count + workstream.subtasks.length
   ), 0)
@@ -3128,6 +3158,25 @@ function FlowchartTab({
         : stepCount + getRenderedFlowchartStepCount(subtask, getVisibleFlowchartSteps(subtask, filter, projectFilters), expandedStepGroupIds)
     ), 0)
   }, 0)
+  const hiddenSubtaskCount = Math.max(0, filteredSubtaskTotal - visibleSubtaskCount)
+  const hiddenStepCount = Math.max(0, filteredStepTotal - visibleStepCount)
+  const restrictedByPermission =
+    visibilitySummary?.scope === 'restricted' ||
+    totalCounts.workstreams !== permissionCounts.workstreams ||
+    totalCounts.subtasks !== permissionCounts.subtasks ||
+    totalCounts.steps !== permissionCounts.steps
+  const currentRoleLabel = getFlowchartRoleLabel(currentUser?.role ?? visibilitySummary?.role)
+  const permissionLine = restrictedByPermission
+    ? `Theo quyền ${currentRoleLabel}${visibilitySummary?.departmentName ? ` · ${visibilitySummary.departmentName}` : ''}: ${permissionCounts.workstreams}/${totalCounts.workstreams} đầu việc lớn · ${permissionCounts.subtasks}/${totalCounts.subtasks} đầu việc con · ${permissionCounts.steps}/${totalCounts.steps} bước.`
+    : `Hiển thị toàn bộ theo quyền ${currentRoleLabel}: ${permissionCounts.workstreams}/${totalCounts.workstreams} đầu việc lớn · ${permissionCounts.subtasks}/${totalCounts.subtasks} đầu việc con · ${permissionCounts.steps}/${totalCounts.steps} bước.`
+  const renderLine = `Đang render ${visibleWorkstreams.length}/${visibleWorkstreams.length} đầu việc lớn · ${visibleSubtaskCount}/${filteredSubtaskTotal} đầu việc con · ${visibleStepCount}/${filteredStepTotal} bước.`
+  const collapseLine =
+    hiddenSubtaskCount || hiddenStepCount
+      ? `Còn ẩn do thu gọn/preview: ${hiddenSubtaskCount} đầu việc con · ${hiddenStepCount} bước.`
+      : 'Không còn node bị ẩn do thu gọn/preview.'
+  const filterLine = flowchartFiltersActive
+    ? `Bộ lọc đang áp dụng: còn ${visibleWorkstreams.length} đầu việc lớn · ${filteredSubtaskTotal} đầu việc con · ${filteredStepTotal} bước trong phạm vi được phép.`
+    : 'Không có filter phụ đang áp dụng.'
   const flowchartLayout = React.useMemo(() => (
     buildFlowchartMindmapLayout({
       project,
@@ -3341,6 +3390,8 @@ function FlowchartTab({
             <span style={flowchartFullscreenMeta}>
               {project.workstreams.length} đầu việc lớn · {allSubtasks.length} đầu việc con · {allSteps.length} bước
             </span>
+            <span style={flowchartFullscreenMeta}>{permissionLine}</span>
+            <span style={flowchartFullscreenMeta}>{renderLine}</span>
           </div>
           <div style={flowchartFullscreenToolGroup}>
             {FLOWCHART_FILTER_OPTIONS.map((option) => (
@@ -3440,6 +3491,12 @@ function FlowchartTab({
             <span>{visibleWorkstreams.length}/{project.workstreams.length} đầu việc lớn</span>
             <span>{visibleSubtaskCount}/{allSubtasks.length} đầu việc con</span>
             <span>{visibleStepCount}/{allSteps.length} bước</span>
+          </div>
+          <div style={flowchartInsightBox}>
+            <span>{permissionLine}</span>
+            <span>{filterLine}</span>
+            <span>{renderLine}</span>
+            <span>{collapseLine}</span>
           </div>
         </>
       )}
@@ -6142,6 +6199,18 @@ function getRenderedFlowchartStepCount(subtask: SubtaskItem, steps: StepItem[], 
   }, 0)
 }
 
+function getFlowchartRoleLabel(role: string | null | undefined) {
+  const normalized = role?.trim().toUpperCase()
+  if (normalized === 'ADMIN') return 'Quản trị hệ thống'
+  if (normalized === 'CEO') return 'CEO'
+  if (normalized === 'COO') return 'COO'
+  if (normalized === 'DEPARTMENT_HEAD') return 'Trưởng bộ phận'
+  if (normalized === 'EMPLOYEE') return 'Nhân viên'
+  if (normalized === 'PROJECT_COORDINATOR') return 'Điều phối dự án'
+  if (normalized === 'CEO_READONLY') return 'CEO chỉ xem'
+  return 'quyền hiện tại'
+}
+
 function getFlowchartNodeKey(node: FlowchartNode) {
   if (node.kind === 'project') return flowchartNodeId('project', node.project.id)
   if (node.kind === 'workstream') return flowchartNodeId('workstream', node.workstream?.id ?? node.project.id)
@@ -7137,6 +7206,19 @@ const flowchartStatsRow: React.CSSProperties = {
   color: 'var(--txt-3)',
   fontSize: 12,
   fontWeight: 800,
+}
+
+const flowchartInsightBox: React.CSSProperties = {
+  display: 'grid',
+  gap: 6,
+  padding: '10px 12px',
+  borderRadius: 12,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt-2)',
+  fontSize: 12,
+  fontWeight: 750,
+  lineHeight: 1.45,
 }
 
 const flowchartWorkspace: React.CSSProperties = {

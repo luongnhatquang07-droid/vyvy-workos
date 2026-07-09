@@ -401,3 +401,26 @@ export interface RawCommandCenterData {
   ceoRequests: CommandCenterCeoDecisionRequestRow[]
   activityLogs: CommandCenterActivityLogRow[]
 }
+
+export interface CommandCenterEntityCounts {
+  projects: number
+  workstreams: number
+  subtasks: number
+  steps: number
+}
+
+export interface CommandCenterProjectVisibilitySummary {
+  projectId: string
+  projectName: string
+  total: CommandCenterEntityCounts
+  visible: CommandCenterEntityCounts
+}
+
+export interface CommandCenterVisibilitySummary {
+  scope: 'full' | 'restricted'
+  role: string | null
+  departmentName: string | null
+  total: CommandCenterEntityCounts
+  visible: CommandCenterEntityCounts
+  projects: CommandCenterProjectVisibilitySummary[]
+}

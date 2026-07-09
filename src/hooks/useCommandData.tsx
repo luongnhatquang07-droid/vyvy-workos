@@ -1,10 +1,11 @@
 'use client'
 
 import React from 'react'
-import type { RawCommandCenterData } from '@/lib/database.types'
+import type { CommandCenterVisibilitySummary, RawCommandCenterData } from '@/lib/database.types'
 
 export type CommandCenterApiData = RawCommandCenterData & {
   workspaceId: string
+  visibilitySummary?: CommandCenterVisibilitySummary
   currentUser?: {
     personId: string | null
     role: string | null
