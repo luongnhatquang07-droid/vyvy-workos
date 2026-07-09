@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { normalizeExternalSubmissionUrl } from '@/lib/files/externalLinks'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
@@ -25,6 +26,7 @@ interface UploadResponse extends Partial<UploadedFile> {
 interface LinkResponse {
   ok?: boolean
   error?: string
+  deliverableId?: string | null
   versionId?: string
   versionNumber?: number
 }
@@ -117,6 +119,7 @@ export function FileUpload({
   const [error, setError] = React.useState('')
   const [changeNote, setChangeNote] = React.useState<string>('')
   const [externalUrl, setExternalUrl] = React.useState<string>('')
+  const [externalTitle, setExternalTitle] = React.useState<string>('')
   const [lastStatus, setLastStatus] = React.useState('')
   const [approverId, setApproverId] = React.useState<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -192,11 +195,18 @@ export function FileUpload({
   }
 
   async function submitLink() {
-    if (!workspaceId || !deliverableId) {
+    if (!workspaceId || (!deliverableId && !taskId)) {
       setError('Cần có workspace và deliverable trước khi gắn link.')
       return
     }
-    if (!/^https?:\/\/\S+/i.test(externalUrl.trim())) {
+    let normalizedUrl = ''
+    try {
+      normalizedUrl = normalizeExternalSubmissionUrl(externalUrl)
+    } catch (err) {
+      setError(errorMessage(err))
+      return
+    }
+    if (!normalizedUrl) {
       setError('Link phải bắt đầu bằng http:// hoặc https://.')
       return
     }
@@ -211,9 +221,12 @@ export function FileUpload({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId,
-          deliverableId,
+          deliverableId: deliverableId || null,
+          projectId: projectId || null,
+          taskId: taskId || null,
           action: 'submitLink',
-          externalUrl: externalUrl.trim(),
+          externalUrl: normalizedUrl,
+          linkTitle: externalTitle.trim(),
           changeNote: changeNote.trim(),
           approverId: selectedApproverId || null,
           requiresApproval,
@@ -223,10 +236,11 @@ export function FileUpload({
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không lưu được link')
 
       const uploaded: UploadedFile = {
-        fileName: externalUrl.trim(),
+        deliverableId: payload.deliverableId ?? deliverableId ?? null,
+        fileName: externalTitle.trim() || normalizedUrl,
         fileSize: 0,
         mimeType: 'external_url',
-        url: externalUrl.trim(),
+        url: normalizedUrl,
         versionId: payload.versionId ?? null,
         versionNumber: payload.versionNumber ?? null,
         storageMode: 'external_url',
@@ -234,6 +248,7 @@ export function FileUpload({
       setUploads((current) => [uploaded, ...current])
       setLastStatus(payload.versionNumber ? `Đã lưu Version ${payload.versionNumber}` : 'Đã lưu link')
       setExternalUrl('')
+      setExternalTitle('')
       setChangeNote('')
       onUploaded?.(uploaded)
     } catch (err) {
@@ -257,7 +272,7 @@ export function FileUpload({
 
   return (
     <div>
-      {allowLink && deliverableId ? (
+      {allowLink && (deliverableId || taskId) ? (
         <div style={modeSwitchStyle}>
           <button type="button" onClick={() => setMode('file')} style={modeButtonStyle(mode === 'file')}>File</button>
           <button type="button" onClick={() => setMode('link')} style={modeButtonStyle(mode === 'link')}>Link</button>
@@ -326,10 +341,18 @@ export function FileUpload({
       ) : (
         <div style={linkBoxStyle}>
           <input
+            key="external-title"
+            value={externalTitle ?? ''}
+            onChange={(event) => setExternalTitle(event.currentTarget.value ?? '')}
+            placeholder="Tên báo cáo / tên tài liệu"
+            style={{ ...inputStyle, gridColumn: '1 / -1' }}
+            disabled={uploading}
+          />
+          <input
             key="external-url"
             value={externalUrl ?? ''}
             onChange={(event) => setExternalUrl(event.currentTarget.value ?? '')}
-            placeholder="Dán link Drive/Figma/Notion/Sheet..."
+            placeholder="Dán link Google Drive, Sheet, Doc, Canva, Figma, TikTok, Shopee, Facebook, báo cáo..."
             style={inputStyle}
             disabled={uploading}
           />

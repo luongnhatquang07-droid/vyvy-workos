@@ -13,6 +13,7 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
+import { buildExternalLinkChangeNote, normalizeExternalSubmissionUrl } from '@/lib/files/externalLinks'
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   canCreateDeliverable,
@@ -801,6 +802,125 @@ async function guardDeliverableTargetWrite(
   return ensureLocalQaWriteAllowed(request, deliverable, 'Muon thay doi file/ban giao QA tu localhost vao production phai bat server-side env ALLOW_LOCAL_PROD_QA_WRITES.')
 }
 
+async function ensureDeliverableForLinkSubmission({
+  workspaceId,
+  projectId,
+  taskId,
+  submitterId,
+  reviewerId,
+  linkTitle,
+}: {
+  workspaceId: string
+  projectId: string | null
+  taskId: string | null
+  submitterId: string | null
+  reviewerId: string | null
+  linkTitle: string | null
+}) {
+  const client = createServiceClient()
+
+  if (taskId) {
+    const existing = await client
+      .from('deliverables')
+      .select('id,workspace_id,project_id,task_id,step_id,name,description,type,required_format,submitter_id,reviewer_id,due_date,status,is_required,approved_version_id,created_at,updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('task_id', taskId)
+      .is('step_id', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (existing.error) throw existing.error
+    if (existing.data) return existing.data
+
+    const taskRes = await client
+      .from('tasks')
+      .select('id,project_id,title,owner_id,reviewer_id,due_date')
+      .eq('workspace_id', workspaceId)
+      .eq('id', taskId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (taskRes.error) throw taskRes.error
+    if (!taskRes.data) throw new Error('Không tìm thấy đầu việc để tạo bàn giao link.')
+
+    const insertRes = await client
+      .from('deliverables')
+      .insert({
+        workspace_id: workspaceId,
+        project_id: taskRes.data.project_id ?? projectId,
+        task_id: taskRes.data.id,
+        step_id: null,
+        name: `Kết quả: ${taskRes.data.title ?? linkTitle ?? 'Link bàn giao'}`,
+        description: linkTitle ? `Link: ${linkTitle}` : 'Nộp link từ chi tiết dự án.',
+        type: 'link',
+        required_format: 'Link',
+        submitter_id: taskRes.data.owner_id ?? submitterId,
+        reviewer_id: reviewerId ?? taskRes.data.reviewer_id ?? null,
+        due_date: taskRes.data.due_date,
+        status: 'NOT_SUBMITTED' satisfies DeliverableStatus,
+        is_required: true,
+        created_by: submitterId,
+        updated_by: submitterId,
+      })
+      .select('id,workspace_id,project_id,task_id,step_id,name,description,type,required_format,submitter_id,reviewer_id,due_date,status,is_required,approved_version_id,created_at,updated_at')
+      .single()
+    if (insertRes.error || !insertRes.data) throw insertRes.error ?? new Error('Không tạo được bàn giao link.')
+    return insertRes.data
+  }
+
+  if (projectId) {
+    const existing = await client
+      .from('deliverables')
+      .select('id,workspace_id,project_id,task_id,step_id,name,description,type,required_format,submitter_id,reviewer_id,due_date,status,is_required,approved_version_id,created_at,updated_at')
+      .eq('workspace_id', workspaceId)
+      .eq('project_id', projectId)
+      .is('task_id', null)
+      .is('step_id', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (existing.error) throw existing.error
+    if (existing.data) return existing.data
+
+    const projectRes = await client
+      .from('projects')
+      .select('id,name,owner_id,reviewer_id,due_date')
+      .eq('workspace_id', workspaceId)
+      .eq('id', projectId)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (projectRes.error) throw projectRes.error
+    if (!projectRes.data) throw new Error('Không tìm thấy dự án để tạo bàn giao link.')
+
+    const insertRes = await client
+      .from('deliverables')
+      .insert({
+        workspace_id: workspaceId,
+        project_id: projectRes.data.id,
+        task_id: null,
+        step_id: null,
+        name: `Kết quả: ${projectRes.data.name ?? linkTitle ?? 'Link bàn giao'}`,
+        description: linkTitle ? `Link: ${linkTitle}` : 'Nộp link từ chi tiết dự án.',
+        type: 'link',
+        required_format: 'Link',
+        submitter_id: projectRes.data.owner_id ?? submitterId,
+        reviewer_id: reviewerId ?? projectRes.data.reviewer_id ?? null,
+        due_date: projectRes.data.due_date,
+        status: 'NOT_SUBMITTED' satisfies DeliverableStatus,
+        is_required: true,
+        created_by: submitterId,
+        updated_by: submitterId,
+      })
+      .select('id,workspace_id,project_id,task_id,step_id,name,description,type,required_format,submitter_id,reviewer_id,due_date,status,is_required,approved_version_id,created_at,updated_at')
+      .single()
+    if (insertRes.error || !insertRes.data) throw insertRes.error ?? new Error('Không tạo được bàn giao link.')
+    return insertRes.data
+  }
+
+  throw new Error('Cần có đầu việc hoặc dự án để tạo bàn giao link.')
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const workspaceId = searchParams.get('workspaceId') ?? ''
@@ -906,14 +1026,41 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = (await req.json()) as Record<string, unknown>
     const workspaceId = cleanId(body.workspaceId)
-    const deliverableId = cleanId(body.deliverableId)
+    let deliverableId = cleanId(body.deliverableId) ?? ''
     const action = cleanText(body.action)
     const context = await getWorkspaceContext(workspaceId ?? '')
     if (!context.ok) return context.response
+    const shouldEnsureLinkDeliverable = !deliverableId && action === 'submitLink'
+    if (shouldEnsureLinkDeliverable) deliverableId = '__new_link_deliverable__'
     if (!deliverableId) return jsonError('Thiếu deliverableId.', 400)
 
     const client = createServiceClient()
-    const detail = await loadDeliverableDetail(context.workspaceId, deliverableId)
+    let detail = shouldEnsureLinkDeliverable ? null : await loadDeliverableDetail(context.workspaceId, deliverableId)
+    if (!detail && shouldEnsureLinkDeliverable) {
+      const projectId = cleanId(body.projectId)
+      const taskId = cleanId(body.taskId)
+      const linkTitle = cleanText(body.linkTitle) || null
+      const createGuard = await guardDeliverableCreate(req, context.workspaceId, {
+        name: linkTitle ?? cleanText(body.externalUrl) ?? 'Link ban giao',
+        projectId,
+        taskId,
+        stepId: null,
+      })
+      if (createGuard) return createGuard
+      if (!(await canSubmitToDeliverable(context.actor, context.workspaceId, null, { projectId, taskId }))) {
+        return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
+      }
+      const ensured = await ensureDeliverableForLinkSubmission({
+        workspaceId: context.workspaceId,
+        projectId,
+        taskId,
+        submitterId: context.personId,
+        reviewerId: cleanId(body.approverId),
+        linkTitle,
+      })
+      deliverableId = ensured.id
+      detail = { deliverable: ensured, versions: [] }
+    }
     if (!detail) return jsonError('Không tìm thấy hạng mục bàn giao.', 404)
     const deliverable = detail.deliverable as {
       id: string
@@ -977,7 +1124,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (action === 'submitLink') {
-      const externalUrl = cleanText(body.externalUrl)
+      let externalUrl = ''
+      try {
+        externalUrl = normalizeExternalSubmissionUrl(cleanText(body.externalUrl))
+      } catch (error) {
+        return jsonError(error instanceof Error ? error.message : 'URL không hợp lệ.', 400)
+      }
+      const linkTitle = cleanText(body.linkTitle)
+      const formattedChangeNote = buildExternalLinkChangeNote(linkTitle, cleanText(body.changeNote))
       if (!/^https?:\/\/\S+/i.test(externalUrl)) return jsonError('Link phải bắt đầu bằng http:// hoặc https://.', 400)
       const supersedesVersionId = cleanId(body.supersedesVersionId)
       const replaceReason = cleanText(body.replaceReason) || cleanText(body.changeNote) || 'Tạo version link thay thế.'
@@ -1007,7 +1161,7 @@ export async function PATCH(req: NextRequest) {
           version_number: versionNumber,
           external_url: externalUrl,
           submitted_by: context.personId,
-          change_note: cleanText(body.changeNote) || null,
+          change_note: formattedChangeNote,
           review_status: 'PENDING_REVIEW',
         })
         .select('id')
@@ -1051,7 +1205,7 @@ export async function PATCH(req: NextRequest) {
         before: null,
         after: 'PENDING_REVIEW',
       })
-      return NextResponse.json({ ok: true, versionId: versionRes.data.id, versionNumber, taskSync })
+      return NextResponse.json({ ok: true, deliverableId, versionId: versionRes.data.id, versionNumber, taskSync })
     }
 
     if (action === 'approve' || action === 'requestRevision' || action === 'reject' || action === 'markMissing') {

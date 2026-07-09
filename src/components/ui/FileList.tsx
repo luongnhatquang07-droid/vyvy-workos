@@ -8,6 +8,7 @@ import {
   versionReviewTone,
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
+import { externalLinkDisplayName, parseExternalLinkChangeNote } from '@/lib/files/externalLinks'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'html', 'htm'])
@@ -419,9 +420,13 @@ export function FileList({
         />
         {notice ? <div style={noticeText}>{notice}</div> : null}
         {versions.map((version) => {
-          const fileName = version.external_url ?? version.attachment?.file_name ?? `Version ${version.version_number}`
-          const mime = version.external_url ? 'external_url' : version.attachment?.mime_type ?? ''
+          const isExternalLink = Boolean(version.external_url)
+          const fileName = version.external_url
+            ? externalLinkDisplayName(version.external_url, version.change_note, `Version ${version.version_number}`)
+            : version.attachment?.file_name ?? `Version ${version.version_number}`
+          const mime = isExternalLink ? 'external_url' : version.attachment?.mime_type ?? ''
           const url = version.external_url ?? version.attachment?.url ?? null
+          const linkNote = isExternalLink ? parseExternalLinkChangeNote(version.change_note).note : version.change_note
           const status = normalizeVersionReviewStatus(version.review_status)
           const tone = versionReviewTone(status)
           const submitter = version.submitted_by ? peopleById[version.submitted_by] : null
@@ -450,7 +455,7 @@ export function FileList({
                     {version.reviewed_at ? ` · Xác nhận lúc ${new Date(version.reviewed_at).toLocaleString('vi-VN')}` : ''}
                     {version.attachment?.size_bytes ? ` · ${formatBytes(version.attachment.size_bytes)}` : ''}
                   </div>
-                  {version.change_note ? <div style={noteTextStyle}>{version.change_note}</div> : null}
+                  {linkNote ? <div style={noteTextStyle}>{linkNote}</div> : null}
                   {version.review_comment ? <div style={reviewCommentStyle}>{version.review_comment}</div> : null}
                 </div>
                 <span style={{ ...badgeStyle, color: tone.color, background: tone.bg }}>{versionReviewLabel(status)}</span>
@@ -470,13 +475,15 @@ export function FileList({
                       {url ? (
                         <>
                           <a href={url} target="_blank" rel="noopener noreferrer" style={menuItemStyle}>
-                            <i className="ti ti-eye" />
-                            Xem file
+                            <i className={`ti ${isExternalLink ? 'ti-external-link' : 'ti-eye'}`} />
+                            {isExternalLink ? 'Mở link' : 'Xem file'}
                           </a>
-                          <a href={url} download style={menuItemStyle}>
+                          {!isExternalLink ? (
+                            <a href={url} download style={menuItemStyle}>
                             <i className="ti ti-download" />
                             Tải xuống
                           </a>
+                          ) : null}
                           <button type="button" onClick={() => void copyLink(url)} style={menuItemStyle}>
                             <i className="ti ti-link" />
                             Copy link

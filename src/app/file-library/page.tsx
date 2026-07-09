@@ -8,6 +8,7 @@ import { useToast } from '@/components/feedback/Toast'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
 import { normalizeVersionReviewStatus, versionReviewLabel, versionReviewTone } from '@/lib/deliverableVersionStatus'
+import { externalLinkDisplayName } from '@/lib/files/externalLinks'
 import type {
   CommandCenterAttachmentRow,
   CommandCenterDeliverableRow,
@@ -931,7 +932,9 @@ function getVersionFileName(
   attachment: CommandCenterAttachmentRow | DetailVersion['attachment'] | null | undefined,
   item: CommandCenterDeliverableRow,
 ) {
-  return version?.external_url ?? attachment?.file_name ?? item.name
+  return version?.external_url
+    ? externalLinkDisplayName(version.external_url, version.change_note, item.name)
+    : attachment?.file_name ?? item.name
 }
 
 function fileIcon(name: string, mime?: string | null) {

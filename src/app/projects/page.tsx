@@ -17,6 +17,7 @@ import {
   normalizeVersionReviewStatus,
   type VersionReviewStatus,
 } from '@/lib/deliverableVersionStatus'
+import { externalLinkDisplayName } from '@/lib/files/externalLinks'
 import type {
   CommandCenterAttachmentRow,
   CommandCenterDeliverableRow,
@@ -3954,14 +3955,16 @@ function EvidenceFileList({
           submitter ? `bởi ${submitter.full_name}` : null,
         ].filter(Boolean).join(' · ')
 
+        const isExternalLink = file.mimeType === 'external_url'
+        const actionLabel = isExternalLink ? 'Mở link' : 'Mở file'
         const content = (
           <>
-            <i className="ti ti-paperclip" />
+            <i className={`ti ${isExternalLink ? 'ti-link' : 'ti-paperclip'}`} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={evidenceFileNameStyle}>{file.name}</div>
               {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
             </div>
-            {file.url ? <span style={evidenceFileActionStyle}>Mở file <i className="ti ti-external-link" /></span> : <span style={evidenceFileUnavailableStyle}>Chưa có link mở</span>}
+            {file.url ? <span style={evidenceFileActionStyle}>{actionLabel} <i className="ti ti-external-link" /></span> : <span style={evidenceFileUnavailableStyle}>Chưa có link mở</span>}
           </>
         )
 
@@ -5061,7 +5064,7 @@ function buildDeliverableFileItems(
       const deliverable = deliverablesById.get(version.deliverable_id)
       const attachment = version.attachment_id ? attachmentsById.get(version.attachment_id) : null
       const name = version.external_url
-        ? version.external_url
+        ? externalLinkDisplayName(version.external_url, version.change_note)
         : attachment?.file_name ?? deliverable?.name ?? `Version ${version.version_number}`
       const url = version.external_url ?? buildStorageOpenUrl(attachment)
 
