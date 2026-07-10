@@ -394,6 +394,8 @@ const FLOWCHART_NODE_HEIGHT = {
   step: 122,
   pill: 52,
 } as const
+const FLOWCHART_RADIAL_SUBTASKS_PER_RING = 4
+const FLOWCHART_RADIAL_SUBTASK_RING_GAP = 292
 
 function createDefaultProjectFilters(): ProjectFilters {
   return {
@@ -2797,10 +2799,197 @@ function KanbanTab({
 }
 
 function getDefaultFlowchartCollapsedIds(project: ProjectWorkspace) {
-  return new Set([
-    ...project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)),
-    ...project.workstreams.flatMap((workstream) => workstream.subtasks.map((subtask) => flowchartNodeId('subtask', subtask.id))),
-  ])
+  return new Set(project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)))
+}
+
+function buildFlowchartRadialLayout({
+  project,
+  visibleWorkstreams,
+  collapsedIds,
+  selectedNode,
+}: {
+  project: ProjectWorkspace
+  visibleWorkstreams: WorkstreamItem[]
+  collapsedIds: Set<string>
+  selectedNode: FlowchartNode
+}): FlowchartMindmapLayout {
+  type ConnectorDraft = { id: string; parentKey: string; childKey: string; accent: string; active: boolean }
+
+  const items: FlowchartLayoutItem[] = []
+  const connectorDrafts: ConnectorDraft[] = []
+  const workstreamCount = Math.max(1, visibleWorkstreams.length)
+  const maxSubtaskCount = Math.max(0, ...visibleWorkstreams.map((workstream) => workstream.subtasks.length))
+  const subtaskRingCount = Math.max(1, Math.ceil(maxSubtaskCount / FLOWCHART_RADIAL_SUBTASKS_PER_RING))
+  const workstreamRadius = Math.max(500, Math.min(720, 430 + visibleWorkstreams.length * 32))
+  const subtaskBaseRadius = workstreamRadius + 390
+  const maxRadius = subtaskBaseRadius + (subtaskRingCount - 1) * FLOWCHART_RADIAL_SUBTASK_RING_GAP + 280
+  const width = Math.max(1680, maxRadius * 2 + FLOWCHART_LAYOUT_PADDING_X * 2)
+  const height = Math.max(1080, maxRadius * 2 + FLOWCHART_LAYOUT_PADDING_Y * 2)
+  const center = { x: width / 2, y: height / 2 }
+  const branchArc = (Math.PI * 2) / workstreamCount
+
+  function polarPoint(angle: number, radius: number) {
+    return {
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    }
+  }
+
+  function addNode(item: Omit<FlowchartLayoutNodeItem, 'kind' | 'x' | 'y'> & { centerX: number; centerY: number }) {
+    const { centerX, centerY, ...nodeItem } = item
+    items.push({
+      ...nodeItem,
+      kind: 'node',
+      x: centerX - item.width / 2,
+      y: centerY - item.height / 2,
+    })
+  }
+
+  const projectNode: FlowchartNode = { kind: 'project', project }
+  const projectKey = getFlowchartNodeKey(projectNode)
+  addNode({
+    key: projectKey,
+    node: projectNode,
+    centerX: center.x,
+    centerY: center.y,
+    width: FLOWCHART_NODE_WIDTH.project,
+    height: FLOWCHART_NODE_HEIGHT.project,
+    accent: FLOWCHART_PROJECT_COLOR,
+    active: selectedNode.kind === 'project',
+    pathActive: selectedNode.kind !== 'project',
+    variant: 'project',
+  })
+
+  visibleWorkstreams.forEach((workstream, branchIndex) => {
+    const accent = getFlowchartBranchColor(branchIndex)
+    const angle = -Math.PI / 2 + branchIndex * branchArc
+    const workstreamPoint = polarPoint(angle, workstreamRadius)
+    const workstreamNode: FlowchartNode = { kind: 'workstream', project, workstream }
+    const workstreamKey = getFlowchartNodeKey(workstreamNode)
+    const collapsed = collapsedIds.has(workstreamKey)
+    const active = selectedNode.kind === 'workstream' && selectedNode.workstream?.id === workstream.id
+    const pathActive = isFlowchartWorkstreamPathActive(workstream, selectedNode)
+
+    addNode({
+      key: workstreamKey,
+      node: workstreamNode,
+      centerX: workstreamPoint.x,
+      centerY: workstreamPoint.y,
+      width: FLOWCHART_NODE_WIDTH.workstream,
+      height: FLOWCHART_NODE_HEIGHT.workstream,
+      accent,
+      active,
+      pathActive,
+      variant: 'default',
+      collapsibleId: workstreamKey,
+      collapsed,
+    })
+    connectorDrafts.push({
+      id: `${projectKey}->${workstreamKey}`,
+      parentKey: projectKey,
+      childKey: workstreamKey,
+      accent,
+      active: selectedNode.kind !== 'project' && selectedNode.workstream?.id === workstream.id,
+    })
+
+    if (collapsed) {
+      return
+    }
+
+    const rings = Math.max(1, Math.ceil(workstream.subtasks.length / FLOWCHART_RADIAL_SUBTASKS_PER_RING))
+    workstream.subtasks.forEach((subtask, subtaskIndex) => {
+      const ringIndex = Math.floor(subtaskIndex / FLOWCHART_RADIAL_SUBTASKS_PER_RING)
+      const firstIndexInRing = ringIndex * FLOWCHART_RADIAL_SUBTASKS_PER_RING
+      const indexInRing = subtaskIndex - firstIndexInRing
+      const countInRing = Math.min(FLOWCHART_RADIAL_SUBTASKS_PER_RING, workstream.subtasks.length - firstIndexInRing)
+      const spread = Math.min(branchArc * 0.76, 0.92 + ringIndex * 0.1)
+      const offset = countInRing === 1 ? 0 : -spread / 2 + (spread * indexInRing) / (countInRing - 1)
+      const ringBias = rings > 1 ? (ringIndex - (rings - 1) / 2) * 0.06 : 0
+      const subtaskPoint = polarPoint(
+        angle + offset + ringBias,
+        subtaskBaseRadius + ringIndex * FLOWCHART_RADIAL_SUBTASK_RING_GAP,
+      )
+      const subtaskNode: FlowchartNode = { kind: 'subtask', project, workstream, subtask }
+      const subtaskKey = getFlowchartNodeKey(subtaskNode)
+      const subtaskActive = selectedNode.kind === 'subtask' && selectedNode.subtask?.id === subtask.id
+      const subtaskPathActive = isFlowchartSubtaskPathActive(subtask, selectedNode)
+
+      addNode({
+        key: subtaskKey,
+        node: subtaskNode,
+        centerX: subtaskPoint.x,
+        centerY: subtaskPoint.y,
+        width: FLOWCHART_NODE_WIDTH.subtask,
+        height: FLOWCHART_NODE_HEIGHT.subtask,
+        accent,
+        active: subtaskActive,
+        pathActive: subtaskPathActive && !subtaskActive,
+        variant: 'default',
+      })
+      connectorDrafts.push({
+        id: `${workstreamKey}->${subtaskKey}`,
+        parentKey: workstreamKey,
+        childKey: subtaskKey,
+        accent,
+        active: subtaskPathActive,
+      })
+    })
+  })
+
+  function itemCenter(item: FlowchartLayoutItem) {
+    return {
+      x: item.x + item.width / 2,
+      y: item.y + item.height / 2,
+    }
+  }
+
+  function edgePoint(from: FlowchartLayoutItem, to: FlowchartLayoutItem, outward: 1 | -1) {
+    const fromCenter = itemCenter(from)
+    const toCenter = itemCenter(to)
+    const dx = toCenter.x - fromCenter.x
+    const dy = toCenter.y - fromCenter.y
+    const distance = Math.max(1, Math.hypot(dx, dy))
+    const unitX = dx / distance
+    const unitY = dy / distance
+    const edgeScale = Math.min(
+      from.width / 2 / Math.max(Math.abs(unitX), 0.001),
+      from.height / 2 / Math.max(Math.abs(unitY), 0.001),
+    )
+    return {
+      x: fromCenter.x + unitX * (edgeScale + FLOWCHART_CONNECTOR_NODE_GAP) * outward,
+      y: fromCenter.y + unitY * (edgeScale + FLOWCHART_CONNECTOR_NODE_GAP) * outward,
+    }
+  }
+
+  const itemMap = new Map(items.map((item) => [item.key, item]))
+  const connectors = connectorDrafts.flatMap((connector) => {
+    const parent = itemMap.get(connector.parentKey)
+    const child = itemMap.get(connector.childKey)
+    if (!parent || !child) return []
+    const parentCenter = itemCenter(parent)
+    const childCenter = itemCenter(child)
+    const start = edgePoint(parent, child, 1)
+    const end = edgePoint(child, parent, 1)
+    const distance = Math.max(1, Math.hypot(childCenter.x - parentCenter.x, childCenter.y - parentCenter.y))
+    const unitX = (childCenter.x - parentCenter.x) / distance
+    const unitY = (childCenter.y - parentCenter.y) / distance
+    const curveStrength = Math.max(80, Math.min(220, distance * 0.28))
+    const c1 = { x: start.x + unitX * curveStrength, y: start.y + unitY * curveStrength }
+    const c2 = { x: end.x - unitX * curveStrength, y: end.y - unitY * curveStrength }
+    return [{
+      id: connector.id,
+      path: `M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`,
+      accent: connector.accent,
+      active: connector.active,
+    }]
+  })
+
+  return {
+    items,
+    connectors,
+    width,
+    height,
+  }
 }
 
 function buildFlowchartMindmapLayout({
@@ -2820,6 +3009,14 @@ function buildFlowchartMindmapLayout({
   projectFilters: ProjectFilters
   selectedNode: FlowchartNode
 }): FlowchartMindmapLayout {
+  const radialLayout = buildFlowchartRadialLayout({
+    project,
+    visibleWorkstreams,
+    collapsedIds,
+    selectedNode,
+  })
+  if (radialLayout.width > 0) return radialLayout
+
   type LayoutResult = { key: string; centerX: number; left: number; right: number }
   type ConnectorDraft = { id: string; parentKey: string; childKey: string; accent: string; active: boolean }
 
@@ -3154,6 +3351,10 @@ function FlowchartTab({
   const [isPanning, setIsPanning] = React.useState(false)
   const [isFullscreen, setIsFullscreen] = React.useState(false)
   const [detailVisible, setDetailVisible] = React.useState(true)
+  const [showFlowchartGuide, setShowFlowchartGuide] = React.useState(() => (
+    typeof window === 'undefined' ? true : window.localStorage.getItem('vyvy-flowchart-guide-hidden') !== '1'
+  ))
+  const [canvasViewport, setCanvasViewport] = React.useState({ width: 0, height: 0 })
   const flowchartScrollRef = React.useRef<HTMLDivElement | null>(null)
   const flowchartBoardRef = React.useRef<HTMLDivElement | null>(null)
   const panSessionRef = React.useRef<{ pointerId: number; startX: number; startY: number; pan: FlowchartPan } | null>(null)
@@ -3218,6 +3419,28 @@ function FlowchartTab({
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isFullscreen])
+
+  React.useEffect(() => {
+    const viewport = flowchartScrollRef.current
+    if (!viewport) return
+
+    const updateViewport = () => {
+      setCanvasViewport({
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      })
+    }
+
+    updateViewport()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateViewport)
+      return () => window.removeEventListener('resize', updateViewport)
+    }
+
+    const observer = new ResizeObserver(updateViewport)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [isFullscreen])
   const collapseIds = React.useMemo(
     () => [
       ...project.workstreams.map((workstream) => flowchartNodeId('workstream', workstream.id)),
@@ -3274,16 +3497,7 @@ function FlowchartTab({
   const visibleSubtaskCount = visibleWorkstreams.reduce((count, workstream) => (
     collapsedIds.has(flowchartNodeId('workstream', workstream.id)) ? count : count + workstream.subtasks.length
   ), 0)
-  const visibleStepCount = visibleWorkstreams.reduce((count, workstream) => {
-    if (collapsedIds.has(flowchartNodeId('workstream', workstream.id))) return count
-    return count + workstream.subtasks.reduce((stepCount, subtask) => (
-      collapsedIds.has(flowchartNodeId('subtask', subtask.id))
-        ? stepCount
-        : stepCount + getRenderedFlowchartStepCount(subtask, getVisibleFlowchartSteps(subtask, filter, projectFilters), expandedStepGroupIds)
-    ), 0)
-  }, 0)
   const hiddenSubtaskCount = Math.max(0, filteredSubtaskTotal - visibleSubtaskCount)
-  const hiddenStepCount = Math.max(0, filteredStepTotal - visibleStepCount)
   const restrictedByPermission =
     visibilitySummary?.scope === 'restricted' ||
     totalCounts.workstreams !== permissionCounts.workstreams ||
@@ -3293,11 +3507,15 @@ function FlowchartTab({
   const permissionLine = restrictedByPermission
     ? `Theo quyền ${currentRoleLabel}${visibilitySummary?.departmentName ? ` · ${visibilitySummary.departmentName}` : ''}: ${permissionCounts.workstreams}/${totalCounts.workstreams} đầu việc lớn · ${permissionCounts.subtasks}/${totalCounts.subtasks} đầu việc con · ${permissionCounts.steps}/${totalCounts.steps} bước.`
     : `Hiển thị toàn bộ theo quyền ${currentRoleLabel}: ${permissionCounts.workstreams}/${totalCounts.workstreams} đầu việc lớn · ${permissionCounts.subtasks}/${totalCounts.subtasks} đầu việc con · ${permissionCounts.steps}/${totalCounts.steps} bước.`
-  const renderLine = `Đang render ${visibleWorkstreams.length}/${visibleWorkstreams.length} đầu việc lớn · ${visibleSubtaskCount}/${filteredSubtaskTotal} đầu việc con · ${visibleStepCount}/${filteredStepTotal} bước.`
+  const renderLine = `Canvas radial: ${visibleWorkstreams.length}/${visibleWorkstreams.length} đầu việc lớn · ${visibleSubtaskCount}/${filteredSubtaskTotal} đầu việc con. ${filteredStepTotal} bước xem trong panel chi tiết.`
+  const expandedWorkstream = visibleWorkstreams.find((workstream) => !collapsedIds.has(flowchartNodeId('workstream', workstream.id)))
+  const branchLine = expandedWorkstream
+    ? `Đang mở nhánh: ${expandedWorkstream.title} · ${expandedWorkstream.subtasks.length} đầu việc con.`
+    : 'Mặc định chỉ hiện Project + Workstream. Click một Workstream để bung Subtask của nhánh đó.'
   const collapseLine =
-    hiddenSubtaskCount || hiddenStepCount
-      ? `Còn ẩn do thu gọn/preview: ${hiddenSubtaskCount} đầu việc con · ${hiddenStepCount} bước.`
-      : 'Không còn node bị ẩn do thu gọn/preview.'
+    hiddenSubtaskCount
+      ? `Đang thu gọn ${hiddenSubtaskCount} đầu việc con. Step không vẽ trên canvas để sơ đồ gọn.`
+      : `Canvas đang hiện đủ ${visibleSubtaskCount}/${filteredSubtaskTotal} đầu việc con; step nằm trong panel chi tiết để tránh rối.`
   const filterLine = flowchartFiltersActive
     ? `Bộ lọc đang áp dụng: còn ${visibleWorkstreams.length} đầu việc lớn · ${filteredSubtaskTotal} đầu việc con · ${filteredStepTotal} bước trong phạm vi được phép.`
     : 'Không có filter phụ đang áp dụng.'
@@ -3334,6 +3552,35 @@ function FlowchartTab({
     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
     transition: isPanning ? 'none' : flowchartZoomLayer.transition,
   }
+  const miniMapScale = Math.min(0.18, 184 / Math.max(flowchartLayout.width, flowchartLayout.height))
+  const miniMapWidth = Math.max(136, Math.round(flowchartLayout.width * miniMapScale))
+  const miniMapHeight = Math.max(96, Math.round(flowchartLayout.height * miniMapScale))
+  const miniMapViewport = {
+    left: Math.max(0, Math.min(miniMapWidth, (-pan.x / Math.max(zoom, 0.05)) * miniMapScale)),
+    top: Math.max(0, Math.min(miniMapHeight, (-pan.y / Math.max(zoom, 0.05)) * miniMapScale)),
+    width: Math.max(18, Math.min(miniMapWidth, (canvasViewport.width / Math.max(zoom, 0.05)) * miniMapScale)),
+    height: Math.max(18, Math.min(miniMapHeight, (canvasViewport.height / Math.max(zoom, 0.05)) * miniMapScale)),
+  }
+
+  React.useEffect(() => {
+    const viewport = flowchartScrollRef.current
+    const board = flowchartBoardRef.current
+    if (!viewport || !board) return
+    const frame = window.requestAnimationFrame(() => {
+      const safeWidth = Math.max(320, viewport.clientWidth - 64)
+      const safeHeight = Math.max(260, viewport.clientHeight - 64)
+      const boardWidth = Math.max(1, board.offsetWidth)
+      const boardHeight = Math.max(1, board.offsetHeight)
+      const fitZoom = Math.min(1.08, safeWidth / boardWidth, safeHeight / boardHeight)
+      const nextZoom = snapFlowchartZoom(Math.max(0.45, Math.min(0.9, fitZoom * 1.8)), 'nearest')
+      setZoom(nextZoom)
+      setPan({
+        x: viewport.clientWidth / 2 - (flowchartLayout.width / 2) * nextZoom,
+        y: viewport.clientHeight / 2 - (flowchartLayout.height / 2) * nextZoom,
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [filter, flowchartLayout.height, flowchartLayout.width, isFullscreen, project.id])
 
   function toggleCollapse(id: string) {
     setCollapsedIds((current) => {
@@ -3356,6 +3603,14 @@ function FlowchartTab({
   function selectFlowchartNode(node: FlowchartNode) {
     setSelectedNode(node)
     if (isFullscreen && !detailVisible) setDetailVisible(true)
+    if (node.kind === 'project') {
+      setCollapsedIds(new Set(collapseIds))
+      return
+    }
+    if (node.kind === 'workstream' && node.workstream) {
+      const selectedWorkstreamId = flowchartNodeId('workstream', node.workstream.id)
+      setCollapsedIds(new Set(collapseIds.filter((id) => id !== selectedWorkstreamId && !id.startsWith('subtask-'))))
+    }
   }
 
   function setFlowchartZoom(nextZoom: number, origin?: { x: number; y: number }) {
@@ -3393,6 +3648,39 @@ function FlowchartTab({
       x: Math.max(24, (viewport.clientWidth - boardWidth * nextZoom) / 2),
       y: Math.max(24, (viewport.clientHeight - boardHeight * nextZoom) / 2),
     })
+  }
+
+  function focusFlowchartNode(nodeKey: string) {
+    const viewport = flowchartScrollRef.current
+    const item = flowchartLayout.items.find((layoutItem) => layoutItem.key === nodeKey)
+    if (!viewport || !item) return
+    const nextZoom = snapFlowchartZoom(Math.max(0.55, Math.min(1.1, zoom < 0.72 ? 0.9 : zoom)), 'nearest')
+    setZoom(nextZoom)
+    setPan({
+      x: viewport.clientWidth / 2 - (item.x + item.width / 2) * nextZoom,
+      y: viewport.clientHeight / 2 - (item.y + item.height / 2) * nextZoom,
+    })
+  }
+
+  function handleMiniMapPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+    const viewport = flowchartScrollRef.current
+    if (!viewport || miniMapScale <= 0) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const boardX = (event.clientX - rect.left) / miniMapScale
+    const boardY = (event.clientY - rect.top) / miniMapScale
+    setPan({
+      x: viewport.clientWidth / 2 - boardX * zoom,
+      y: viewport.clientHeight / 2 - boardY * zoom,
+    })
+  }
+
+  function hideFlowchartGuide() {
+    setShowFlowchartGuide(false)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('vyvy-flowchart-guide-hidden', '1')
+    }
   }
 
   function beginCanvasPan(event: React.PointerEvent<HTMLDivElement>) {
@@ -3477,7 +3765,14 @@ function FlowchartTab({
     }
 
     return (
-      <div key={item.key} style={flowchartAbsoluteItemStyle(item)}>
+      <div
+        key={item.key}
+        style={flowchartAbsoluteItemStyle(item)}
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          focusFlowchartNode(item.key)
+        }}
+      >
         {item.collapsibleId ? (
           <button
             type="button"
@@ -3614,11 +3909,12 @@ function FlowchartTab({
             <span>1 dự án</span>
             <span>{visibleWorkstreams.length}/{project.workstreams.length} đầu việc lớn</span>
             <span>{visibleSubtaskCount}/{allSubtasks.length} đầu việc con</span>
-            <span>{visibleStepCount}/{allSteps.length} bước</span>
+            <span>{filteredStepTotal}/{allSteps.length} bước trong panel</span>
           </div>
           <div style={flowchartInsightBox}>
             <span>{permissionLine}</span>
             <span>{filterLine}</span>
+            <span>{branchLine}</span>
             <span>{renderLine}</span>
             <span>{collapseLine}</span>
           </div>
@@ -3640,7 +3936,7 @@ function FlowchartTab({
             onPointerDown={beginCanvasPan}
             onWheel={handleCanvasWheel}
           >
-            <div style={zoomLayerStyle}>
+            <div style={zoomLayerStyle} data-flowchart-zoom-layer="true">
               <div ref={flowchartBoardRef} style={flowchartBoardStyle(flowchartLayout.width, flowchartLayout.height)} onClickCapture={handleFlowchartBoardSelect}>
                 <svg style={flowchartConnectorOverlay} viewBox={`0 0 ${flowchartLayout.width} ${flowchartLayout.height}`} aria-hidden="true">
                   <defs>
@@ -3879,6 +4175,56 @@ function FlowchartTab({
                 </div>
               </div>
             </div>
+            {showFlowchartGuide ? (
+              <div style={flowchartGuideBox} onPointerDown={(event) => event.stopPropagation()}>
+                <div style={flowchartGuideTitle}>Thao tác Flowchart</div>
+                <span>Kéo nền để pan canvas</span>
+                <span>Ctrl + lăn chuột để zoom</span>
+                <span>Click node để xem chi tiết</span>
+                <span>Double click để focus node</span>
+                <button type="button" onClick={hideFlowchartGuide} style={flowchartGuideDismissButton}>Ẩn hướng dẫn</button>
+              </div>
+            ) : null}
+            <div
+              style={{ ...flowchartMiniMap, width: miniMapWidth, height: miniMapHeight }}
+              onPointerDown={handleMiniMapPointerDown}
+              aria-label="Mini map Flowchart"
+            >
+              {flowchartLayout.connectors.map((connector) => (
+                <svg key={connector.id} style={flowchartMiniMapConnectorOverlay} viewBox={`0 0 ${flowchartLayout.width} ${flowchartLayout.height}`} aria-hidden="true">
+                  <path
+                    d={connector.path}
+                    fill="none"
+                    stroke={connector.active ? connector.accent : 'rgba(157,184,199,.28)'}
+                    strokeWidth={connector.active ? 10 : 6}
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ))}
+              {flowchartLayout.items.map((item) => (
+                <span
+                  key={item.key}
+                  style={{
+                    ...flowchartMiniMapNode,
+                    left: item.x * miniMapScale,
+                    top: item.y * miniMapScale,
+                    width: Math.max(4, item.width * miniMapScale),
+                    height: Math.max(3, item.height * miniMapScale),
+                    borderColor: item.kind === 'node' && item.active ? item.accent : 'rgba(255,255,255,.36)',
+                    background: item.kind === 'node' ? flowchartColorAlpha(item.accent, item.active ? 0.72 : 0.48) : 'rgba(255,255,255,.28)',
+                  }}
+                />
+              ))}
+              <span
+                style={{
+                  ...flowchartMiniMapViewport,
+                  left: miniMapViewport.left,
+                  top: miniMapViewport.top,
+                  width: miniMapViewport.width,
+                  height: miniMapViewport.height,
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -3889,6 +4235,7 @@ function FlowchartTab({
             workspaceId={workspaceId}
             fullscreen={isFullscreen}
             onClose={isFullscreen ? () => setDetailVisible(false) : () => setSelectedNode({ kind: 'project', project })}
+            onFocusNode={() => focusFlowchartNode(getFlowchartNodeKey(selectedNode))}
             onSaveSubtaskReport={onSaveSubtaskReport}
             onOpenSubtask={onOpenSubtask}
             onEditNode={onEditNode}
@@ -3987,6 +4334,7 @@ function FlowchartDetailDrawer({
   workspaceId,
   fullscreen,
   onClose,
+  onFocusNode,
   onSaveSubtaskReport,
   onOpenSubtask,
   onEditNode,
@@ -3996,6 +4344,7 @@ function FlowchartDetailDrawer({
   workspaceId?: string
   fullscreen?: boolean
   onClose: () => void
+  onFocusNode: () => void
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
   onOpenSubtask: (subtaskId: string) => void
   onEditNode: (target: EditTarget) => void
@@ -4104,6 +4453,7 @@ function FlowchartDetailDrawer({
 
       <div style={flowchartPanelActions}>
         <button type="button" onClick={onClose} style={ghostBtnStyle}>Đóng</button>
+        <button type="button" onClick={onFocusNode} style={ghostBtnStyle}>Focus node</button>
         {node.kind !== 'stepGroup' ? (
           <GhostButton icon="ti-pencil" onClick={() => onEditNode(flowchartNodeToEditTarget(node))}>Sửa</GhostButton>
         ) : null}
@@ -6505,15 +6855,6 @@ function getFlowchartStepGroups(subtask: SubtaskItem, steps: StepItem[]): Flowch
   return [{ id: `${subtask.id}:main-steps`, title: 'Các bước chính', steps }]
 }
 
-function getRenderedFlowchartStepCount(subtask: SubtaskItem, steps: StepItem[], expandedStepGroupIds: Set<string>) {
-  if (steps.length <= FLOWCHART_STEP_GROUP_THRESHOLD) return steps.length
-  return getFlowchartStepGroups(subtask, steps).reduce((count, group) => {
-    const groupId = flowchartNodeId('stepGroup', group.id)
-    if (!expandedStepGroupIds.has(groupId)) return count
-    return count + Math.min(group.steps.length, FLOWCHART_GROUP_STEP_PREVIEW_LIMIT)
-  }, 0)
-}
-
 function getFlowchartRoleLabel(role: string | null | undefined) {
   const normalized = role?.trim().toUpperCase()
   if (normalized === 'ADMIN') return 'Quản trị hệ thống'
@@ -7686,13 +8027,90 @@ const flowchartScroll: React.CSSProperties = {
   overflow: 'hidden',
   maxWidth: '100%',
   maxHeight: '72vh',
-  minHeight: 560,
+  minHeight: 640,
   padding: 24,
   touchAction: 'none',
   backgroundColor: 'var(--surface)',
   backgroundImage: 'radial-gradient(circle, color-mix(in srgb, var(--txt) 10%, transparent) 1px, transparent 1px)',
   backgroundSize: '28px 28px',
   backgroundPosition: '0 0',
+}
+
+const flowchartGuideBox: React.CSSProperties = {
+  position: 'absolute',
+  left: 18,
+  top: 18,
+  zIndex: 12,
+  display: 'grid',
+  gap: 5,
+  maxWidth: 250,
+  padding: '12px 14px',
+  borderRadius: 16,
+  border: '1px solid rgba(218,223,33,.22)',
+  background: 'color-mix(in srgb, var(--surface) 88%, transparent)',
+  boxShadow: '0 18px 50px rgba(0,0,0,.24)',
+  color: 'var(--txt-2)',
+  fontSize: 12,
+  fontWeight: 750,
+  lineHeight: 1.35,
+  backdropFilter: 'blur(16px)',
+}
+
+const flowchartGuideTitle: React.CSSProperties = {
+  color: 'var(--txt)',
+  fontSize: 12,
+  fontWeight: 950,
+}
+
+const flowchartGuideDismissButton: React.CSSProperties = {
+  width: 'fit-content',
+  marginTop: 3,
+  padding: '5px 8px',
+  borderRadius: 999,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt-2)',
+  fontSize: 11,
+  fontWeight: 900,
+  cursor: 'pointer',
+}
+
+const flowchartMiniMap: React.CSSProperties = {
+  position: 'absolute',
+  right: 18,
+  bottom: 18,
+  zIndex: 12,
+  borderRadius: 14,
+  border: '1px solid rgba(157,184,199,.28)',
+  background: 'color-mix(in srgb, var(--surface) 90%, transparent)',
+  boxShadow: '0 16px 44px rgba(0,0,0,.26)',
+  overflow: 'hidden',
+  cursor: 'crosshair',
+  backdropFilter: 'blur(16px)',
+}
+
+const flowchartMiniMapConnectorOverlay: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  width: '100%',
+  height: '100%',
+  pointerEvents: 'none',
+}
+
+const flowchartMiniMapNode: React.CSSProperties = {
+  position: 'absolute',
+  borderRadius: 2,
+  border: '1px solid rgba(255,255,255,.3)',
+  pointerEvents: 'none',
+}
+
+const flowchartMiniMapViewport: React.CSSProperties = {
+  position: 'absolute',
+  borderRadius: 8,
+  border: '2px solid rgba(218,223,33,.9)',
+  boxShadow: '0 0 0 1px rgba(0,0,0,.28), 0 0 18px rgba(218,223,33,.25)',
+  background: 'rgba(218,223,33,.08)',
+  pointerEvents: 'none',
 }
 
 const flowchartToggle: React.CSSProperties = {
