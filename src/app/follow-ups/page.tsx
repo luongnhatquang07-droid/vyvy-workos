@@ -292,7 +292,7 @@ export default function FollowUpsPage() {
         <SummaryCard icon="ti-calendar-check" label="Hôm nay + quá hạn" value={dueNow.length} tone="warning" />
         <SummaryCard icon="ti-alert-triangle" label="Quá hạn phản hồi" value={overdueItems.length} tone="danger" highlight />
         <SummaryCard icon="ti-calendar-plus" label="Sắp tới 7 ngày" value={upcoming.length} tone="neutral" />
-        <SummaryCard icon="ti-calendar-question" label="Chưa deadline" value={noDeadlineItems.length} tone="neutral" />
+        <SummaryCard icon="ti-calendar-question" label="Chưa có deadline" value={noDeadlineItems.length} tone="neutral" />
         <SummaryCard icon="ti-hourglass" label="Đang chờ phản hồi" value={pending.length} tone="warning" />
       </div>
 
@@ -310,7 +310,7 @@ export default function FollowUpsPage() {
             <button type="button" style={followUpTabStyle(activeView === 'today')} onClick={() => setActiveView('today')}>Hôm nay + quá hạn ({dueNow.length})</button>
             <button type="button" style={followUpTabStyle(activeView === 'overdue')} onClick={() => setActiveView('overdue')}>Quá hạn phản hồi ({overdueItems.length})</button>
             <button type="button" style={followUpTabStyle(activeView === 'upcoming')} onClick={() => setActiveView('upcoming')}>Sắp tới 7 ngày ({upcoming.length})</button>
-            <button type="button" style={followUpTabStyle(activeView === 'no_deadline')} onClick={() => setActiveView('no_deadline')}>Chưa deadline ({noDeadlineItems.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'no_deadline')} onClick={() => setActiveView('no_deadline')}>Chưa có deadline ({noDeadlineItems.length})</button>
             <button type="button" style={followUpTabStyle(activeView === 'waiting')} onClick={() => setActiveView('waiting')}>Đã nhắc / đang chờ ({waitingItems.length})</button>
             <button type="button" style={followUpTabStyle(activeView === 'all')} onClick={() => setActiveView('all')}>Tất cả ({activeItems.length})</button>
           </div>

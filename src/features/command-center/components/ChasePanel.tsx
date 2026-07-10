@@ -80,7 +80,7 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
           <div style={filterBarStyle} aria-label="Lọc việc cần dí">
             <FilterChip active={activeFilter === 'today'} label="Hôm nay + quá hạn" count={counts.today} onClick={() => setActiveFilter('today')} />
             <FilterChip active={activeFilter === 'upcoming'} label="Sắp tới 7 ngày" count={counts.upcoming} onClick={() => setActiveFilter('upcoming')} />
-            <FilterChip active={activeFilter === 'no_deadline'} label="Chưa deadline" count={counts.no_deadline} onClick={() => setActiveFilter('no_deadline')} />
+            <FilterChip active={activeFilter === 'no_deadline'} label="Chưa có deadline" count={counts.no_deadline} onClick={() => setActiveFilter('no_deadline')} />
             <FilterChip active={activeFilter === 'all'} label="Tất cả" count={counts.all} onClick={() => setActiveFilter('all')} />
           </div>
           {groups.length === 0 ? (

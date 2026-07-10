@@ -807,7 +807,7 @@ export default function UserManagementPage() {
                       <Td>
                         <div style={statusStackStyle}>
                           <BadgeLike tone={active ? 'success' : 'warning'}>{user.statusLabel}</BadgeLike>
-                          <BadgeLike tone={user.authLinked ? 'success' : 'warning'}>{user.authLinked ? 'Auth linked' : 'Chưa liên kết Auth'}</BadgeLike>
+                          <BadgeLike tone={user.authLinked ? 'success' : 'warning'}>{user.authLinked ? 'Đã liên kết đăng nhập' : 'Chưa liên kết đăng nhập'}</BadgeLike>
                           <span style={mappingPillStyle(user.mappingStatus)}>{mappingStatusLabel(user.mappingStatus)}</span>
                         </div>
                       </Td>
@@ -954,11 +954,11 @@ export default function UserManagementPage() {
                             <strong>{selected?.email ?? 'Chưa có'}</strong>
                           </div>
                           <div style={readOnlyInfoStyle}>
-                            <span>Auth linked</span>
+                            <span>Liên kết đăng nhập</span>
                             <strong>{selected?.authLinked ? 'Có' : 'Không'}</strong>
                           </div>
                           <div style={readOnlyInfoStyle}>
-                            <span>Mapping status</span>
+                            <span>Tình trạng liên kết</span>
                             <strong>{mappingStatusLabel(selected?.mappingStatus)}</strong>
                           </div>
                         </div>
