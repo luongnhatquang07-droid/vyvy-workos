@@ -12,7 +12,10 @@ import type {
   CommandCenterDeliverableRow,
   CommandCenterDeliverableVersionRow,
   CommandCenterPersonRow,
+  CommandCenterProjectRow,
+  CommandCenterTaskStepRow,
   CommandCenterTaskRow,
+  CommandCenterWorkstreamRow,
 } from '@/lib/database.types'
 import { isVersionInvalid, normalizeVersionReviewStatus } from '@/lib/deliverableVersionStatus'
 
@@ -35,6 +38,30 @@ interface VersionDetail {
   } | null
 }
 
+interface ApprovalDisplayInfo {
+  title: string
+  fileName: string
+  submitter: PersonDisplay
+  requiredReviewer: ReviewerDisplay
+  processedBy: PersonDisplay
+  processedAt: string | null
+  dueSummary: string
+  missingReviewer: boolean
+  delegatedProcessed: boolean
+}
+
+interface PersonDisplay {
+  person: CommandCenterPersonRow | null
+  name: string
+  meta: string
+}
+
+interface ReviewerDisplay extends PersonDisplay {
+  source: string
+  sourceLabel: string
+  isFallback: boolean
+}
+
 export default function ApprovalsPage() {
   const { data, loading, error, refresh } = useCommandData()
   const workspaceId = data?.workspaceId ?? ''
@@ -44,9 +71,21 @@ export default function ApprovalsPage() {
     () => Object.fromEntries(((data?.people ?? []) as CommandCenterPersonRow[]).map((person) => [person.id, person])),
     [data?.people],
   )
+  const projects = React.useMemo(
+    () => Object.fromEntries(((data?.projects ?? []) as CommandCenterProjectRow[]).map((project) => [project.id, project])),
+    [data?.projects],
+  )
+  const workstreams = React.useMemo(
+    () => Object.fromEntries(((data?.workstreams ?? []) as CommandCenterWorkstreamRow[]).map((workstream) => [workstream.id, workstream])),
+    [data?.workstreams],
+  )
   const tasks = React.useMemo(
     () => Object.fromEntries(((data?.tasks ?? []) as CommandCenterTaskRow[]).map((task) => [task.id, task])),
     [data?.tasks],
+  )
+  const taskSteps = React.useMemo(
+    () => Object.fromEntries(((data?.taskSteps ?? []) as CommandCenterTaskStepRow[]).map((step) => [step.id, step])),
+    [data?.taskSteps],
   )
   const deliverables = React.useMemo(
     () => Object.fromEntries(((data?.deliverables ?? []) as CommandCenterDeliverableRow[]).map((item) => [item.id, item])),
@@ -69,35 +108,114 @@ export default function ApprovalsPage() {
   }, [data?.deliverableVersions])
 
   const today = getVietnamDateKey()
-  const [nowTs] = React.useState(() => Date.now())
   const [busyKey, setBusyKey] = React.useState('')
   const [notice, setNotice] = React.useState('')
   const [actionError, setActionError] = React.useState('')
   const [dialog, setDialog] = React.useState<ReviewDialogState | null>(null)
   const [reason, setReason] = React.useState('')
+  const [reviewerFilter, setReviewerFilter] = React.useState('all')
 
-  const overdue = approvals.filter((item) => isPendingApproval(item) && item.due_at && item.due_at < today)
-  const pending = approvals.filter((item) => isPendingApproval(item) && (!item.due_at || item.due_at >= today))
-  const done = approvals.filter((item) => !isPendingApproval(item))
+  const filteredApprovals = approvals.filter((item) => matchesReviewerFilter(getApprovalDisplayInfo(item), reviewerFilter, currentUser?.personId ?? null))
+  const overdue = filteredApprovals.filter((item) => isPendingApproval(item) && item.due_at && item.due_at < today)
+  const pending = filteredApprovals.filter((item) => isPendingApproval(item) && (!item.due_at || item.due_at >= today))
+  const done = filteredApprovals.filter((item) => !isPendingApproval(item))
+  const reviewerFilterOptions = buildReviewerFilterOptions(approvals.map(getApprovalDisplayInfo), currentUser?.personId ?? null)
 
   function getApprovalContext(approval: CommandCenterApprovalRow) {
-    const task = approval.task_id ? tasks[approval.task_id] : null
     const deliverable = approval.deliverable_id ? deliverables[approval.deliverable_id] : null
+    const step = approval.step_id
+      ? taskSteps[approval.step_id]
+      : deliverable?.step_id
+        ? taskSteps[deliverable.step_id]
+        : null
+    const task = approval.task_id
+      ? tasks[approval.task_id]
+      : deliverable?.task_id
+        ? tasks[deliverable.task_id]
+        : step?.task_id
+          ? tasks[step.task_id]
+          : null
     const versions = approval.deliverable_id ? versionsByDeliverable[approval.deliverable_id] ?? [] : []
     const latestVersion = getLatestRelevantApprovalVersion(versions)
     const attachment = latestVersion?.attachment_id ? attachments[latestVersion.attachment_id] : null
     const projectId = approval.project_id ?? task?.project_id ?? deliverable?.project_id ?? null
+    const project = projectId ? projects[projectId] : null
     const workstreamId = task?.workstream_id ?? null
+    const workstream = workstreamId ? workstreams[workstreamId] : null
 
     return {
       task,
+      step,
       deliverable,
       latestVersion,
       attachment,
       projectId,
+      project,
       workstreamId,
+      workstream,
       title: task?.title ?? deliverable?.name ?? 'Yêu cầu phê duyệt',
       fileName: attachment?.file_name ?? deliverable?.name ?? 'File/báo cáo',
+    }
+  }
+
+  function getApprovalDisplayInfo(approval: CommandCenterApprovalRow): ApprovalDisplayInfo {
+    const context = getApprovalContext(approval)
+    const submitterId = context.latestVersion?.submitted_by ?? context.deliverable?.submitter_id ?? approval.requested_by
+    const submitter = getPersonDisplay(submitterId ? people[submitterId] : null, 'Chưa rõ người nộp')
+    const requiredReviewer = resolveRequiredReviewer(approval)
+    const processedPersonId = context.latestVersion?.reviewed_by ?? (!isPendingApproval(approval) ? approval.approver_id : null)
+    const processedBy = getPersonDisplay(processedPersonId ? people[processedPersonId] : null, isPendingApproval(approval) ? 'Chưa xử lý' : 'Chưa rõ người xử lý')
+    const delegatedProcessed = Boolean(
+      !isPendingApproval(approval) &&
+      processedBy.person?.id &&
+      requiredReviewer.person?.id &&
+      processedBy.person.id !== requiredReviewer.person.id,
+    )
+
+    return {
+      title: context.title,
+      fileName: context.fileName,
+      submitter,
+      requiredReviewer,
+      processedBy,
+      processedAt: context.latestVersion?.reviewed_at ?? null,
+      dueSummary: formatDueSummary(approval, today),
+      missingReviewer: !requiredReviewer.person,
+      delegatedProcessed,
+    }
+  }
+
+  function resolveRequiredReviewer(approval: CommandCenterApprovalRow): ReviewerDisplay {
+    const context = getApprovalContext(approval)
+    const candidates: Array<{ id: string | null | undefined; source: string; sourceLabel: string; isFallback?: boolean }> = [
+      { id: approval.approver_id, source: 'approval', sourceLabel: 'Gán trên yêu cầu duyệt' },
+      { id: context.deliverable?.reviewer_id, source: 'deliverable', sourceLabel: 'Gán trên bàn giao' },
+      { id: context.step?.reviewer_id, source: 'step', sourceLabel: 'Kế thừa từ bước', isFallback: true },
+      { id: context.task?.reviewer_id, source: 'task', sourceLabel: 'Kế thừa từ đầu việc con', isFallback: true },
+      { id: context.workstream?.reviewer_id, source: 'workstream', sourceLabel: 'Kế thừa từ đầu việc lớn', isFallback: true },
+      { id: context.project?.reviewer_id, source: 'project', sourceLabel: 'Kế thừa từ dự án', isFallback: true },
+    ]
+
+    for (const candidate of candidates) {
+      if (!candidate.id) continue
+      const person = people[candidate.id]
+      if (person) {
+        return {
+          ...getPersonDisplay(person, 'Chưa rõ người duyệt'),
+          source: candidate.source,
+          sourceLabel: candidate.sourceLabel,
+          isFallback: Boolean(candidate.isFallback),
+        }
+      }
+    }
+
+    return {
+      person: null,
+      name: 'Chưa gắn người duyệt',
+      meta: 'Cần gắn người duyệt rõ ràng',
+      source: 'missing',
+      sourceLabel: 'Thiếu người duyệt',
+      isFallback: false,
     }
   }
 
@@ -106,8 +224,7 @@ export default function ApprovalsPage() {
   }
 
   function isDelegatedApproval(approval: CommandCenterApprovalRow) {
-    const context = getApprovalContext(approval)
-    const assignedApproverId = context.deliverable?.reviewer_id ?? approval.approver_id
+    const assignedApproverId = getApprovalDisplayInfo(approval).requiredReviewer.person?.id
     return Boolean(
       isPendingApproval(approval) &&
       currentUser?.canApproveOnBehalf &&
@@ -215,6 +332,21 @@ export default function ApprovalsPage() {
     }
   }
 
+  async function copyApprovalReminder(approval: CommandCenterApprovalRow) {
+    setActionError('')
+    const info = getApprovalDisplayInfo(approval)
+    const message = info.requiredReviewer.person
+      ? `Anh/chị ${info.requiredReviewer.name} ơi, có bàn giao "${info.title}" của ${info.submitter.name} đang chờ anh/chị duyệt. ${info.dueSummary}. Hiện trạng: ${resolveApprovalState(approval, today).label}. Anh/chị kiểm tra và phản hồi giúp Quang nhé.`
+      : `Đầu việc/bàn giao "${info.title}" hiện chưa có người duyệt. Quang cần gắn người duyệt để hệ thống theo dõi đúng.`
+
+    try {
+      await copyTextToClipboard(message)
+      setNotice('Đã copy tin nhắn nhắc duyệt.')
+    } catch {
+      setActionError('Không copy được tin nhắn nhắc duyệt. Hãy copy thủ công sau khi mở lại trang.')
+    }
+  }
+
   function openTask(approval: CommandCenterApprovalRow) {
     const context = getApprovalContext(approval)
     const params = new URLSearchParams()
@@ -238,17 +370,35 @@ export default function ApprovalsPage() {
       {notice ? <div style={noticeStyle}>{notice}</div> : null}
       {actionError ? <div style={errorStyle}>{actionError}</div> : null}
 
+      <section style={filterCardStyle} data-vyvy-card="true">
+        <label style={filterLabelStyle} htmlFor="approval-reviewer-filter">Người phải duyệt</label>
+        <select
+          id="approval-reviewer-filter"
+          value={reviewerFilter}
+          onChange={(event) => setReviewerFilter(event.target.value)}
+          style={filterSelectStyle}
+        >
+          {reviewerFilterOptions.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <span style={filterHelpStyle}>
+          Đang hiển thị {filteredApprovals.length}/{approvals.length} yêu cầu theo người duyệt.
+        </span>
+      </section>
+
       <div style={panelGrid}>
         <StatusPanel
           title="Quá hạn duyệt"
           icon="ti-alarm"
           accent="var(--color-danger)"
           items={overdue}
-          getTitle={getTitle}
+          getDisplayInfo={getApprovalDisplayInfo}
           busyKey={busyKey}
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          onCopyReminder={(approval) => void copyApprovalReminder(approval)}
           isDelegatedApproval={isDelegatedApproval}
         />
         <StatusPanel
@@ -256,11 +406,12 @@ export default function ApprovalsPage() {
           icon="ti-hourglass"
           accent="var(--color-warning)"
           items={pending}
-          getTitle={getTitle}
+          getDisplayInfo={getApprovalDisplayInfo}
           busyKey={busyKey}
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          onCopyReminder={(approval) => void copyApprovalReminder(approval)}
           isDelegatedApproval={isDelegatedApproval}
         />
         <StatusPanel
@@ -268,11 +419,12 @@ export default function ApprovalsPage() {
           icon="ti-circle-check"
           accent="var(--color-success)"
           items={done}
-          getTitle={getTitle}
+          getDisplayInfo={getApprovalDisplayInfo}
           busyKey={busyKey}
           onOpenTask={openTask}
           onApprove={(approval) => void runReviewAction(approval, 'approve')}
           onRevision={(approval) => openReviewDialog(approval, 'requestRevision')}
+          onCopyReminder={(approval) => void copyApprovalReminder(approval)}
           isDelegatedApproval={isDelegatedApproval}
         />
       </div>
@@ -282,10 +434,10 @@ export default function ApprovalsPage() {
           <thead>
             <tr>
               <Th>Yêu cầu</Th>
-              <Th>Người gửi</Th>
-              <Th>Người xác nhận</Th>
-              <Th>Chờ</Th>
-              <Th>Hạn</Th>
+              <Th>Người nộp</Th>
+              <Th>Người phải duyệt</Th>
+              <Th>Người đã xử lý</Th>
+              <Th>Hạn duyệt</Th>
               <Th>Trạng thái</Th>
               <Th>Thao tác</Th>
             </tr>
@@ -295,21 +447,16 @@ export default function ApprovalsPage() {
               <tr>
                 <Td colSpan={7}>Đang tải...</Td>
               </tr>
-            ) : approvals.length === 0 ? (
+            ) : filteredApprovals.length === 0 ? (
               <tr>
                 <Td colSpan={7}>Không có yêu cầu phê duyệt nào.</Td>
               </tr>
             ) : (
-              approvals.map((approval) => {
-                const requester = approval.requested_by ? people[approval.requested_by] : null
-                const approver = approval.approver_id ? people[approval.approver_id] : null
-                const daysWait = approval.requested_at
-                  ? Math.max(0, Math.round((nowTs - new Date(approval.requested_at).getTime()) / 86400000))
-                  : 0
+              filteredApprovals.map((approval) => {
                 const state = resolveApprovalState(approval, today)
                 const context = getApprovalContext(approval)
-                const reviewer = context.latestVersion?.reviewed_by ? people[context.latestVersion.reviewed_by] : null
                 const delegated = isDelegatedApproval(approval)
+                const info = getApprovalDisplayInfo(approval)
 
                 return (
                   <tr key={approval.id}>
@@ -319,16 +466,25 @@ export default function ApprovalsPage() {
                         <span>{context.deliverable?.name ?? context.fileName}</span>
                       </div>
                     </Td>
-                    <Td>{requester?.full_name ?? '-'}</Td>
                     <Td>
                       <div style={requestCellStyle}>
-                        <span>{reviewer?.full_name ?? approver?.full_name ?? 'Quang/Admin'}</span>
-                        {delegated ? <small style={delegatedTextStyle}>Bạn đang duyệt thay người duyệt chính.</small> : null}
-                        {context.latestVersion?.reviewed_at ? <small>{new Date(context.latestVersion.reviewed_at).toLocaleString('vi-VN')}</small> : null}
+                        <strong>{info.submitter.name}</strong>
+                        {info.submitter.meta ? <small>{info.submitter.meta}</small> : null}
                       </div>
                     </Td>
-                    <Td>{daysWait} ngày</Td>
-                    <Td>{approval.due_at ? toShortDate(approval.due_at) : '-'}</Td>
+                    <Td>
+                      <ReviewerBlock info={info.requiredReviewer} missing={info.missingReviewer} />
+                    </Td>
+                    <Td>
+                      <div style={requestCellStyle}>
+                        <span>{info.processedBy.name}</span>
+                        {info.delegatedProcessed && info.requiredReviewer.person ? (
+                          <small style={delegatedTextStyle}>Duyệt thay cho {info.requiredReviewer.name}</small>
+                        ) : null}
+                        {info.processedAt ? <small>{new Date(info.processedAt).toLocaleString('vi-VN')}</small> : null}
+                      </div>
+                    </Td>
+                    <Td>{info.dueSummary}</Td>
                     <Td>
                       <span style={{ ...pillStyle, background: state.bg, color: state.color }}>{state.label}</span>
                     </Td>
@@ -339,6 +495,7 @@ export default function ApprovalsPage() {
                         onOpenFile={() => void openFile(approval)}
                         onOpenTask={() => openTask(approval)}
                         onCopyLink={() => void copyFileLink(approval)}
+                        onCopyReminder={() => void copyApprovalReminder(approval)}
                         onApprove={() => void runReviewAction(approval, 'approve')}
                         onRevision={() => openReviewDialog(approval, 'requestRevision')}
                         onReject={() => openReviewDialog(approval, 'reject')}
@@ -394,22 +551,24 @@ function StatusPanel({
   icon,
   accent,
   items,
-  getTitle,
+  getDisplayInfo,
   busyKey,
   onOpenTask,
   onApprove,
   onRevision,
+  onCopyReminder,
   isDelegatedApproval,
 }: {
   title: string
   icon: string
   accent: string
   items: CommandCenterApprovalRow[]
-  getTitle: (item: CommandCenterApprovalRow) => string
+  getDisplayInfo: (item: CommandCenterApprovalRow) => ApprovalDisplayInfo
   busyKey: string
   onOpenTask: (item: CommandCenterApprovalRow) => void
   onApprove: (item: CommandCenterApprovalRow) => void
   onRevision: (item: CommandCenterApprovalRow) => void
+  onCopyReminder: (item: CommandCenterApprovalRow) => void
   isDelegatedApproval: (item: CommandCenterApprovalRow) => boolean
 }) {
   return (
@@ -426,13 +585,28 @@ function StatusPanel({
           items.slice(0, 4).map((item) => {
             const pending = isPendingApproval(item)
             const delegated = isDelegatedApproval(item)
+            const info = getDisplayInfo(item)
             return (
               <div key={item.id} style={miniRowStyle} data-vyvy-row="true">
                 <button type="button" onClick={() => onOpenTask(item)} style={miniTitleButtonStyle}>
-                  {getTitle(item)}
+                  {info.title}
                 </button>
-                <div style={{ fontSize: 11.5, color: 'var(--txt-3)' }}>
-                  {item.due_at ? `Hạn ${toShortDate(item.due_at)}` : 'Chưa có hạn'}
+                <div style={miniMetaStackStyle}>
+                  <span>{info.dueSummary}</span>
+                  <span>Người nộp: <strong>{info.submitter.name}</strong></span>
+                  <span>
+                    Người phải duyệt: <strong>{info.requiredReviewer.name}</strong>
+                    {info.requiredReviewer.isFallback ? <em> · {info.requiredReviewer.sourceLabel}</em> : null}
+                  </span>
+                  {info.requiredReviewer.meta ? <span>{info.requiredReviewer.meta}</span> : null}
+                  {info.missingReviewer ? <span style={missingReviewerBadgeStyle}>Thiếu người duyệt</span> : null}
+                  {!pending ? (
+                    <span>
+                      Người đã xử lý: <strong>{info.processedBy.name}</strong>
+                      {info.delegatedProcessed && info.requiredReviewer.person ? <em> · duyệt thay cho {info.requiredReviewer.name}</em> : null}
+                    </span>
+                  ) : null}
+                  {info.processedAt ? <span>Đã xử lý: {new Date(info.processedAt).toLocaleString('vi-VN')}</span> : null}
                 </div>
                 <div style={miniActionRowStyle}>
                   <button type="button" onClick={() => onOpenTask(item)} style={miniButtonStyle}>Mở</button>
@@ -445,8 +619,13 @@ function StatusPanel({
                       <button type="button" onClick={() => onRevision(item)} style={miniButtonStyle}>
                         Yêu cầu sửa
                       </button>
+                      <button type="button" onClick={() => onCopyReminder(item)} style={miniButtonStyle}>
+                        Copy nhắc duyệt
+                      </button>
                     </>
-                  ) : null}
+                  ) : (
+                    <span style={processedOnlyTextStyle}>Đã xử lý · chỉ xem lịch sử</span>
+                  )}
                 </div>
               </div>
             )
@@ -463,6 +642,7 @@ function ApprovalActions({
   onOpenFile,
   onOpenTask,
   onCopyLink,
+  onCopyReminder,
   onApprove,
   onRevision,
   onReject,
@@ -473,6 +653,7 @@ function ApprovalActions({
   onOpenFile: () => void
   onOpenTask: () => void
   onCopyLink: () => void
+  onCopyReminder: () => void
   onApprove: () => void
   onRevision: () => void
   onReject: () => void
@@ -498,6 +679,9 @@ function ApprovalActions({
       ) : null}
       {canAct ? (
         <>
+          <button type="button" onClick={onCopyReminder} disabled={Boolean(busyKey)} style={secondaryButtonStyle}>
+            Copy nhắc duyệt
+          </button>
           <button type="button" onClick={onRevision} disabled={Boolean(busyKey)} style={warningButtonStyle}>
             Yêu cầu sửa
           </button>
@@ -506,8 +690,8 @@ function ApprovalActions({
           </button>
         </>
       ) : (
-        <button type="button" disabled title="Bàn giao đã được xử lý" style={disabledActionButtonStyle}>
-          Đã xử lý
+        <button type="button" onClick={onOpenTask} title="Mở đầu việc để xem lịch sử liên quan" style={secondaryButtonStyle}>
+          Xem lịch sử
         </button>
       )}
       <button type="button" onClick={onCopyLink} style={iconButtonStyle} title="Copy link">
@@ -515,6 +699,105 @@ function ApprovalActions({
       </button>
     </div>
   )
+}
+
+function ReviewerBlock({ info, missing }: { info: ReviewerDisplay; missing: boolean }) {
+  return (
+    <div style={requestCellStyle}>
+      <strong>{info.name}</strong>
+      {info.meta ? <small>{info.meta}</small> : null}
+      {info.isFallback ? <small style={fallbackTextStyle}>{info.sourceLabel}</small> : null}
+      {missing ? <span style={missingReviewerBadgeStyle}>Thiếu người duyệt</span> : null}
+    </div>
+  )
+}
+
+function getPersonDisplay(person: CommandCenterPersonRow | null | undefined, fallbackName: string): PersonDisplay {
+  if (!person) return { person: null, name: fallbackName, meta: '' }
+  const departmentName = getDepartmentName(person)
+  return {
+    person,
+    name: person.full_name || fallbackName,
+    meta: [person.job_title, departmentName].filter(Boolean).join(' · '),
+  }
+}
+
+function getDepartmentName(person: CommandCenterPersonRow | null | undefined) {
+  const department = person?.department
+  if (Array.isArray(department)) return department[0]?.name ?? ''
+  return department?.name ?? ''
+}
+
+function matchesReviewerFilter(info: ApprovalDisplayInfo, filter: string, currentPersonId: string | null) {
+  if (filter === 'all') return true
+  if (filter === 'me') return Boolean(currentPersonId && info.requiredReviewer.person?.id === currentPersonId)
+  if (filter === 'missing') return info.missingReviewer
+  return info.requiredReviewer.person?.id === filter
+}
+
+function buildReviewerFilterOptions(infos: ApprovalDisplayInfo[], currentPersonId: string | null) {
+  const counts = new Map<string, { label: string; count: number }>()
+  let missingCount = 0
+
+  for (const info of infos) {
+    const person = info.requiredReviewer.person
+    if (!person) {
+      missingCount += 1
+      continue
+    }
+    const current = counts.get(person.id)
+    counts.set(person.id, {
+      label: info.requiredReviewer.name,
+      count: (current?.count ?? 0) + 1,
+    })
+  }
+
+  const options = [{ value: 'all', label: `Tất cả người duyệt (${infos.length})` }]
+  if (currentPersonId) {
+    const current = counts.get(currentPersonId)
+    options.push({ value: 'me', label: `Tôi phải duyệt (${current?.count ?? 0})` })
+  }
+  Array.from(counts.entries())
+    .sort((a, b) => a[1].label.localeCompare(b[1].label, 'vi'))
+    .forEach(([value, item]) => options.push({ value, label: `${item.label} (${item.count})` }))
+  if (missingCount > 0) options.push({ value: 'missing', label: `Thiếu người duyệt (${missingCount})` })
+  return options
+}
+
+function formatDueSummary(approval: CommandCenterApprovalRow, today: string) {
+  if (!approval.due_at) return 'Chưa có hạn duyệt'
+  const dueKey = toDateKey(approval.due_at)
+  const diffDays = diffDateKeys(dueKey, today)
+  if (diffDays < 0) return `Hạn: ${toShortDate(approval.due_at)} · Quá hạn ${Math.abs(diffDays)} ngày`
+  if (diffDays === 0) return `Hạn: ${toShortDate(approval.due_at)} · Đến hạn hôm nay`
+  return `Hạn: ${toShortDate(approval.due_at)} · Còn ${diffDays} ngày`
+}
+
+function toDateKey(value: string) {
+  return value.slice(0, 10)
+}
+
+function diffDateKeys(fromDateKey: string, toDateKeyValue: string) {
+  const from = new Date(`${fromDateKey}T00:00:00`).getTime()
+  const to = new Date(`${toDateKeyValue}T00:00:00`).getTime()
+  return Math.round((from - to) / 86400000)
+}
+
+async function copyTextToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(textarea)
+  if (!ok) throw new Error('copy failed')
 }
 
 function resolveApprovalState(approval: CommandCenterApprovalRow, today: string) {
@@ -584,6 +867,38 @@ const panelGrid: React.CSSProperties = {
   gap: 16,
 }
 
+const filterCardStyle: React.CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+  borderRadius: 12,
+  padding: 12,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 10,
+}
+
+const filterLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 900,
+  color: 'var(--txt)',
+}
+
+const filterSelectStyle: React.CSSProperties = {
+  minWidth: 240,
+  border: '1px solid var(--line-2)',
+  borderRadius: 10,
+  background: 'var(--surface-2)',
+  color: 'var(--txt)',
+  padding: '8px 10px',
+  fontWeight: 800,
+}
+
+const filterHelpStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--txt-3)',
+}
+
 const sectionCard: React.CSSProperties = {
   background: 'var(--surface)',
   border: '1px solid var(--line)',
@@ -642,6 +957,15 @@ const miniActionRowStyle: React.CSSProperties = {
   flexWrap: 'wrap',
   gap: 6,
   marginTop: 8,
+}
+
+const miniMetaStackStyle: React.CSSProperties = {
+  display: 'grid',
+  gap: 4,
+  marginTop: 7,
+  fontSize: 11.5,
+  color: 'var(--txt-3)',
+  lineHeight: 1.35,
 }
 
 const miniButtonStyle: React.CSSProperties = {
@@ -729,6 +1053,31 @@ const delegatedTextStyle: React.CSSProperties = {
   fontWeight: 800,
 }
 
+const fallbackTextStyle: React.CSSProperties = {
+  color: 'var(--color-warning)',
+  fontSize: 11.5,
+  fontWeight: 800,
+}
+
+const missingReviewerBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  width: 'fit-content',
+  alignItems: 'center',
+  border: '1px solid rgba(239, 68, 68, .32)',
+  background: 'var(--danger-soft)',
+  color: 'var(--danger-text)',
+  borderRadius: 999,
+  padding: '4px 8px',
+  fontSize: 11,
+  fontWeight: 900,
+}
+
+const processedOnlyTextStyle: React.CSSProperties = {
+  color: 'var(--txt-3)',
+  fontSize: 11.5,
+  fontWeight: 800,
+}
+
 const actionWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
@@ -777,14 +1126,6 @@ const dangerButtonStyle: React.CSSProperties = {
   ...dangerGhostButtonStyle,
   background: 'var(--color-danger)',
   color: '#fff',
-}
-
-const disabledActionButtonStyle: React.CSSProperties = {
-  ...baseButtonStyle,
-  background: 'var(--surface-2)',
-  color: 'var(--txt-3)',
-  cursor: 'not-allowed',
-  opacity: 0.75,
 }
 
 const iconButtonStyle: React.CSSProperties = {
