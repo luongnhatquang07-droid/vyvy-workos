@@ -2955,7 +2955,7 @@ function buildFlowchartTreeLayout({
       id: connector.id,
       path: flowchartOrthogonalConnectorPath(parent, child, index),
       accent: connector.accent,
-      active: connector.active,
+      active: connector.active || connector.parentKey === draggingNodeKey || connector.childKey === draggingNodeKey,
     }]
   })
 
@@ -3033,7 +3033,9 @@ function FlowchartTab({
     startY: number
     startPositions: FlowchartNodePositions
     fallbackPosition: FlowchartNodePosition
+    moved: boolean
   } | null>(null)
+  const ignoreNextFlowchartClickRef = React.useRef(false)
   const previousProjectIdRef = React.useRef(project.id)
 
   React.useEffect(() => {
@@ -3099,8 +3101,11 @@ function FlowchartTab({
       const session = nodeDragSessionRef.current
       if (!session || event.pointerId !== session.pointerId) return
       event.preventDefault()
-      const nextX = snapFlowchartPosition(session.fallbackPosition.x + (event.clientX - session.startX) / Math.max(zoom, 0.05))
-      const nextY = snapFlowchartPosition(session.fallbackPosition.y + (event.clientY - session.startY) / Math.max(zoom, 0.05))
+      const deltaX = event.clientX - session.startX
+      const deltaY = event.clientY - session.startY
+      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) session.moved = true
+      const nextX = snapFlowchartPosition(session.fallbackPosition.x + deltaX / Math.max(zoom, 0.05))
+      const nextY = snapFlowchartPosition(session.fallbackPosition.y + deltaY / Math.max(zoom, 0.05))
       setDraftLayoutPositions({
         ...session.startPositions,
         [session.key]: { x: nextX, y: nextY },
@@ -3110,6 +3115,7 @@ function FlowchartTab({
     function handlePointerUp(event: PointerEvent) {
       const session = nodeDragSessionRef.current
       if (!session || event.pointerId !== session.pointerId) return
+      ignoreNextFlowchartClickRef.current = session.moved
       nodeDragSessionRef.current = null
       setDraggingLayoutNodeKey(null)
     }
@@ -3234,6 +3240,19 @@ function FlowchartTab({
   const filterLine = flowchartFiltersActive
     ? `Bộ lọc đang áp dụng: còn ${visibleWorkstreams.length} đầu việc lớn · ${filteredSubtaskTotal} đầu việc con · ${filteredStepTotal} bước trong phạm vi được phép.`
     : 'Không có filter phụ đang áp dụng.'
+  const guideSteps = isLayoutEditing
+    ? [
+        'Kéo node để sắp xếp',
+        'Kéo nền để pan canvas',
+        'Ctrl + lăn chuột để zoom',
+        'Bấm Lưu bố cục để giữ lại',
+      ]
+    : [
+        'Kéo nền để pan canvas',
+        'Ctrl + lăn chuột để zoom',
+        'Click node để xem chi tiết',
+        'Double click để focus node',
+      ]
   const activeLayoutPositions = isLayoutEditing ? draftLayoutPositions : savedLayoutPositions
   const hasSavedLayout = Object.keys(savedLayoutPositions).length > 0
   const flowchartLayout = React.useMemo(() => (
@@ -3511,6 +3530,7 @@ function FlowchartTab({
     if (!isLayoutEditing || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
+    ignoreNextFlowchartClickRef.current = false
     const fallbackPosition = normalizeFlowchartNodePosition(draftLayoutPositions[item.key]) ?? { x: item.x, y: item.y }
     nodeDragSessionRef.current = {
       pointerId: event.pointerId,
@@ -3519,6 +3539,12 @@ function FlowchartTab({
       startY: event.clientY,
       startPositions: draftLayoutPositions,
       fallbackPosition,
+      moved: false,
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture is best-effort; window listeners still keep dragging stable.
     }
     setDraggingLayoutNodeKey(item.key)
   }
@@ -3526,11 +3552,17 @@ function FlowchartTab({
   function beginCanvasPan(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return
     if (isFlowchartPanBlocked(event.target)) return
+    event.preventDefault()
     panSessionRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       pan,
+    }
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Best-effort only; window listeners handle the pan after the pointer leaves.
     }
     setIsPanning(true)
   }
@@ -3587,6 +3619,12 @@ function FlowchartTab({
   }
 
   function handleFlowchartBoardSelect(event: React.MouseEvent<HTMLDivElement> | React.PointerEvent<HTMLDivElement>) {
+    if (ignoreNextFlowchartClickRef.current) {
+      ignoreNextFlowchartClickRef.current = false
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
     if (!(event.target instanceof HTMLElement)) return
     const nodeElement = event.target.closest('[data-flowchart-node-key]') as HTMLElement | null
     const nodeKey = nodeElement?.dataset.flowchartNodeKey
@@ -3636,13 +3674,36 @@ function FlowchartTab({
         <FlowchartNodeCard
           node={item.node}
           people={people}
-          onClick={() => selectFlowchartNode(item.node)}
+          onClick={() => {
+            if (ignoreNextFlowchartClickRef.current) {
+              ignoreNextFlowchartClickRef.current = false
+              return
+            }
+            selectFlowchartNode(item.node)
+          }}
           variant={item.variant}
           accent={item.accent}
           active={item.active}
           pathActive={item.pathActive}
+          layoutEditing={isLayoutEditing}
+          dragging={item.dragging}
         />
       </div>
+    )
+  }
+
+  function renderFlowchartLayoutControls() {
+    return !isLayoutEditing ? (
+      <button type="button" onClick={beginLayoutEditing} style={filterChipStyle(false)}>
+        Chỉnh bố cục
+      </button>
+    ) : (
+      <>
+        <span style={flowchartEditingBadge}>Đang chỉnh bố cục</span>
+        <button type="button" onClick={saveLayoutEditing} style={filterChipStyle(true, 'success')}>Lưu bố cục</button>
+        <button type="button" onClick={cancelLayoutEditing} style={filterChipStyle(false)}>Hủy thay đổi</button>
+        <button type="button" onClick={alignSelectedBranch} style={filterChipStyle(false)}>Căn lại nhánh</button>
+      </>
     )
   }
 
@@ -3785,6 +3846,9 @@ function FlowchartTab({
             <button type="button" onClick={() => setDetailVisible((value) => !value)} style={filterChipStyle(false)}>
               {detailVisible ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
             </button>
+                        {hasSavedLayout && !isLayoutEditing ? <span style={flowchartSavedLayoutBadge}>Layout đã lưu</span> : null}
+            {renderFlowchartLayoutControls()}
+            <button type="button" onClick={resetAutoLayout} style={filterChipStyle(false, 'warning')}>Reset tự động</button>
             <button type="button" onClick={() => setIsFullscreen(false)} style={flowchartFullscreenButton}>
               <i className="ti ti-minimize" />
               Thoát full màn
@@ -3846,18 +3910,7 @@ function FlowchartTab({
                 Mở rộng tất cả
               </button>
               {hasSavedLayout && !isLayoutEditing ? <span style={flowchartSavedLayoutBadge}>Layout đã lưu</span> : null}
-              {!isLayoutEditing ? (
-                <button type="button" onClick={beginLayoutEditing} style={filterChipStyle(false)}>
-                  Chỉnh bố cục
-                </button>
-              ) : (
-                <>
-                  <span style={flowchartEditingBadge}>Đang chỉnh bố cục</span>
-                  <button type="button" onClick={saveLayoutEditing} style={filterChipStyle(true, 'success')}>Lưu bố cục</button>
-                  <button type="button" onClick={cancelLayoutEditing} style={filterChipStyle(false)}>Hủy thay đổi</button>
-                  <button type="button" onClick={alignSelectedBranch} style={filterChipStyle(false)}>Căn lại nhánh</button>
-                </>
-              )}
+              {renderFlowchartLayoutControls()}
               <button type="button" onClick={resetAutoLayout} style={filterChipStyle(false, 'warning')}>
                 Reset tự động
               </button>
@@ -3927,11 +3980,8 @@ function FlowchartTab({
             {showFlowchartGuide ? (
               <div style={flowchartGuideBox} onPointerDown={(event) => event.stopPropagation()}>
                 <div style={flowchartGuideTitle}>Thao tác Flowchart</div>
-                <span>Kéo nền để pan canvas</span>
-                <span>Ctrl + lăn chuột để zoom</span>
-                <span>Click node để xem chi tiết</span>
-                <span>Double click để focus node</span>
-                <button type="button" onClick={hideFlowchartGuide} style={flowchartGuideDismissButton}>Ẩn hướng dẫn</button>
+              {guideSteps.map((step) => <span key={step}>{step}</span>)}
+              <button type="button" onClick={hideFlowchartGuide} style={flowchartGuideDismissButton}>Ẩn hướng dẫn</button>
               </div>
             ) : null}
             <div
@@ -4006,6 +4056,8 @@ function FlowchartNodeCard({
   active = false,
   pathActive = false,
   variant = 'default',
+  layoutEditing = false,
+  dragging = false,
 }: {
   node: FlowchartNode
   people: Record<string, CommandCenterPersonRow>
@@ -4014,6 +4066,8 @@ function FlowchartNodeCard({
   active?: boolean
   pathActive?: boolean
   variant?: 'project' | 'default' | 'group' | 'step'
+  layoutEditing?: boolean
+  dragging?: boolean
 }) {
   const title = getFlowchartNodeTitle(node)
   const owner = getFlowchartNodeOwner(node)
@@ -4031,24 +4085,17 @@ function FlowchartNodeCard({
       role="button"
       tabIndex={0}
       data-flowchart-node-key={getFlowchartNodeKey(node)}
-      onPointerDown={(event) => {
-        if (event.button !== 0) return
-        event.stopPropagation()
-        handleSelect()
-      }}
-      onMouseDown={(event) => {
-        if (event.button !== 0) return
-        event.stopPropagation()
-        handleSelect()
-      }}
       onClick={handleSelect}
-      onFocus={handleSelect}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
         handleSelect()
       }}
-      style={flowchartNodeStyle(signal.tone, variant, active, pathActive, accent)}
+      style={{
+        ...flowchartNodeStyle(signal.tone, variant, active, pathActive, accent),
+        cursor: dragging ? 'grabbing' : layoutEditing ? 'grab' : 'pointer',
+        transform: dragging ? 'scale(1.015)' : undefined,
+      }}
       title={`${title} · ${STATUS_META[status].label} · ${deadline ? toFullDate(deadline) : 'Không deadline'}`}
     >
       <div style={flowchartNodeTop}>
