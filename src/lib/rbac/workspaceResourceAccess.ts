@@ -133,6 +133,15 @@ export async function canSubmitToDeliverable(
   return false
 }
 
+export function canSubmitDeliverableFileOrLink(user: RbacUserContext, workspaceId: string) {
+  return Boolean(
+    user.profileId &&
+    user.workspaceId === workspaceId &&
+    user.status !== 'inactive' &&
+    user.status !== 'suspended'
+  )
+}
+
 export async function canReviewDeliverable(user: RbacUserContext, workspaceId: string, deliverableId: string) {
   return canApproveDeliverable(user, await loadDeliverableResource(workspaceId, deliverableId))
 }

@@ -17,6 +17,7 @@ import { buildExternalLinkChangeNote, normalizeExternalSubmissionUrl } from '@/l
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   canCreateDeliverable,
+  canSubmitDeliverableFileOrLink,
   getDeliverableReviewPermission,
   canSubmitToDeliverable,
   canViewDeliverable,
@@ -1047,7 +1048,7 @@ export async function PATCH(req: NextRequest) {
         stepId: null,
       })
       if (createGuard) return createGuard
-      if (!(await canSubmitToDeliverable(context.actor, context.workspaceId, null, { projectId, taskId }))) {
+      if (!canSubmitDeliverableFileOrLink(context.actor, context.workspaceId)) {
         return jsonError(RBAC_FORBIDDEN_MESSAGE, 403)
       }
       const ensured = await ensureDeliverableForLinkSubmission({
@@ -1081,11 +1082,13 @@ export async function PATCH(req: NextRequest) {
       : null
     const allowed = reviewPermission
       ? reviewPermission.allowed
-      : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
-          projectId: deliverable.project_id,
-          taskId: deliverable.task_id,
-          stepId: deliverable.step_id,
-        })
+      : action === 'submitLink'
+        ? canSubmitDeliverableFileOrLink(context.actor, context.workspaceId)
+        : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
+            projectId: deliverable.project_id,
+            taskId: deliverable.task_id,
+            stepId: deliverable.step_id,
+          })
     if (!allowed) return jsonError(isReviewAction ? 'Bạn không có quyền duyệt bàn giao này.' : RBAC_FORBIDDEN_MESSAGE, 403)
 
     if (action === 'setReviewer') {

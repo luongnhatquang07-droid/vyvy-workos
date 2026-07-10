@@ -15,7 +15,7 @@ import {
 } from '@/lib/localQaGuard'
 import { inferFileContentType } from '@/lib/files/mime'
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
-import { canSubmitToDeliverable, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
+import { canSubmitDeliverableFileOrLink, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'project-files'
@@ -607,11 +607,7 @@ export async function POST(req: NextRequest) {
       deliverable,
     })
     if (guard) return guard
-    if (!(await canSubmitToDeliverable(context.actor, workspaceId, deliverableId, {
-      projectId: deliverable?.project_id ?? projectId,
-      taskId: deliverable?.task_id ?? taskId,
-      stepId: deliverable?.step_id ?? null,
-    }))) {
+    if (!canSubmitDeliverableFileOrLink(context.actor, workspaceId)) {
       return NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 })
     }
 
@@ -781,7 +777,7 @@ export async function GET(req: NextRequest) {
   if (scopeError) {
     return NextResponse.json({ error: scopeError, files: [] }, { status: 403 })
   }
-  if (!(await canSubmitToDeliverable(context.actor, workspaceId, null, { projectId, taskId }))) {
+  if (!canSubmitDeliverableFileOrLink(context.actor, workspaceId)) {
     return NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE, files: [] }, { status: 403 })
   }
 
