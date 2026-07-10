@@ -225,7 +225,6 @@ export async function getCommandCenterData(
     )
     .slice(0, 20)
   let deliverableVersions: RawCommandCenterData['deliverableVersions'] = []
-  let attachments: RawCommandCenterData['attachments'] = []
 
   if (deliverableIds.length) {
     const versionsRes = await sb
@@ -235,18 +234,6 @@ export async function getCommandCenterData(
       .order('version_number', { ascending: false })
 
     deliverableVersions = requireRows('version bàn giao', versionsRes) as RawCommandCenterData['deliverableVersions']
-    const attachmentIds = deliverableVersions.map((version) => version.attachment_id).filter(Boolean) as string[]
-
-    if (attachmentIds.length) {
-      const attachmentsRes = await sb
-        .from('attachments')
-        .select('id,workspace_id,storage_path,file_name,mime_type,size_bytes,uploaded_by,uploaded_at,deleted_at')
-        .eq('workspace_id', workspaceId)
-        .in('id', attachmentIds)
-        .is('deleted_at', null)
-
-      attachments = requireRows('attachment', attachmentsRes) as RawCommandCenterData['attachments']
-    }
   }
 
   approvals = withSyntheticPendingApprovals({
@@ -267,7 +254,7 @@ export async function getCommandCenterData(
     taskDrafts,
     deliverables,
     deliverableVersions,
-    attachments,
+    attachments: [],
     approvals,
     reminders,
     ceoRequests,

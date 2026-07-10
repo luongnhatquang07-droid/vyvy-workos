@@ -61,7 +61,7 @@ function getPendingApprovals(approvals: CommandCenterApprovalRow[]) {
 function getDueReminders(reminders: CommandCenterReminderRow[], today: string) {
   return reminders.filter((reminder) => {
     if (reminder.response_status === 'CLOSED' || reminder.response_status === 'FILE_SUBMITTED') return false
-    return !reminder.next_follow_up_at || reminder.next_follow_up_at.slice(0, 10) <= today
+    return Boolean(reminder.next_follow_up_at && reminder.next_follow_up_at.slice(0, 10) <= today)
   })
 }
 

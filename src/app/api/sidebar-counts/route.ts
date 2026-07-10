@@ -44,6 +44,7 @@ export async function GET() {
 
   const today = dateKey(new Date())
   const tomorrow = dateKey(addDays(new Date(), 1))
+  const tomorrowStart = `${tomorrow}T00:00:00`
 
   const [
     projectsRes,
@@ -63,7 +64,8 @@ export async function GET() {
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId)
         .not('response_status', 'in', '(CLOSED,FILE_SUBMITTED)')
-        .or(`next_follow_up_at.is.null,next_follow_up_at.lte.${today}`),
+        .not('next_follow_up_at', 'is', null)
+        .lt('next_follow_up_at', tomorrowStart),
     ),
     countQuery(
       sb.from('tasks')

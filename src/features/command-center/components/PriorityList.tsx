@@ -72,7 +72,7 @@ export function PriorityList({ items, onOpenDrawer }: PriorityListProps) {
             <h2 style={titleStyle}>Việc ưu tiên đang mở</h2>
             <span style={countBadgeStyle}>{visible.length} việc</span>
           </div>
-          <div style={sortTextStyle}>Chỉ tính việc chưa hoàn thành, sắp theo mức ưu tiên</div>
+          <div style={sortTextStyle}>Bao gồm việc quá hạn, đến hạn hôm nay, ưu tiên cao, chờ duyệt và thiếu file/báo cáo.</div>
         </div>
 
         <div>

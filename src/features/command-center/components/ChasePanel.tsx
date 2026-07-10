@@ -12,7 +12,7 @@ interface ChasePanelProps {
   people: Person[]
 }
 
-type ChaseFilter = 'today' | 'upcoming' | 'all'
+type ChaseFilter = 'today' | 'upcoming' | 'no_deadline' | 'all'
 
 interface ChaseGroup {
   personId: string
@@ -49,6 +49,7 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
     () => ({
       today: items.filter((item) => isDueTodayOrOverdue(item, today)).length,
       upcoming: items.filter((item) => isUpcoming(item, today)).length,
+      no_deadline: items.filter(isNoDeadline).length,
       all: items.length,
     }),
     [items, today],
@@ -56,6 +57,7 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
   const filteredItems = React.useMemo(() => {
     if (activeFilter === 'today') return items.filter((item) => isDueTodayOrOverdue(item, today))
     if (activeFilter === 'upcoming') return items.filter((item) => isUpcoming(item, today))
+    if (activeFilter === 'no_deadline') return items.filter(isNoDeadline)
     return items
   }, [activeFilter, items, today])
   const groups = React.useMemo(() => groupChaseItems(filteredItems, byPerson, today), [byPerson, filteredItems, today])
@@ -70,18 +72,19 @@ export function ChasePanel({ items, people }: ChasePanelProps) {
   }
 
   return (
-    <PanelShell title="Cần dí hôm nay" count={counts[activeFilter]} accentColor="var(--color-danger)">
+    <PanelShell title={chasePanelTitle(activeFilter)} count={counts[activeFilter]} accentColor="var(--color-danger)">
       {items.length === 0 ? (
         <EmptyRow text="Không có ai cần dí hôm nay." />
       ) : (
         <>
           <div style={filterBarStyle} aria-label="Lọc việc cần dí">
-            <FilterChip active={activeFilter === 'today'} label="Hôm nay" count={counts.today} onClick={() => setActiveFilter('today')} />
-            <FilterChip active={activeFilter === 'upcoming'} label="Sắp tới" count={counts.upcoming} onClick={() => setActiveFilter('upcoming')} />
+            <FilterChip active={activeFilter === 'today'} label="Hôm nay + quá hạn" count={counts.today} onClick={() => setActiveFilter('today')} />
+            <FilterChip active={activeFilter === 'upcoming'} label="Sắp tới 7 ngày" count={counts.upcoming} onClick={() => setActiveFilter('upcoming')} />
+            <FilterChip active={activeFilter === 'no_deadline'} label="Chưa deadline" count={counts.no_deadline} onClick={() => setActiveFilter('no_deadline')} />
             <FilterChip active={activeFilter === 'all'} label="Tất cả" count={counts.all} onClick={() => setActiveFilter('all')} />
           </div>
           {groups.length === 0 ? (
-            <EmptyRow text={activeFilter === 'upcoming' ? 'Chưa có việc cần dí sắp tới.' : 'Không có việc cần dí trong nhóm này.'} />
+            <EmptyRow text={emptyTextForFilter(activeFilter)} />
           ) : (
             <div style={{ padding: '4px 8px 2px' }}>
               <div style={groupSummaryStyle}>
@@ -298,16 +301,15 @@ function ChaseRow({
 }
 
 function isDueTodayOrOverdue(item: ChaseItem, today: string): boolean {
-  if (item.suggestEscalate) return true
-  if (item.deadline) {
-    if (item.deadline <= today) return true
-    if (item.deliverableType && daysBetween(today, item.deadline) <= 2) return true
-  }
-  return item.response === 'NO_RESPONSE' && item.remindCount >= 2
+  return Boolean(item.deadline && item.deadline <= today)
 }
 
 function isUpcoming(item: ChaseItem, today: string): boolean {
-  return Boolean(item.deadline && item.deadline > today && !isDueTodayOrOverdue(item, today))
+  return Boolean(item.deadline && item.deadline > today && item.deadline <= addDaysToDateKey(today, 7))
+}
+
+function isNoDeadline(item: ChaseItem): boolean {
+  return !item.deadline
 }
 
 function groupChaseItems(items: ChaseItem[], byPerson: Record<string, Person>, today: string): ChaseGroup[] {
@@ -341,8 +343,24 @@ function groupChaseItems(items: ChaseItem[], byPerson: Record<string, Person>, t
   })
 }
 
-function daysBetween(from: string, to: string): number {
-  return Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86400000)
+function chasePanelTitle(filter: ChaseFilter): string {
+  if (filter === 'today') return 'Cần dí hôm nay + quá hạn'
+  if (filter === 'upcoming') return 'Cần dí sắp tới 7 ngày'
+  if (filter === 'no_deadline') return 'Chưa có deadline'
+  return 'Tất cả follow-up đang mở'
+}
+
+function emptyTextForFilter(filter: ChaseFilter): string {
+  if (filter === 'upcoming') return 'Chưa có việc cần dí trong 7 ngày tới.'
+  if (filter === 'no_deadline') return 'Không có mục nào thiếu deadline.'
+  if (filter === 'today') return 'Không có mục nào tới hạn hoặc quá hạn cần dí.'
+  return 'Không có việc cần dí trong nhóm này.'
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return getVietnamDateKey(date)
 }
 
 function deadlineBadgeBg(item: ChaseItem): string {

@@ -64,7 +64,7 @@ type ComposerState = {
 }
 
 type NextOption = '2h' | 'afternoon' | 'tomorrow_morning' | '24h' | 'custom'
-type FollowUpView = 'today' | 'upcoming' | 'all'
+type FollowUpView = 'today' | 'overdue' | 'upcoming' | 'no_deadline' | 'waiting' | 'all'
 
 type ReminderLog = {
   id: string
@@ -119,17 +119,32 @@ export default function FollowUpsPage() {
     () => activeItems.filter(isTodayFollowUp),
     [activeItems],
   )
+  const overdueItems = React.useMemo(
+    () => activeItems.filter(isOverdueFollowUp),
+    [activeItems],
+  )
   const upcoming = React.useMemo(
-    () => activeItems.filter((item) => !isTodayFollowUp(item)),
+    () => activeItems.filter(isUpcomingFollowUp),
+    [activeItems],
+  )
+  const noDeadlineItems = React.useMemo(
+    () => activeItems.filter(isNoDeadlineFollowUp),
+    [activeItems],
+  )
+  const waitingItems = React.useMemo(
+    () => activeItems.filter((item) => item.sentCount > 0 || ['REMINDERED', 'WAITING_RESPONSE', 'PROMISED_DELIVERY', 'NO_RESPONSE'].includes(item.responseStatus)),
     [activeItems],
   )
   const visibleItems = React.useMemo(
     () => {
       if (activeView === 'today') return dueNow
+      if (activeView === 'overdue') return overdueItems
       if (activeView === 'upcoming') return upcoming
+      if (activeView === 'no_deadline') return noDeadlineItems
+      if (activeView === 'waiting') return waitingItems
       return activeItems
     },
-    [activeItems, activeView, dueNow, upcoming],
+    [activeItems, activeView, dueNow, noDeadlineItems, overdueItems, upcoming, waitingItems],
   )
   const lateEscalation = React.useMemo(
     () => activeItems.filter((item) => item.sentCount >= 2 || (item.isOverdue && item.sentCount >= 1) || item.responseStatus === 'NO_RESPONSE'),
@@ -138,14 +153,6 @@ export default function FollowUpsPage() {
   const pending = React.useMemo(
     () => activeItems.filter((item) => ['NOT_REMINDERED', 'REMINDERED', 'WAITING_RESPONSE'].includes(item.responseStatus)),
     [activeItems],
-  )
-  const promised = React.useMemo(
-    () => allItems.filter((item) => item.responseStatus === 'PROMISED_DELIVERY'),
-    [allItems],
-  )
-  const submitted = React.useMemo(
-    () => allItems.filter((item) => item.responseStatus === 'FILE_SUBMITTED'),
-    [allItems],
   )
   const dueGroups = React.useMemo(() => groupItemsByPerson(dueNow), [dueNow])
   const groupedVisibleItems = React.useMemo(() => groupItemsByPerson(visibleItems), [visibleItems])
@@ -282,11 +289,11 @@ export default function FollowUpsPage() {
       {toast ? <div style={toastStyle(toast.tone)}>{toast.text}</div> : null}
 
       <div style={summaryGrid}>
-        <SummaryCard icon="ti-calendar-check" label="Cần dí hôm nay" value={dueNow.length} tone="warning" />
-        <SummaryCard icon="ti-alert-triangle" label="Cần leo thang" value={lateEscalation.length} tone="danger" highlight />
+        <SummaryCard icon="ti-calendar-check" label="Hôm nay + quá hạn" value={dueNow.length} tone="warning" />
+        <SummaryCard icon="ti-alert-triangle" label="Quá hạn phản hồi" value={overdueItems.length} tone="danger" highlight />
+        <SummaryCard icon="ti-calendar-plus" label="Sắp tới 7 ngày" value={upcoming.length} tone="neutral" />
+        <SummaryCard icon="ti-calendar-question" label="Chưa deadline" value={noDeadlineItems.length} tone="neutral" />
         <SummaryCard icon="ti-hourglass" label="Đang chờ phản hồi" value={pending.length} tone="warning" />
-        <SummaryCard icon="ti-clock-check" label="Đã hứa nộp" value={promised.length} tone="success" />
-        <SummaryCard icon="ti-file-check" label="Đã nộp file" value={submitted.length} tone="neutral" />
       </div>
 
       <div style={layoutGrid}>
@@ -300,8 +307,11 @@ export default function FollowUpsPage() {
           </div>
 
           <div style={followUpTabsStyle}>
-            <button type="button" style={followUpTabStyle(activeView === 'today')} onClick={() => setActiveView('today')}>Hôm nay ({dueNow.length})</button>
-            <button type="button" style={followUpTabStyle(activeView === 'upcoming')} onClick={() => setActiveView('upcoming')}>Sắp tới ({upcoming.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'today')} onClick={() => setActiveView('today')}>Hôm nay + quá hạn ({dueNow.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'overdue')} onClick={() => setActiveView('overdue')}>Quá hạn phản hồi ({overdueItems.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'upcoming')} onClick={() => setActiveView('upcoming')}>Sắp tới 7 ngày ({upcoming.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'no_deadline')} onClick={() => setActiveView('no_deadline')}>Chưa deadline ({noDeadlineItems.length})</button>
+            <button type="button" style={followUpTabStyle(activeView === 'waiting')} onClick={() => setActiveView('waiting')}>Đã nhắc / đang chờ ({waitingItems.length})</button>
             <button type="button" style={followUpTabStyle(activeView === 'all')} onClick={() => setActiveView('all')}>Tất cả ({activeItems.length})</button>
           </div>
 
@@ -803,6 +813,22 @@ function isTodayFollowUp(item: FollowUpItem) {
   return item.isDueNow && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)
 }
 
+function isOverdueFollowUp(item: FollowUpItem) {
+  const dateKey = followUpDateKey(item)
+  return Boolean(dateKey && dateKey < todayKey() && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus))
+}
+
+function isUpcomingFollowUp(item: FollowUpItem) {
+  const dateKey = followUpDateKey(item)
+  if (!dateKey || ['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)) return false
+  const today = todayKey()
+  return dateKey > today && dateKey <= addDaysToDateKey(today, 7)
+}
+
+function isNoDeadlineFollowUp(item: FollowUpItem) {
+  return !followUpDateKey(item) && !['FILE_SUBMITTED', 'CLOSED'].includes(item.responseStatus)
+}
+
 function isTodayFollowUpSchedule(
   nextFollowUpAt: string | null,
   deadline: string,
@@ -814,8 +840,21 @@ function isTodayFollowUpSchedule(
     const followUpDate = new Date(nextFollowUpAt)
     if (!Number.isNaN(followUpDate.getTime())) return todayKey(followUpDate) <= today
   }
-  if (!deadline) return true
-  return deadline <= today
+  return Boolean(deadline && deadline <= today)
+}
+
+function followUpDateKey(item: FollowUpItem) {
+  if (item.nextFollowUpAt) {
+    const followUpDate = new Date(item.nextFollowUpAt)
+    if (!Number.isNaN(followUpDate.getTime())) return todayKey(followUpDate)
+  }
+  return item.deadline || null
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return todayKey(date)
 }
 
 function buildMessage(items: FollowUpItem[]) {

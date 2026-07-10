@@ -4,7 +4,7 @@ import type { FilterView } from '../types'
 
 const FILTERS: { value: FilterView; label: string }[] = [
   { value: 'all',              label: 'Tất cả' },
-  { value: 'today',            label: 'Hôm nay' },
+  { value: 'today',            label: 'Hôm nay + quá hạn' },
   { value: 'next_24h',         label: '24 giờ tới' },
   { value: 'overdue',          label: 'Quá hạn' },
   { value: 'waiting',          label: 'Chờ phản hồi' },
