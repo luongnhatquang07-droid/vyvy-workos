@@ -3242,7 +3242,7 @@ function FlowchartTab({
     : 'Không có filter phụ đang áp dụng.'
   const guideSteps = isLayoutEditing
     ? [
-        'Kéo node để sắp xếp',
+        'Cầm nút ⋮⋮ trên node để kéo',
         'Kéo nền để pan canvas',
         'Ctrl + lăn chuột để zoom',
         'Bấm Lưu bố cục để giữ lại',
@@ -3427,7 +3427,7 @@ function FlowchartTab({
     setLayoutEditStartPositions(basePositions)
     setIsLayoutEditing(true)
     setViewMode('diagram')
-    setLayoutNotice('Đang chỉnh bố cục - kéo node để sắp xếp, bấm Lưu để giữ lại.')
+    setLayoutNotice('Đang chỉnh bố cục - cầm nút ⋮⋮ trên node để kéo, bấm Lưu để giữ lại.')
   }
 
   function saveLayoutEditing() {
@@ -3526,7 +3526,7 @@ function FlowchartTab({
     setCollapsedIds(new Set(subtaskCollapseIds))
   }
 
-  function beginNodeLayoutDrag(event: React.PointerEvent<HTMLDivElement>, item: FlowchartLayoutNodeItem) {
+  function beginNodeLayoutDrag(event: React.PointerEvent<HTMLElement>, item: FlowchartLayoutNodeItem) {
     if (!isLayoutEditing || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
@@ -3626,6 +3626,7 @@ function FlowchartTab({
       return
     }
     if (!(event.target instanceof HTMLElement)) return
+    if (event.target.closest('[data-flowchart-drag-handle]')) return
     const nodeElement = event.target.closest('[data-flowchart-node-key]') as HTMLElement | null
     const nodeKey = nodeElement?.dataset.flowchartNodeKey
     if (!nodeKey) return
@@ -3648,17 +3649,33 @@ function FlowchartTab({
         data-flowchart-node-key={item.key}
         style={{
           ...flowchartAbsoluteItemStyle(item),
-          cursor: isLayoutEditing ? 'move' : undefined,
+          cursor: undefined,
           zIndex: item.dragging ? 6 : item.active || item.pathActive ? 4 : 2,
           transform: item.dragging ? 'scale(1.02)' : undefined,
         }}
         aria-expanded={item.collapsibleId ? !item.collapsed : undefined}
-        onPointerDown={(event) => beginNodeLayoutDrag(event, item)}
         onDoubleClick={(event) => {
           event.stopPropagation()
           focusFlowchartNode(item.key)
         }}
       >
+        {isLayoutEditing ? (
+          <button
+            type="button"
+            data-flowchart-drag-handle="true"
+            title="Kéo để sắp xếp"
+            aria-label="Kéo node để sắp xếp bố cục"
+            onPointerDown={(event) => beginNodeLayoutDrag(event, item)}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              if (ignoreNextFlowchartClickRef.current) ignoreNextFlowchartClickRef.current = false
+            }}
+            style={flowchartDragHandleStyle(item.accent, Boolean(item.dragging))}
+          >
+            ⋮⋮
+          </button>
+        ) : null}
         {item.collapsibleId ? (
           <button
             type="button"
@@ -4093,7 +4110,9 @@ function FlowchartNodeCard({
       }}
       style={{
         ...flowchartNodeStyle(signal.tone, variant, active, pathActive, accent),
-        cursor: dragging ? 'grabbing' : layoutEditing ? 'grab' : 'pointer',
+        cursor: 'pointer',
+        outline: layoutEditing && !dragging ? '1px dashed rgba(218,223,33,.2)' : undefined,
+        outlineOffset: layoutEditing && !dragging ? -5 : undefined,
         transform: dragging ? 'scale(1.015)' : undefined,
       }}
       title={`${title} · ${STATUS_META[status].label} · ${deadline ? toFullDate(deadline) : 'Không deadline'}`}
@@ -8082,6 +8101,36 @@ function flowchartMindmapToggleStyle(accent: string): React.CSSProperties {
     left: -42,
     borderColor: flowchartColorAlpha(accent, 0.48),
     background: `linear-gradient(180deg, ${flowchartColorAlpha(accent, 0.24)}, rgba(13,16,21,.92))`,
+  }
+}
+
+function flowchartDragHandleStyle(accent: string, dragging: boolean): React.CSSProperties {
+  return {
+    position: 'absolute',
+    right: -12,
+    top: -12,
+    zIndex: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    border: `1px solid ${flowchartColorAlpha(accent, dragging ? 0.86 : 0.52)}`,
+    background: dragging
+      ? `linear-gradient(180deg, ${flowchartColorAlpha(accent, 0.36)}, rgba(13,16,21,.96))`
+      : `linear-gradient(180deg, ${flowchartColorAlpha(accent, 0.22)}, color-mix(in srgb, var(--surface) 88%, transparent))`,
+    color: 'var(--txt)',
+    boxShadow: dragging
+      ? `0 0 0 4px ${flowchartColorAlpha(accent, 0.16)}, 0 16px 34px rgba(0,0,0,.34)`
+      : '0 10px 24px rgba(0,0,0,.26)',
+    cursor: dragging ? 'grabbing' : 'grab',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 18,
+    fontWeight: 950,
+    lineHeight: 1,
+    letterSpacing: 0,
+    userSelect: 'none',
+    touchAction: 'none',
   }
 }
 
