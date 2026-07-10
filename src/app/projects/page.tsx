@@ -7,6 +7,7 @@ import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
+import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
 import {
@@ -60,6 +61,7 @@ interface AttachmentItem {
   url: string | null
   deliverableId?: string | null
   versionId?: string | null
+  attachmentId?: string | null
   stepId?: string | null
   mimeType?: string | null
   sizeBytes?: number | null
@@ -88,6 +90,17 @@ interface StepItem {
   deliverableBlocker: DeliverableBlocker
   deliverableRequiresApproval: boolean
   deliverableReviewerId: string | null
+}
+
+interface DeliverableOpenLinkVersion {
+  id: string
+  external_url: string | null
+  attachment_id?: string | null
+  attachment: {
+    url: string | null
+    file_name: string | null
+    mime_type: string | null
+  } | null
 }
 
 type DeliverableBlocker = 'MISTAKE' | 'REVISION' | 'MISSING' | 'PENDING_APPROVAL' | null
@@ -1478,6 +1491,7 @@ function ProjectsPageContent() {
                 <FlowchartTab
                   project={selectedProject}
                   people={people}
+                  workspaceId={workspaceId}
                   projectFilters={projectFilters}
                   visibilitySummary={data?.visibilitySummary}
                   currentUser={data?.currentUser}
@@ -1808,6 +1822,7 @@ function SubtaskCompactDetail({
                   url: file.url,
                   deliverableId: file.deliverableId ?? activeUploadStep?.deliverableId ?? null,
                   versionId: file.versionId ?? null,
+                  attachmentId: file.attachmentId ?? null,
                   status: file.versionId ? 'PENDING_REVIEW' : undefined,
                 },
                 ...subtask.attachments,
@@ -1834,6 +1849,7 @@ function SubtaskCompactDetail({
           <EvidenceFileList
             files={subtask.attachments}
             people={people}
+            workspaceId={workspaceId}
             emptyText="Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên."
           />
         </AccordionSection>
@@ -3098,6 +3114,7 @@ function buildFlowchartMindmapLayout({
 function FlowchartTab({
   project,
   people,
+  workspaceId,
   projectFilters,
   visibilitySummary,
   currentUser,
@@ -3107,6 +3124,7 @@ function FlowchartTab({
 }: {
   project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
   projectFilters: ProjectFilters
   visibilitySummary?: CommandCenterVisibilitySummary
   currentUser?: {
@@ -3859,6 +3877,7 @@ function FlowchartTab({
           <FlowchartDetailDrawer
             node={selectedNode}
             people={people}
+            workspaceId={workspaceId}
             fullscreen={isFullscreen}
             onClose={isFullscreen ? () => setDetailVisible(false) : () => setSelectedNode({ kind: 'project', project })}
             onSaveSubtaskReport={onSaveSubtaskReport}
@@ -3956,6 +3975,7 @@ function FlowchartNodeCard({
 function FlowchartDetailDrawer({
   node,
   people,
+  workspaceId,
   fullscreen,
   onClose,
   onSaveSubtaskReport,
@@ -3964,6 +3984,7 @@ function FlowchartDetailDrawer({
 }: {
   node: FlowchartNode | null
   people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
   fullscreen?: boolean
   onClose: () => void
   onSaveSubtaskReport: (subtask: SubtaskItem, value: string) => Promise<boolean>
@@ -4052,6 +4073,7 @@ function FlowchartDetailDrawer({
             <EvidenceFileList
               files={fileItems}
               people={people}
+              workspaceId={workspaceId}
               emptyText="Chưa có file thật nào gắn với node này."
             />
           </>
@@ -4089,12 +4111,37 @@ function FlowchartDetailDrawer({
 function EvidenceFileList({
   files,
   people,
+  workspaceId,
   emptyText,
 }: {
   files: AttachmentItem[]
   people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
   emptyText: string
 }) {
+  const [resolvingIds, setResolvingIds] = React.useState<Record<string, boolean>>({})
+  const [resolvedUrls, setResolvedUrls] = React.useState<Record<string, string>>({})
+  const [openErrors, setOpenErrors] = React.useState<Record<string, string>>({})
+
+  async function openResolvedFile(file: AttachmentItem) {
+    if (!workspaceId) return
+    setResolvingIds((current) => ({ ...current, [file.id]: true }))
+    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
+    try {
+      const url = await resolveDeliverableVersionOpenUrl(workspaceId, file)
+      if (!url) throw new Error('Bàn giao này chưa có file/link đính kèm.')
+      setResolvedUrls((current) => ({ ...current, [file.id]: url }))
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch (err) {
+      setOpenErrors((current) => ({
+        ...current,
+        [file.id]: err instanceof Error ? err.message : 'Không mở được file/link.',
+      }))
+    } finally {
+      setResolvingIds((current) => ({ ...current, [file.id]: false }))
+    }
+  }
+
   if (!files.length) return <div style={emptyInline}>{emptyText}</div>
 
   return (
@@ -4111,22 +4158,44 @@ function EvidenceFileList({
 
         const isExternalLink = file.mimeType === 'external_url'
         const actionLabel = isExternalLink ? 'Mở link' : 'Mở file'
+        const resolvedUrl = resolvedUrls[file.id] ?? file.url
+        const canResolveOnDemand = Boolean(!resolvedUrl && workspaceId && file.deliverableId && (file.versionId || file.attachmentId))
+        const canOpen = Boolean(resolvedUrl || canResolveOnDemand)
+        const isResolving = Boolean(resolvingIds[file.id])
+        const openError = openErrors[file.id]
         const content = (
           <>
             <i className={`ti ${isExternalLink ? 'ti-link' : 'ti-paperclip'}`} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={evidenceFileNameStyle}>{file.name}</div>
               {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
+              {openError ? <div style={evidenceFileErrorStyle}>{openError}</div> : null}
             </div>
-            {file.url ? <span style={evidenceFileActionStyle}>{actionLabel} <i className="ti ti-external-link" /></span> : <span style={evidenceFileUnavailableStyle}>Chưa có link mở</span>}
+            {canOpen ? (
+              <span style={evidenceFileActionStyle}>{isResolving ? 'Đang mở...' : actionLabel} <i className="ti ti-external-link" /></span>
+            ) : (
+              <span style={evidenceFileUnavailableStyle}>Không có file/link đính kèm</span>
+            )}
           </>
         )
 
-        return file.url ? (
-          <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" style={fileRowStyle}>
-            {content}
-          </a>
-        ) : (
+        if (resolvedUrl) {
+          return (
+            <a key={file.id} href={resolvedUrl} target="_blank" rel="noopener noreferrer" style={fileRowStyle}>
+              {content}
+            </a>
+          )
+        }
+
+        if (canResolveOnDemand) {
+          return (
+            <button key={file.id} type="button" onClick={() => void openResolvedFile(file)} disabled={isResolving} style={fileRowButtonStyle(isResolving)}>
+              {content}
+            </button>
+          )
+        }
+
+        return (
           <div key={file.id} style={fileRowStyle}>
             {content}
           </div>
@@ -4134,6 +4203,24 @@ function EvidenceFileList({
       })}
     </div>
   )
+}
+
+async function resolveDeliverableVersionOpenUrl(workspaceId: string, file: AttachmentItem) {
+  if (file.url) return file.url
+  if (!file.deliverableId) return null
+
+  const params = new URLSearchParams({ workspaceId, deliverableId: file.deliverableId })
+  const response = await fetch(`/api/deliverables?${params.toString()}`)
+  const payload = await readJsonResponse<{ versions?: DeliverableOpenLinkVersion[]; error?: string }>(response, 'Không lấy được link bàn giao.')
+  if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không lấy được link bàn giao.')
+
+  const versions = payload.versions ?? []
+  const version = versions.find((item) => file.versionId && item.id === file.versionId)
+    ?? versions.find((item) => file.attachmentId && item.attachment_id === file.attachmentId)
+    ?? versions.find((item) => item.id === file.id)
+    ?? versions.find((item) => item.external_url || item.attachment?.url)
+
+  return version?.external_url ?? version?.attachment?.url ?? null
 }
 
 function FlowchartReportEditor({
@@ -5227,6 +5314,8 @@ function buildDeliverableFileItems(
         name: cleanDisplayFileName(name),
         url,
         deliverableId: version.deliverable_id,
+        versionId: version.id,
+        attachmentId: version.attachment_id,
         stepId: deliverable?.step_id ?? null,
         mimeType: version.external_url ? 'external_url' : attachment?.mime_type ?? null,
         sizeBytes: attachment?.size_bytes ?? null,
@@ -8873,6 +8962,16 @@ const fileRowStyle: React.CSSProperties = {
   textDecoration: 'none',
 }
 
+function fileRowButtonStyle(disabled: boolean): React.CSSProperties {
+  return {
+    ...fileRowStyle,
+    width: '100%',
+    cursor: disabled ? 'wait' : 'pointer',
+    font: 'inherit',
+    textAlign: 'left',
+  }
+}
+
 const evidenceFileStackStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -8893,6 +8992,13 @@ const evidenceFileMetaStyle: React.CSSProperties = {
   fontSize: 11,
   lineHeight: 1.45,
   color: 'var(--muted)',
+}
+
+const evidenceFileErrorStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 11,
+  lineHeight: 1.35,
+  color: 'var(--danger)',
 }
 
 const evidenceFileActionStyle: React.CSSProperties = {
