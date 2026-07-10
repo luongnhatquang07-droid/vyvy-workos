@@ -3840,6 +3840,12 @@ function FlowchartTab({
             <span style={flowchartFullscreenMeta}>{renderLine}</span>
           </div>
           <div style={flowchartFullscreenToolGroup}>
+            <button type="button" onClick={() => setViewMode('diagram')} style={filterChipStyle(viewMode === 'diagram')}>
+              Sơ đồ
+            </button>
+            <button type="button" onClick={() => setViewMode('tree')} style={filterChipStyle(viewMode === 'tree')}>
+              Dạng cây
+            </button>
             {FLOWCHART_FILTER_OPTIONS.map((option) => (
               <button
                 key={option.value}
@@ -3851,10 +3857,13 @@ function FlowchartTab({
               </button>
             ))}
             <button type="button" onClick={collapseToWorkstreams} style={filterChipStyle(false)}>
-              Thu gọn
+              Thu gọn tất cả
+            </button>
+            <button type="button" onClick={openSelectedBranch} style={filterChipStyle(false)}>
+              Mở nhánh đang chọn
             </button>
             <button type="button" onClick={expandVisibleBranches} style={filterChipStyle(false)}>
-              Mở rộng
+              Mở rộng tất cả
             </button>
             <button type="button" aria-label="Thu nhỏ Flowchart" onClick={() => setFlowchartZoom(getNextFlowchartZoom(zoom, -1))} style={flowchartIconButton}>-</button>
             <span style={flowchartZoomValue}>{Math.round(zoom * 100)}%</span>
@@ -3863,7 +3872,7 @@ function FlowchartTab({
             <button type="button" onClick={() => setDetailVisible((value) => !value)} style={filterChipStyle(false)}>
               {detailVisible ? 'Ẩn chi tiết' : 'Hiện chi tiết'}
             </button>
-                        {hasSavedLayout && !isLayoutEditing ? <span style={flowchartSavedLayoutBadge}>Layout đã lưu</span> : null}
+              {hasSavedLayout && !isLayoutEditing ? <span style={flowchartSavedLayoutBadge}>Layout đã lưu</span> : null}
             {renderFlowchartLayoutControls()}
             <button type="button" onClick={resetAutoLayout} style={filterChipStyle(false, 'warning')}>Reset tự động</button>
             <button type="button" onClick={() => setIsFullscreen(false)} style={flowchartFullscreenButton}>
@@ -3961,7 +3970,7 @@ function FlowchartTab({
             <span>Bước</span>
           </div>
 
-          {viewMode === 'tree' && !isFullscreen ? (
+          {viewMode === 'tree' ? (
             renderFlowchartTreeView()
           ) : (
           <div
@@ -7665,7 +7674,7 @@ const flowchartFullscreenShell: React.CSSProperties = {
 const flowchartFullscreenToolbar: React.CSSProperties = {
   minHeight: 56,
   display: 'grid',
-  gridTemplateColumns: 'minmax(220px, 360px) minmax(0, 1fr)',
+  gridTemplateColumns: 'minmax(220px, 340px) minmax(0, 1fr)',
   gap: 10,
   alignItems: 'start',
   padding: '6px 10px',
@@ -7721,7 +7730,7 @@ const flowchartFullscreenToolGroup: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'flex-end',
   alignItems: 'center',
-  gap: 7,
+  gap: 6,
   flexWrap: 'wrap',
   minWidth: 0,
   maxWidth: '100%',
