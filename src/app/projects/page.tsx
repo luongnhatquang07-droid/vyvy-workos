@@ -383,7 +383,7 @@ const FLOWCHART_LAYOUT_PADDING_X = 72
 const FLOWCHART_LAYOUT_PADDING_Y = 56
 const FLOWCHART_CONNECTOR_NODE_GAP = 8
 const FLOWCHART_LAYOUT_VERSION = 1
-const FLOWCHART_SNAP_GRID = 24
+const FLOWCHART_SNAP_GRID = 20
 const FLOWCHART_TREE_COLUMN_GAP = 260
 const FLOWCHART_TREE_ROW_GAP = 52
 const FLOWCHART_TREE_BRANCH_GAP = 104
@@ -3022,6 +3022,7 @@ function FlowchartTab({
   const [showFlowchartGuide, setShowFlowchartGuide] = React.useState(() => (
     typeof window === 'undefined' ? true : window.localStorage.getItem('vyvy-flowchart-guide-hidden') !== '1'
   ))
+  const [showFlowchartMiniMap, setShowFlowchartMiniMap] = React.useState(true)
   const [canvasViewport, setCanvasViewport] = React.useState({ width: 0, height: 0 })
   const flowchartScrollRef = React.useRef<HTMLDivElement | null>(null)
   const flowchartBoardRef = React.useRef<HTMLDivElement | null>(null)
@@ -3036,11 +3037,13 @@ function FlowchartTab({
     moved: boolean
   } | null>(null)
   const ignoreNextFlowchartClickRef = React.useRef(false)
+  const autoFitProjectRef = React.useRef<string | null>(null)
   const previousProjectIdRef = React.useRef(project.id)
 
   React.useEffect(() => {
     if (previousProjectIdRef.current === project.id) return
     previousProjectIdRef.current = project.id
+    autoFitProjectRef.current = null
     queueMicrotask(() => {
       setSelectedNode({ kind: 'project', project })
       setCollapsedIds(getDefaultFlowchartCollapsedIds(project))
@@ -3245,6 +3248,7 @@ function FlowchartTab({
         'Cầm nút ⋮⋮ trên node để kéo',
         'Kéo nền để pan canvas',
         'Ctrl + lăn chuột để zoom',
+        'Bấm Fit view nếu muốn căn lại khung',
         'Bấm Lưu bố cục để giữ lại',
       ]
     : [
@@ -3287,9 +3291,17 @@ function FlowchartTab({
     transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
     transition: isPanning ? 'none' : flowchartZoomLayer.transition,
   }
-  const miniMapScale = Math.min(0.18, 184 / Math.max(flowchartLayout.width, flowchartLayout.height))
-  const miniMapWidth = Math.max(136, Math.round(flowchartLayout.width * miniMapScale))
-  const miniMapHeight = Math.max(96, Math.round(flowchartLayout.height * miniMapScale))
+  const flowchartViewportLocked = isLayoutEditing || Boolean(draggingLayoutNodeKey)
+  const miniMapBounds = isFullscreen
+    ? { minWidth: 280, minHeight: 180, maxWidth: 360, maxHeight: 240 }
+    : { minWidth: 220, minHeight: 140, maxWidth: 280, maxHeight: 180 }
+  const miniMapScale = Math.min(
+    0.28,
+    miniMapBounds.maxWidth / Math.max(flowchartLayout.width, 1),
+    miniMapBounds.maxHeight / Math.max(flowchartLayout.height, 1),
+  )
+  const miniMapWidth = Math.max(miniMapBounds.minWidth, Math.round(flowchartLayout.width * miniMapScale))
+  const miniMapHeight = Math.max(miniMapBounds.minHeight, Math.round(flowchartLayout.height * miniMapScale))
   const miniMapViewport = {
     left: Math.max(0, Math.min(miniMapWidth, (-pan.x / Math.max(zoom, 0.05)) * miniMapScale)),
     top: Math.max(0, Math.min(miniMapHeight, (-pan.y / Math.max(zoom, 0.05)) * miniMapScale)),
@@ -3298,16 +3310,21 @@ function FlowchartTab({
   }
 
   React.useEffect(() => {
+    if (viewMode !== 'diagram') return
+    if (autoFitProjectRef.current === project.id) return
+    if (flowchartViewportLocked) return
     const viewport = flowchartScrollRef.current
     const board = flowchartBoardRef.current
     if (!viewport || !board) return
     const frame = window.requestAnimationFrame(() => {
+      if (autoFitProjectRef.current === project.id || flowchartViewportLocked) return
       const safeWidth = Math.max(320, viewport.clientWidth - 64)
       const safeHeight = Math.max(260, viewport.clientHeight - 64)
       const boardWidth = Math.max(1, board.offsetWidth)
       const boardHeight = Math.max(1, board.offsetHeight)
       const fitZoom = Math.min(1.08, safeWidth / boardWidth, safeHeight / boardHeight)
       const nextZoom = snapFlowchartZoom(Math.max(0.45, Math.min(0.9, fitZoom * 1.8)), 'nearest')
+      autoFitProjectRef.current = project.id
       setZoom(nextZoom)
       setPan({
         x: viewport.clientWidth / 2 - (flowchartLayout.width / 2) * nextZoom,
@@ -3315,7 +3332,7 @@ function FlowchartTab({
       })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [filter, flowchartLayout.height, flowchartLayout.width, isFullscreen, project.id, viewMode])
+  }, [flowchartLayout.height, flowchartLayout.width, flowchartViewportLocked, project.id, viewMode])
 
   function toggleCollapse(id: string) {
     setCollapsedIds((current) => {
@@ -4010,11 +4027,24 @@ function FlowchartTab({
               <button type="button" onClick={hideFlowchartGuide} style={flowchartGuideDismissButton}>Ẩn hướng dẫn</button>
               </div>
             ) : null}
-            <div
-              style={{ ...flowchartMiniMap, width: miniMapWidth, height: miniMapHeight }}
-              onPointerDown={handleMiniMapPointerDown}
-              aria-label="Mini map Flowchart"
-            >
+            {showFlowchartMiniMap ? (
+              <div
+                style={{ ...flowchartMiniMap, width: miniMapWidth, height: miniMapHeight }}
+                onPointerDown={handleMiniMapPointerDown}
+                aria-label="Mini map Flowchart"
+              >
+                <button
+                  type="button"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setShowFlowchartMiniMap(false)
+                  }}
+                  style={flowchartMiniMapToggleButton}
+                >
+                  Ẩn bản đồ nhỏ
+                </button>
               {flowchartLayout.connectors.map((connector) => (
                 <svg key={connector.id} style={flowchartMiniMapConnectorOverlay} viewBox={`0 0 ${flowchartLayout.width} ${flowchartLayout.height}`} aria-hidden="true">
                   <path
@@ -4049,7 +4079,21 @@ function FlowchartTab({
                   height: miniMapViewport.height,
                 }}
               />
-            </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setShowFlowchartMiniMap(true)
+                }}
+                style={flowchartMiniMapShowButton}
+              >
+                Hiện bản đồ nhỏ
+              </button>
+            )}
           </div>
           )}
         </div>
@@ -8057,6 +8101,39 @@ const flowchartMiniMap: React.CSSProperties = {
   overflow: 'hidden',
   cursor: 'crosshair',
   backdropFilter: 'blur(16px)',
+}
+
+const flowchartMiniMapToggleButton: React.CSSProperties = {
+  position: 'absolute',
+  right: 8,
+  top: 8,
+  zIndex: 4,
+  padding: '5px 8px',
+  borderRadius: 999,
+  border: '1px solid rgba(157,184,199,.34)',
+  background: 'color-mix(in srgb, var(--surface) 88%, transparent)',
+  color: 'var(--txt-2)',
+  fontSize: 10,
+  fontWeight: 900,
+  cursor: 'pointer',
+  backdropFilter: 'blur(10px)',
+}
+
+const flowchartMiniMapShowButton: React.CSSProperties = {
+  position: 'absolute',
+  right: 18,
+  bottom: 18,
+  zIndex: 12,
+  padding: '9px 12px',
+  borderRadius: 999,
+  border: '1px solid rgba(218,223,33,.28)',
+  background: 'color-mix(in srgb, var(--surface) 90%, transparent)',
+  color: 'var(--txt)',
+  boxShadow: '0 14px 34px rgba(0,0,0,.24)',
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: 'pointer',
+  backdropFilter: 'blur(14px)',
 }
 
 const flowchartMiniMapConnectorOverlay: React.CSSProperties = {
