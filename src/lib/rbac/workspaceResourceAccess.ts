@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import {
   canApproveDeliverable,
   canApproveOnBehalf,
+  canDeleteDeliverableVersion,
   canEditProject,
   canEditStep,
   canEditSubtask,
@@ -108,6 +109,31 @@ export async function canAssignWorkspaceOwner(
   return false
 }
 
+export async function canDeleteDeliverableVersionInWorkspace(
+  user: RbacUserContext,
+  workspaceId: string,
+  deliverableId: string,
+  version: { submittedBy: string | null; reviewStatus: string | null },
+) {
+  const deliverable = await loadDeliverableResource(workspaceId, deliverableId)
+  if (!deliverable?.step_id) return false
+
+  const [submitter, project, workstream] = await Promise.all([
+    loadPersonManagementResource(workspaceId, version.submittedBy),
+    loadProjectResource(workspaceId, deliverable.project_id ?? null),
+    loadWorkstreamResource(workspaceId, deliverable.workstream_id ?? null),
+  ])
+
+  return canDeleteDeliverableVersion(user, {
+    ...deliverable,
+    submitter_id: version.submittedBy,
+    submitter_manager_id: submitter?.managerId ?? null,
+    owner_department_id: submitter?.departmentId ?? deliverable.owner_department_id ?? null,
+    project_owner_id: project?.owner_id ?? null,
+    workstream_owner_id: workstream?.owner_id ?? null,
+    review_status: version.reviewStatus,
+  })
+}
 export async function canCreateDeliverable(
   user: RbacUserContext,
   workspaceId: string,
@@ -304,6 +330,22 @@ async function loadDeliverableResource(workspaceId: string, deliverableId: strin
   }
 }
 
+async function loadPersonManagementResource(workspaceId: string, personId: string | null) {
+  if (!personId) return null
+  const client = createServiceClient()
+  const { data, error } = await client
+    .from('people')
+    .select('manager_id,department_id')
+    .eq('workspace_id', workspaceId)
+    .eq('id', personId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error || !data) return null
+  return {
+    managerId: data.manager_id as string | null,
+    departmentId: data.department_id as string | null,
+  }
+}
 async function personDepartment(workspaceId: string, personId: string | null | undefined) {
   if (!personId) return null
   const client = createServiceClient()

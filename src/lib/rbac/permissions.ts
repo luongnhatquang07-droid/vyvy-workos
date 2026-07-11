@@ -107,6 +107,14 @@ export interface RbacResource {
   personId?: string | null
   submitter_id?: string | null
   submitterId?: string | null
+  submitter_manager_id?: string | null
+  submitterManagerId?: string | null
+  project_owner_id?: string | null
+  projectOwnerId?: string | null
+  workstream_owner_id?: string | null
+  workstreamOwnerId?: string | null
+  review_status?: string | null
+  reviewStatus?: string | null
   reviewer_id?: string | null
   reviewerId?: string | null
   requested_by?: string | null
@@ -290,6 +298,30 @@ export function canEditStep(user: RbacUserContext | null | undefined, step: Rbac
   return canEditSubtask(user, step)
 }
 
+export function canDeleteDeliverableVersion(
+  user: RbacUserContext | null | undefined,
+  version: RbacResource | null | undefined,
+) {
+  if (!isActiveUser(user) || isReadOnly(user) || !version) return false
+  const reviewStatus = firstString(version.review_status, version.reviewStatus)
+  if (reviewStatus === 'APPROVED') return false
+
+  const override = permissionOverrideDecision(user, 'deliverables', 'delete', version)
+  if (override !== null) return override
+  if (isExecutive(user)) return true
+  if (!user.personId) return false
+
+  const submitterId = firstString(version.submitter_id, version.submitterId)
+  const submitterManagerId = firstString(version.submitter_manager_id, version.submitterManagerId)
+  const projectOwnerId = firstString(version.project_owner_id, version.projectOwnerId)
+  const workstreamOwnerId = firstString(version.workstream_owner_id, version.workstreamOwnerId)
+
+  if (submitterId === user.personId) return true
+  if (submitterManagerId === user.personId) return true
+  if (projectOwnerId === user.personId || workstreamOwnerId === user.personId) return true
+  return isDepartmentHead(user) && isSameDepartment(user, version)
+}
+
 export function canApproveDeliverable(user: RbacUserContext | null | undefined, deliverable: RbacResource | null | undefined) {
   if (!isActiveUser(user) || isReadOnly(user)) return false
   if (isAssignedReviewer(user, deliverable)) return true
@@ -431,6 +463,12 @@ function isAssignedToResource(user: RbacUserContext, resource: RbacResource | nu
     resource.personId,
     resource.submitter_id,
     resource.submitterId,
+    resource.submitter_manager_id,
+    resource.submitterManagerId,
+    resource.project_owner_id,
+    resource.projectOwnerId,
+    resource.workstream_owner_id,
+    resource.workstreamOwnerId,
     resource.reviewer_id,
     resource.reviewerId,
     resource.requested_by,

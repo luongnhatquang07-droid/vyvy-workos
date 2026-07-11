@@ -3,6 +3,7 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { Drawer } from '@/components/feedback/Drawer'
+import { ConfirmDialog } from '@/components/feedback/Modal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
@@ -69,6 +70,16 @@ interface AttachmentItem {
   submittedBy?: string | null
   submittedAt?: string | null
   versionNumber?: number | null
+}
+
+interface VersionDeleteResult {
+  deliverableStatus?: CommandCenterDeliverableRow['status']
+  approvedVersionId?: string | null
+  taskSync?: {
+    taskId: string | null
+    status: TaskStatus | null
+    autoCompletedStepIds?: string[]
+  }
 }
 
 interface StepItem {
@@ -607,6 +618,60 @@ function ProjectsPageContent() {
     )
   }
 
+  function applyStepVersionDeletedLocal(file: AttachmentItem, result: VersionDeleteResult) {
+    const deliverableStatus = result.deliverableStatus ?? 'NOT_SUBMITTED'
+    const nextStepStatus: TaskStatus = deliverableStatus === 'APPROVED'
+      ? 'COMPLETED'
+      : deliverableStatus === 'SUBMITTED'
+        ? 'PENDING_APPROVAL'
+        : 'REVISION_REQUIRED'
+    const nextReviewStatus: VersionReviewStatus = deliverableStatus === 'APPROVED'
+      ? 'APPROVED'
+      : deliverableStatus === 'SUBMITTED'
+        ? 'PENDING_REVIEW'
+        : 'UPLOADED_BY_MISTAKE'
+    const nextBlocker: DeliverableBlocker = deliverableStatus === 'APPROVED'
+      ? null
+      : deliverableStatus === 'SUBMITTED'
+        ? 'PENDING_APPROVAL'
+        : deliverableStatus === 'MISSING_INFORMATION'
+          ? 'MISSING'
+          : deliverableStatus === 'REVISION_REQUIRED'
+            ? 'REVISION'
+            : 'MISTAKE'
+    const autoCompletedStepIds = new Set(result.taskSync?.autoCompletedStepIds ?? [])
+
+    updateWorkspace((current) => current.map((project) => ({
+      ...project,
+      workstreams: project.workstreams.map((workstream) => ({
+        ...workstream,
+        subtasks: workstream.subtasks.map((subtask) => {
+          const matchesTask = Boolean(result.taskSync?.taskId && subtask.sourceTaskId === result.taskSync.taskId)
+          return {
+            ...subtask,
+            status: matchesTask && result.taskSync?.status ? result.taskSync.status : subtask.status,
+            attachments: subtask.attachments.filter((attachment) => attachment.versionId !== file.versionId),
+            steps: subtask.steps.map((step) => {
+              const matchesStep = Boolean(
+                (file.stepId && step.id === file.stepId) ||
+                (file.deliverableId && step.deliverableId === file.deliverableId),
+              )
+              if (!matchesStep && !autoCompletedStepIds.has(step.id)) return step
+              if (!matchesStep) return { ...step, status: 'COMPLETED' }
+              return {
+                ...step,
+                status: nextStepStatus,
+                deliverableStatus,
+                deliverableReviewStatus: nextReviewStatus,
+                deliverableIsValid: deliverableStatus === 'APPROVED' || deliverableStatus === 'SUBMITTED',
+                deliverableBlocker: nextBlocker,
+              }
+            }),
+          }
+        }),
+      })),
+    })))
+  }
   function scheduleBackgroundRefresh(delay = 700) {
     if (backgroundRefreshTimerRef.current) window.clearTimeout(backgroundRefreshTimerRef.current)
     backgroundRefreshTimerRef.current = window.setTimeout(() => {
@@ -724,7 +789,7 @@ function ProjectsPageContent() {
 
     setActiveUploadStepId(stepId)
     openSubtaskSection('files')
-    showToast('Đã mở khu File/Bàn giao cho bước.')
+    showToast('Đã mở khu File/Link bàn giao cho bước.')
   }
 
   function toggleSubtaskSection(section: DetailSection) {
@@ -1332,6 +1397,8 @@ function ProjectsPageContent() {
             setFileRefreshKey((value) => value + 1)
             void refresh({ silent: true })
           }}
+          onRefreshFileList={() => setFileRefreshKey((value) => value + 1)}
+          onStepVersionDeleted={applyStepVersionDeletedLocal}
           onUpdateStep={(stepId, patch) => updateStep(subtask.id, stepId, patch)}
           onDeleteStep={(stepId) => deleteStep(subtask.id, stepId)}
           onAddStep={(draft) => addStep(subtask.id, draft)}
@@ -1692,6 +1759,8 @@ function SubtaskCompactDetail({
   onSaveReport,
   onUpdateAttachments,
   onFilesChanged,
+  onRefreshFileList,
+  onStepVersionDeleted,
   onUpdateStep,
   onDeleteStep,
   onAddStep,
@@ -1713,6 +1782,8 @@ function SubtaskCompactDetail({
   onSaveReport: (value: string) => void
   onUpdateAttachments: (attachments: AttachmentItem[]) => void
   onFilesChanged: () => void
+  onRefreshFileList: () => void
+  onStepVersionDeleted: (file: AttachmentItem, result: VersionDeleteResult) => void
   onUpdateStep: (stepId: string, patch: Partial<StepItem>) => void
   onDeleteStep: (stepId: string) => void
   onAddStep: (draft: StepDraft) => void
@@ -1816,14 +1887,15 @@ function SubtaskCompactDetail({
 
         <AccordionSection
           id="files"
-          title="File / bàn giao"
+          title="File / Link bàn giao"
           summary={fileSummary.value}
           badge={fileSummary.badge}
           open={openSections.includes('files')}
           onToggle={() => onToggleSection('files')}
+          allowOverflow
         >
           <div style={fieldLabel}>
-            {activeUploadStep ? `Upload file cho bước: ${activeUploadStep.title}` : 'Upload file kết quả'}
+            {activeUploadStep ? `Nộp file hoặc link cho bước: ${activeUploadStep.title}` : 'Nộp file hoặc link kết quả'}
           </div>
           <FileUpload
             workspaceId={workspaceId}
@@ -1833,6 +1905,7 @@ function SubtaskCompactDetail({
             peopleOptions={peopleOptions}
             defaultApproverId={activeUploadStep?.deliverableReviewerId ?? activeUploadStep?.reviewerId ?? project.reviewerId ?? project.ownerId}
             requiresApproval={Boolean(activeUploadStep?.deliverableId)}
+            allowLink
             compact
             label="Tải file hoàn thành, báo cáo, ảnh chụp, tài liệu"
             onUploaded={(file) => {
@@ -1867,12 +1940,17 @@ function SubtaskCompactDetail({
             />
           ) : null}
 
-          <div style={fieldLabel}>File đã gắn vào đầu việc</div>
+          <div style={fieldLabel}>File/Link đã gắn vào đầu việc</div>
           <EvidenceFileList
             files={subtask.attachments}
             people={people}
             workspaceId={workspaceId}
-            emptyText="Chưa có file nào. Nếu đầu việc cần bằng chứng, hãy upload ở trên."
+            emptyText="Chưa có file hoặc link nào. Nếu đầu việc cần bằng chứng, hãy nộp ở trên."
+            allowVersionDelete
+            onVersionDeleted={(deletedFile, result) => {
+              onStepVersionDeleted(deletedFile, result)
+              onRefreshFileList()
+            }}
           />
         </AccordionSection>
 
@@ -1961,6 +2039,7 @@ function AccordionSection({
   badge,
   open,
   onToggle,
+  allowOverflow = false,
   children,
 }: {
   id: DetailSection
@@ -1969,10 +2048,11 @@ function AccordionSection({
   badge?: string
   open: boolean
   onToggle: () => void
+  allowOverflow?: boolean
   children: React.ReactNode
 }) {
   return (
-    <section style={accordionSectionStyle}>
+    <section style={allowOverflow ? { ...accordionSectionStyle, overflow: 'visible' } : accordionSectionStyle}>
       <button type="button" onClick={onToggle} style={accordionHeaderStyle}>
         <span style={accordionChevronStyle(open)}>
           <i className="ti ti-chevron-right" />
@@ -2147,7 +2227,7 @@ function StepCard({
           <span>Người duyệt: <strong>{people[step.reviewerId ?? '']?.full_name ?? 'Chưa gắn'}</strong></span>
         <span title={step.dueDate ? toFullDate(step.dueDate) : undefined}>Deadline: <strong>{step.dueDate ? formatDeadlineLabel(step.dueDate, step.status) : 'Chưa có'}</strong></span>
           <span>Bắt buộc: <strong>{step.isRequired ? 'Có' : 'Không'}</strong></span>
-          <span>File/báo cáo: <strong>{deliverableStatusLabel(step)}</strong></span>
+          <span>File/Link kết quả: <strong>{deliverableStatusLabel(step)}</strong></span>
         </div>
 
         {editing ? (
@@ -2166,7 +2246,7 @@ function StepCard({
               {step.status === 'COMPLETED' ? 'Mở lại' : nextQuickStatus === 'COMPLETED' ? 'Đánh dấu xong' : 'Bắt đầu'}
             </GhostButton>
             <GhostButton icon="ti-upload" onClick={onUpload}>
-              {step.deliverableId ? 'Tải file cho bước này' : 'Tạo bàn giao & tải file'}
+              {step.deliverableId ? 'Nộp file/link cho bước này' : 'Tạo bàn giao & nộp file/link'}
             </GhostButton>
             <GhostButton icon="ti-pencil" onClick={onEdit}>Sửa</GhostButton>
             <IconButton label="Xóa bước" icon="ti-trash" tone="danger" onClick={onDelete} />
@@ -4345,24 +4425,41 @@ function EvidenceFileList({
   people,
   workspaceId,
   emptyText,
+  allowVersionDelete = false,
+  onVersionDeleted,
 }: {
   files: AttachmentItem[]
   people: Record<string, CommandCenterPersonRow>
   workspaceId?: string
   emptyText: string
+  allowVersionDelete?: boolean
+  onVersionDeleted?: (file: AttachmentItem, result: VersionDeleteResult) => void
 }) {
   const [resolvingIds, setResolvingIds] = React.useState<Record<string, boolean>>({})
   const [resolvedUrls, setResolvedUrls] = React.useState<Record<string, string>>({})
   const [openErrors, setOpenErrors] = React.useState<Record<string, string>>({})
+  const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
+  const [deletingId, setDeletingId] = React.useState<string | null>(null)
+  const [hiddenIds, setHiddenIds] = React.useState<Record<string, boolean>>({})
+  const [notice, setNotice] = React.useState('')
+
+  async function getResolvedFileUrl(file: AttachmentItem) {
+    const existing = resolvedUrls[file.id] ?? file.url
+    if (existing) return existing
+    if (!workspaceId) return null
+    const url = await resolveDeliverableVersionOpenUrl(workspaceId, file)
+    if (url) setResolvedUrls((current) => ({ ...current, [file.id]: url }))
+    return url
+  }
 
   async function openResolvedFile(file: AttachmentItem) {
-    if (!workspaceId) return
     setResolvingIds((current) => ({ ...current, [file.id]: true }))
     setOpenErrors((current) => ({ ...current, [file.id]: '' }))
+    setMenuOpenId(null)
     try {
-      const url = await resolveDeliverableVersionOpenUrl(workspaceId, file)
+      const url = await getResolvedFileUrl(file)
       if (!url) throw new Error('Bàn giao này chưa có file/link đính kèm.')
-      setResolvedUrls((current) => ({ ...current, [file.id]: url }))
       window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
       setOpenErrors((current) => ({
@@ -4374,69 +4471,186 @@ function EvidenceFileList({
     }
   }
 
-  if (!files.length) return <div style={emptyInline}>{emptyText}</div>
+  async function copyExternalLink(file: AttachmentItem) {
+    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
+    setMenuOpenId(null)
+    try {
+      const url = await getResolvedFileUrl(file)
+      if (!url) throw new Error('Link này chưa có URL để copy.')
+      await navigator.clipboard.writeText(url)
+      setNotice(`Đã copy link: ${file.name}`)
+    } catch (err) {
+      setOpenErrors((current) => ({
+        ...current,
+        [file.id]: err instanceof Error ? err.message : 'Không copy được link.',
+      }))
+    }
+  }
+
+  async function deleteEvidenceVersion(file: AttachmentItem) {
+    if (!workspaceId || !file.deliverableId || !file.versionId) return
+    setDeletingId(file.id)
+    setNotice('')
+    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
+    try {
+      const response = await fetch('/api/deliverables', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          deliverableId: file.deliverableId,
+          versionId: file.versionId,
+          action: 'deleteVersion',
+          reason: 'Xóa tài liệu upload nhầm từ Step Document Management.',
+        }),
+      })
+      const payload = await readJsonResponse<VersionDeleteResult & { error?: string }>(response, 'Không xóa được tài liệu.')
+      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xóa được tài liệu.')
+
+      setHiddenIds((current) => ({ ...current, [file.id]: true }))
+      setMenuOpenId(null)
+      setNotice(`Đã xóa ${file.name}${file.versionNumber ? ` · Version ${file.versionNumber}` : ''}`)
+      onVersionDeleted?.(file, payload)
+    } catch (err) {
+      setOpenErrors((current) => ({
+        ...current,
+        [file.id]: err instanceof Error ? err.message : 'Không xóa được tài liệu.',
+      }))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const visibleFiles = files.filter((file) => !hiddenIds[file.id])
+  if (!visibleFiles.length) {
+    return (
+      <div>
+        {notice ? <div style={evidenceFileNoticeStyle}>{notice}</div> : null}
+        <div style={emptyInline}>{emptyText}</div>
+      </div>
+    )
+  }
 
   return (
-    <div style={evidenceFileStackStyle}>
-      {files.map((file) => {
-        const submitter = file.submittedBy ? people[file.submittedBy] : null
-        const meta = [
-          file.status ? getEvidenceFileStatusLabel(file.status) : null,
-          file.versionNumber ? `Version ${file.versionNumber}` : null,
-          file.mimeType ? getEvidenceFileTypeLabel(file.name, file.mimeType) : null,
-          file.submittedAt ? `Nộp lúc ${formatDateTime(file.submittedAt)}` : null,
-          submitter ? `bởi ${submitter.full_name}` : null,
-        ].filter(Boolean).join(' · ')
+    <>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget) void deleteEvidenceVersion(deleteTarget)
+        }}
+        title="Xóa tài liệu?"
+        message={deleteTarget
+          ? `Bạn có chắc muốn xóa tài liệu "${deleteTarget.name}"${deleteTarget.versionNumber ? `, Version ${deleteTarget.versionNumber}` : ''}? Hành động này chỉ áp dụng với tài liệu chưa được duyệt, không xóa lịch sử và không Hard Delete.`
+          : ''}
+        confirmLabel="Xóa"
+        danger
+      />
+      {notice ? <div style={evidenceFileNoticeStyle}>{notice}</div> : null}
+      <div style={evidenceFileStackStyle}>
+        {visibleFiles.map((file) => {
+          const submitter = file.submittedBy ? people[file.submittedBy] : null
+          const meta = [
+            file.status ? getEvidenceFileStatusLabel(file.status) : null,
+            file.versionNumber ? `Version ${file.versionNumber}` : null,
+            file.mimeType ? getEvidenceFileTypeLabel(file.name, file.mimeType) : null,
+            file.submittedAt ? `Nộp lúc ${formatDateTime(file.submittedAt)}` : null,
+            submitter ? `bởi ${submitter.full_name}` : null,
+          ].filter(Boolean).join(' · ')
 
-        const isExternalLink = file.mimeType === 'external_url'
-        const actionLabel = isExternalLink ? 'Mở link' : 'Mở file'
-        const resolvedUrl = resolvedUrls[file.id] ?? file.url
-        const canResolveOnDemand = Boolean(!resolvedUrl && workspaceId && file.deliverableId && (file.versionId || file.attachmentId))
-        const canOpen = Boolean(resolvedUrl || canResolveOnDemand)
-        const isResolving = Boolean(resolvingIds[file.id])
-        const openError = openErrors[file.id]
-        const content = (
-          <>
-            <i className={`ti ${isExternalLink ? 'ti-link' : 'ti-paperclip'}`} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={evidenceFileNameStyle}>{file.name}</div>
-              {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
-              {openError ? <div style={evidenceFileErrorStyle}>{openError}</div> : null}
-            </div>
-            {canOpen ? (
-              <span style={evidenceFileActionStyle}>{isResolving ? 'Đang mở...' : actionLabel} <i className="ti ti-external-link" /></span>
-            ) : (
-              <span style={evidenceFileUnavailableStyle}>Không có file/link đính kèm</span>
-            )}
-          </>
-        )
+          const isExternalLink = file.mimeType === 'external_url'
+          const actionLabel = isExternalLink ? 'Mở link' : 'Mở file'
+          const resolvedUrl = resolvedUrls[file.id] ?? file.url
+          const canResolveOnDemand = Boolean(!resolvedUrl && workspaceId && file.deliverableId && (file.versionId || file.attachmentId))
+          const canOpen = Boolean(resolvedUrl || canResolveOnDemand)
+          const isResolving = Boolean(resolvingIds[file.id])
+          const isDeleting = deletingId === file.id
+          const openError = openErrors[file.id]
+          const menuOpen = menuOpenId === file.id
+          const approved = normalizeVersionReviewStatus(file.status) === 'APPROVED'
+          const hasVersionTarget = Boolean(workspaceId && file.deliverableId && file.versionId)
+          const deleteDisabled = approved || !hasVersionTarget || isDeleting
+          const deleteTooltip = approved
+            ? 'Version đã duyệt không thể xóa.'
+            : !hasVersionTarget
+              ? 'Tài liệu này chưa có version hợp lệ để xóa.'
+              : 'Xóa tài liệu upload nhầm.'
+          const content = (
+            <>
+              <i className={`ti ${isExternalLink ? 'ti-link' : 'ti-paperclip'}`} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={evidenceFileNameStyle}>{file.name}</div>
+                {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
+                {openError ? <div style={evidenceFileErrorStyle}>{openError}</div> : null}
+              </div>
+              {canOpen ? (
+                <span style={evidenceFileActionStyle}>{isResolving ? 'Đang mở...' : actionLabel} <i className="ti ti-external-link" /></span>
+              ) : (
+                <span style={evidenceFileUnavailableStyle}>Không có file/link đính kèm</span>
+              )}
+            </>
+          )
 
-        if (resolvedUrl) {
-          return (
-            <a key={file.id} href={resolvedUrl} target="_blank" rel="noopener noreferrer" style={fileRowStyle}>
+          const openControl = resolvedUrl ? (
+            <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" style={{ ...fileRowStyle, flex: 1, minWidth: 0 }}>
               {content}
             </a>
-          )
-        }
-
-        if (canResolveOnDemand) {
-          return (
-            <button key={file.id} type="button" onClick={() => void openResolvedFile(file)} disabled={isResolving} style={fileRowButtonStyle(isResolving)}>
+          ) : canResolveOnDemand ? (
+            <button type="button" onClick={() => void openResolvedFile(file)} disabled={isResolving} style={{ ...fileRowButtonStyle(isResolving), flex: 1, minWidth: 0 }}>
               {content}
             </button>
+          ) : (
+            <div style={{ ...fileRowStyle, flex: 1, minWidth: 0 }}>{content}</div>
           )
-        }
 
-        return (
-          <div key={file.id} style={fileRowStyle}>
-            {content}
-          </div>
-        )
-      })}
-    </div>
+          return (
+            <div key={file.id} style={evidenceFileRowShellStyle}>
+              {openControl}
+              {allowVersionDelete ? (
+                <div style={evidenceFileMenuWrapStyle}>
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpenId(menuOpen ? null : file.id)}
+                    aria-label={`Mở menu tài liệu ${file.name}`}
+                    aria-expanded={menuOpen}
+                    disabled={isDeleting}
+                    style={evidenceFileMenuButtonStyle}
+                  >
+                    {isDeleting ? <i className="ti ti-loader-2" /> : <i className="ti ti-dots" />}
+                  </button>
+                  {menuOpen ? (
+                    <div style={evidenceFileMenuPanelStyle}>
+                      <button type="button" onClick={() => void openResolvedFile(file)} disabled={!canOpen || isResolving} style={evidenceFileMenuItemStyle(!canOpen || isResolving)}>
+                        <i className={`ti ${isExternalLink ? 'ti-external-link' : 'ti-eye'}`} /> {actionLabel}
+                      </button>
+                      {isExternalLink ? (
+                        <button type="button" onClick={() => void copyExternalLink(file)} disabled={!canOpen} style={evidenceFileMenuItemStyle(!canOpen)}>
+                          <i className="ti ti-copy" /> Copy Link
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpenId(null)
+                          if (!deleteDisabled) setDeleteTarget(file)
+                        }}
+                        disabled={deleteDisabled}
+                        title={deleteTooltip}
+                        style={evidenceFileDeleteItemStyle(deleteDisabled)}
+                      >
+                        <i className="ti ti-trash" /> Xóa tài liệu
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
-
 async function resolveDeliverableVersionOpenUrl(workspaceId: string, file: AttachmentItem) {
   if (file.url) return file.url
   if (!file.deliverableId) return null
@@ -9333,6 +9547,85 @@ function fileRowButtonStyle(disabled: boolean): React.CSSProperties {
   }
 }
 
+const evidenceFileRowShellStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) 36px',
+  gap: 6,
+  alignItems: 'start',
+}
+
+const evidenceFileMenuWrapStyle: React.CSSProperties = {
+  position: 'relative',
+}
+
+const evidenceFileMenuButtonStyle: React.CSSProperties = {
+  width: 36,
+  height: 36,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 10,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-2)',
+  color: 'var(--txt)',
+  cursor: 'pointer',
+  fontSize: 17,
+}
+
+const evidenceFileMenuPanelStyle: React.CSSProperties = {
+  position: 'absolute',
+  zIndex: 30,
+  top: 40,
+  right: 0,
+  minWidth: 185,
+  padding: 6,
+  borderRadius: 10,
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+  boxShadow: '0 14px 34px rgba(0,0,0,.24)',
+}
+
+function evidenceFileMenuItemStyle(disabled = false): React.CSSProperties {
+  return {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 9px',
+    border: 0,
+    borderRadius: 7,
+    background: 'transparent',
+    color: disabled ? 'var(--muted)' : 'var(--txt)',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.55 : 1,
+    font: 'inherit',
+    fontSize: 12,
+    fontWeight: 750,
+    textAlign: 'left',
+  }
+}
+
+function evidenceFileDeleteItemStyle(disabled = false): React.CSSProperties {
+  return {
+    ...evidenceFileMenuItemStyle(disabled),
+    color: disabled ? 'var(--muted)' : 'var(--danger)',
+    borderTop: '1px solid var(--line)',
+    borderRadius: 0,
+    marginTop: 4,
+    paddingTop: 10,
+  }
+}
+
+const evidenceFileNoticeStyle: React.CSSProperties = {
+  marginBottom: 8,
+  padding: '8px 10px',
+  borderRadius: 9,
+  border: '1px solid rgba(52,148,92,.28)',
+  background: 'rgba(52,148,92,.1)',
+  color: 'var(--success)',
+  fontSize: 12,
+  fontWeight: 750,
+}
 const evidenceFileStackStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',

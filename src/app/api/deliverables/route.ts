@@ -17,6 +17,7 @@ import { buildExternalLinkChangeNote, normalizeExternalSubmissionUrl } from '@/l
 import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   canCreateDeliverable,
+  canDeleteDeliverableVersionInWorkspace,
   canSubmitDeliverableFileOrLink,
   getDeliverableReviewPermission,
   canSubmitToDeliverable,
@@ -1355,8 +1356,16 @@ export async function PATCH(req: NextRequest) {
       const previousStatus = normalizeVersionReviewStatus(versionRes.data.review_status)
       if (previousStatus === 'APPROVED') return jsonError('Không thể xóa version đã duyệt.', 400)
       if (isVersionInvalid(previousStatus)) return jsonError('Version này đã được xử lý trước đó.', 400)
-      const canDeleteVersion = Boolean(context.personId && (versionRes.data.submitted_by === context.personId || deliverable.reviewer_id === context.personId))
-      if (!canDeleteVersion) return jsonError('Chỉ người nộp hoặc người duyệt có thể xóa version này.', 403)
+      const canDeleteVersion = deliverable.step_id
+        ? await canDeleteDeliverableVersionInWorkspace(context.actor, context.workspaceId, deliverableId, {
+            submittedBy: versionRes.data.submitted_by,
+            reviewStatus: previousStatus,
+          })
+        : Boolean(context.personId && (
+            versionRes.data.submitted_by === context.personId ||
+            deliverable.reviewer_id === context.personId
+          ))
+      if (!canDeleteVersion) return jsonError('Bạn không có quyền xóa version này.', 403)
 
       await markVersionLifecycleStatus({
         client,
@@ -1368,9 +1377,14 @@ export async function PATCH(req: NextRequest) {
         reason,
         action: 'deliverable.version.deleted_soft',
       })
-      await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
+      const deliverableState = await recomputeDeliverableStatus(client, context.workspaceId, context.personId, deliverableId)
       const taskSync = await syncTaskAfterDeliverableReview(client, context.workspaceId, deliverableId)
-      return NextResponse.json({ ok: true, taskSync })
+      return NextResponse.json({
+        ok: true,
+        taskSync,
+        deliverableStatus: deliverableState.status,
+        approvedVersionId: deliverableState.approvedVersionId,
+      })
     }
 
     if (action === 'markVersionMistake' || action === 'supersedeVersion') {
