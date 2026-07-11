@@ -9,9 +9,11 @@ import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
 import { readJsonResponse } from '@/lib/api/readJsonResponse'
-import type { VersionReviewStatus } from '@/lib/deliverableVersionStatus'
+import { isVersionInvalid, type VersionReviewStatus } from '@/lib/deliverableVersionStatus'
+import { externalLinkDisplayName } from '@/lib/files/externalLinks'
 import type {
   CommandCenterDeliverableRow,
+  CommandCenterDeliverableVersionRow,
   CommandCenterProjectRow,
   CommandCenterTaskRow,
   CommandCenterTaskStepRow,
@@ -102,6 +104,22 @@ export default function DeliverablesPage() {
   const selectedIdRef = React.useRef<string | null>(null)
 
   const deliverables = React.useMemo(() => data?.deliverables ?? [], [data?.deliverables])
+  const versionsByDeliverable = React.useMemo(() => {
+    const grouped: Record<string, CommandCenterDeliverableVersionRow[]> = {}
+
+    for (const version of data?.deliverableVersions ?? []) {
+      if (isVersionInvalid(version.review_status)) continue
+      const versions = grouped[version.deliverable_id] ?? []
+      versions.push(version)
+      grouped[version.deliverable_id] = versions
+    }
+
+    for (const versions of Object.values(grouped)) {
+      versions.sort((a, b) => b.version_number - a.version_number)
+    }
+
+    return grouped
+  }, [data?.deliverableVersions])
   const people = React.useMemo(() => data?.people ?? [], [data?.people])
   const tasks = React.useMemo(() => data?.tasks ?? [], [data?.tasks])
   const steps = React.useMemo(() => data?.taskSteps ?? [], [data?.taskSteps])
@@ -433,6 +451,7 @@ export default function DeliverablesPage() {
                 people={peopleById}
                 tasks={tasksById}
                 projects={projectsById}
+                versions={versionsByDeliverable[item.id] ?? []}
                 onOpen={() => openDeliverable(item.id)}
                 onRemind={() => void prepareReminder(item)}
               />
@@ -500,6 +519,7 @@ function DeliverableRow({
   people,
   tasks,
   projects,
+  versions,
   onOpen,
   onRemind,
 }: {
@@ -510,6 +530,7 @@ function DeliverableRow({
   people: Record<string, { full_name: string }>
   tasks: Record<string, CommandCenterTaskRow>
   projects: Record<string, CommandCenterProjectRow>
+  versions: CommandCenterDeliverableVersionRow[]
   onOpen: () => void
   onRemind: () => void
 }) {
@@ -526,6 +547,13 @@ function DeliverableRow({
         <div style={fileIcon}><i className="ti ti-file-text" /></div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={itemTitle}>{item.name}</div>
+          <div style={versionListStyle}>
+            {versions.length ? versions.map((version) => (
+              <VersionPreview key={version.id} version={version} onOpenFileDetail={onOpen} />
+            )) : (
+              <VersionPreview version={null} onOpenFileDetail={onOpen} />
+            )}
+          </div>
           <div style={itemMeta}>
             <span>Nộp: {owner?.full_name ?? 'Chưa gắn'}</span>
             <span>Kiểm tra: {reviewer?.full_name ?? 'Chưa gắn'}</span>
@@ -540,6 +568,41 @@ function DeliverableRow({
           <button type="button" onClick={onOpen} style={primarySmallButtonStyle}>Mở chi tiết</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function VersionPreview({
+  version,
+  onOpenFileDetail,
+}: {
+  version: CommandCenterDeliverableVersionRow | null
+  onOpenFileDetail: () => void
+}) {
+  if (!version) return <div style={noVersionStyle}>Chưa có version đã nộp</div>
+
+  return (
+    <div style={versionPreviewStyle}>
+      <span style={versionBadgeStyle}>Version {version.version_number}</span>
+      {version.external_url ? (
+        <a
+          href={version.external_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={version.external_url}
+          style={versionLinkStyle}
+        >
+          <i className="ti ti-link" />
+          <span style={versionLinkTextStyle}>{externalLinkDisplayName(version.external_url, version.change_note)}</span>
+          <i className="ti ti-external-link" />
+        </a>
+      ) : version.attachment_id ? (
+        <button type="button" onClick={onOpenFileDetail} style={versionFileButtonStyle} title="Mở chi tiết để xem file">
+          <i className="ti ti-paperclip" /> File đã nộp
+        </button>
+      ) : (
+        <span style={missingAssetStyle}>Không có file/link đính kèm</span>
+      )}
     </div>
   )
 }
@@ -837,6 +900,14 @@ const rowWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column' 
 const rowHeader = (accent: string): React.CSSProperties => ({ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', borderLeft: `3px solid ${accent}` })
 const fileIcon: React.CSSProperties = { width: 42, height: 42, borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontSize: 18, flexShrink: 0 }
 const itemTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: 'var(--color-text)' }
+const versionListStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 5, marginTop: 7, minWidth: 0 }
+const versionPreviewStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }
+const versionBadgeStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', flexShrink: 0, padding: '3px 8px', borderRadius: 'var(--radius-full)', background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', color: 'var(--color-text)', fontSize: 11, fontWeight: 800 }
+const versionLinkStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0, maxWidth: 'min(100%, 360px)', color: 'var(--color-lime-d)', fontSize: 12, fontWeight: 700, textDecoration: 'none' }
+const versionLinkTextStyle: React.CSSProperties = { display: 'block', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const versionFileButtonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: 0, border: 0, background: 'transparent', color: 'var(--color-lime-d)', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
+const noVersionStyle: React.CSSProperties = { marginTop: 6, color: 'var(--color-text-muted)', fontSize: 11 }
+const missingAssetStyle: React.CSSProperties = { color: 'var(--color-text-muted)', fontSize: 11 }
 const itemMeta: React.CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6, fontSize: 11, color: 'var(--color-text-muted)' }
 const badgeBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', padding: '4px 10px', borderRadius: 'var(--radius-full)', fontSize: 11, fontWeight: 700 }
 const primaryButtonStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(218,223,33,.4)', background: 'var(--color-lime)', color: 'var(--color-lime-ink)', fontSize: 12, fontWeight: 800, cursor: 'pointer' }
