@@ -1077,14 +1077,17 @@ export async function PATCH(req: NextRequest) {
     const guard = await guardDeliverableTargetWrite(req, context.workspaceId, deliverable)
     if (guard) return guard
     const isReviewAction = ['setReviewer', 'approve', 'requestRevision', 'reject', 'markMissing'].includes(action)
+    const isDeleteVersionAction = action === 'deleteVersion'
     const reviewPermission = isReviewAction
       ? await getDeliverableReviewPermission(context.actor, context.workspaceId, deliverableId)
       : null
     const allowed = reviewPermission
       ? reviewPermission.allowed
-      : action === 'submitLink'
-        ? canSubmitDeliverableFileOrLink(context.actor, context.workspaceId)
-        : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
+      : isDeleteVersionAction
+        ? true
+        : action === 'submitLink'
+          ? canSubmitDeliverableFileOrLink(context.actor, context.workspaceId)
+          : await canSubmitToDeliverable(context.actor, context.workspaceId, deliverableId, {
             projectId: deliverable.project_id,
             taskId: deliverable.task_id,
             stepId: deliverable.step_id,
@@ -1343,13 +1346,17 @@ export async function PATCH(req: NextRequest) {
 
       const versionRes = await client
         .from('deliverable_versions')
-        .select('id,version_number,review_status')
+        .select('id,version_number,review_status,submitted_by')
         .eq('id', versionId)
         .eq('deliverable_id', deliverableId)
         .maybeSingle()
       if (versionRes.error) return jsonError(versionRes.error.message, 500)
       if (!versionRes.data) return jsonError('Không tìm thấy version.', 404)
-      if (versionRes.data.review_status === 'APPROVED') return jsonError('Không thể xóa version đã duyệt.', 400)
+      const previousStatus = normalizeVersionReviewStatus(versionRes.data.review_status)
+      if (previousStatus === 'APPROVED') return jsonError('Không thể xóa version đã duyệt.', 400)
+      if (isVersionInvalid(previousStatus)) return jsonError('Version này đã được xử lý trước đó.', 400)
+      const canDeleteVersion = Boolean(context.personId && (versionRes.data.submitted_by === context.personId || deliverable.reviewer_id === context.personId))
+      if (!canDeleteVersion) return jsonError('Chỉ người nộp hoặc người duyệt có thể xóa version này.', 403)
 
       await markVersionLifecycleStatus({
         client,

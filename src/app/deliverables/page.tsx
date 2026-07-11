@@ -107,6 +107,7 @@ export default function DeliverablesPage() {
   const steps = React.useMemo(() => data?.taskSteps ?? [], [data?.taskSteps])
   const projects = React.useMemo(() => data?.projects ?? [], [data?.projects])
   const workspaceId = data?.workspaceId
+  const currentPersonId = data?.currentUser?.personId ?? null
   const today = getVietnamDateKey()
 
   const peopleById = React.useMemo(() => Object.fromEntries(people.map((person) => [person.id, person])), [people])
@@ -451,6 +452,7 @@ export default function DeliverablesPage() {
             loading={detailLoading}
             error={detailError}
             workspaceId={workspaceId}
+            currentPersonId={currentPersonId}
             people={peopleById}
             tasks={tasksById}
             projects={projectsById}
@@ -548,6 +550,7 @@ function DeliverableDetail({
   loading,
   error,
   workspaceId,
+  currentPersonId,
   people,
   tasks,
   projects,
@@ -569,6 +572,7 @@ function DeliverableDetail({
   loading: boolean
   error: string
   workspaceId?: string
+  currentPersonId: string | null
   people: Record<string, { full_name?: string; name?: string; messenger_url?: string | null }>
   tasks: Record<string, CommandCenterTaskRow>
   projects: Record<string, CommandCenterProjectRow>
@@ -656,6 +660,7 @@ function DeliverableDetail({
             refreshKey={detail?.versions?.length ?? 0}
             peopleById={people}
             reviewerId={item.reviewer_id}
+            currentPersonId={currentPersonId}
             requiresApproval
             onChanged={onUploaded}
           />

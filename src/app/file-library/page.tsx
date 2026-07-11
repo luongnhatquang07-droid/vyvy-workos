@@ -70,6 +70,7 @@ export default function FileLibraryPage() {
   const searchRef = React.useRef<HTMLInputElement>(null)
 
   const workspaceId = data?.workspaceId
+  const currentPersonId = data?.currentUser?.personId ?? null
   const today = getVietnamDateKey()
   const people = React.useMemo(() => data?.people ?? [], [data?.people])
   const projects = React.useMemo(() => data?.projects ?? [], [data?.projects])
@@ -342,6 +343,7 @@ export default function FileLibraryPage() {
             detailLoading={detailLoading}
             detailError={detailError}
             workspaceId={workspaceId}
+            currentPersonId={currentPersonId}
             submissionOpen={submissionOpen}
             onToggleSubmission={() => setSubmissionOpen((value) => !value)}
             onUploaded={() => void refreshAll()}
@@ -707,6 +709,7 @@ function DetailPanel({
   detailLoading,
   detailError,
   workspaceId,
+  currentPersonId,
   submissionOpen,
   onToggleSubmission,
   onUploaded,
@@ -724,6 +727,7 @@ function DetailPanel({
   detailLoading: boolean
   detailError: string
   workspaceId?: string
+  currentPersonId: string | null
   submissionOpen: boolean
   onToggleSubmission: () => void
   onUploaded: () => void
@@ -844,6 +848,7 @@ function DetailPanel({
             refreshKey={detail?.versions?.length ?? 0}
             peopleById={peopleById}
             reviewerId={selected.reviewer_id}
+            currentPersonId={currentPersonId}
             requiresApproval
             onChanged={onUploaded}
           />

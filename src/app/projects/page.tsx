@@ -1319,6 +1319,7 @@ function ProjectsPageContent() {
           people={people}
           assignablePeople={assignablePeople}
           workspaceId={workspaceId}
+          currentPersonId={currentPersonId}
           activeUploadStep={activeUploadStep}
           openSections={openDetailSections}
           fileRefreshKey={fileRefreshKey}
@@ -1681,6 +1682,7 @@ function SubtaskCompactDetail({
   people,
   assignablePeople,
   workspaceId,
+  currentPersonId,
   activeUploadStep,
   openSections,
   fileRefreshKey,
@@ -1701,6 +1703,7 @@ function SubtaskCompactDetail({
   people: Record<string, CommandCenterPersonRow>
   assignablePeople: CommandCenterPersonRow[]
   workspaceId?: string
+  currentPersonId: string | null
   activeUploadStep: StepItem | null
   openSections: DetailSection[]
   fileRefreshKey: number
@@ -1856,6 +1859,7 @@ function SubtaskCompactDetail({
               taskId={subtask.sourceTaskId ?? undefined}
               deliverableId={activeUploadStep.deliverableId}
               reviewerId={activeUploadStep.deliverableReviewerId ?? activeUploadStep.reviewerId}
+              currentPersonId={currentPersonId}
               requiresApproval={activeUploadStep.deliverableRequiresApproval || Boolean(activeUploadStep.deliverableId)}
               refreshKey={fileRefreshKey}
               peopleById={peopleById}

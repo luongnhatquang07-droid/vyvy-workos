@@ -3,6 +3,7 @@
 import React from 'react'
 import {
   isVersionInvalid,
+  isVersionPending,
   normalizeVersionReviewStatus,
   versionReviewLabel,
   versionReviewTone,
@@ -53,6 +54,7 @@ interface FileListProps {
   taskId?: string
   deliverableId?: string
   reviewerId?: string | null
+  currentPersonId?: string | null
   requiresApproval?: boolean
   refreshKey?: number
   peopleById?: Record<string, { full_name?: string; name?: string }>
@@ -65,6 +67,8 @@ interface ReasonDialogState {
   defaultReason: string
   confirmLabel: string
   onConfirm: (reason: string) => void
+  hideReasonInput?: boolean
+  tone?: 'danger' | 'primary'
 }
 
 function formatBytes(bytes: number | null | undefined) {
@@ -112,6 +116,7 @@ export function FileList({
   taskId,
   deliverableId,
   reviewerId,
+  currentPersonId,
   requiresApproval = Boolean(deliverableId),
   refreshKey,
   peopleById = {},
@@ -196,7 +201,7 @@ export function FileList({
 
   function confirmReasonDialog() {
     if (!reasonDialog) return
-    const reason = reasonInput.trim()
+    const reason = reasonDialog.hideReasonInput ? reasonDialog.defaultReason.trim() : reasonInput.trim()
     if (!reason) {
       setError('Vui lòng nhập lý do trước khi xác nhận.')
       return
@@ -210,6 +215,7 @@ export function FileList({
     versionId: string,
     action: 'deleteVersion' | 'markVersionMistake' | 'supersedeVersion',
     reason: string,
+    successMessage?: string,
   ) {
     if (!workspaceId || !deliverableId) return
     setDeletingId(versionId)
@@ -225,7 +231,7 @@ export function FileList({
       const payload = await readJsonResponse<{ error?: string }>(response, 'Không xử lý được yêu cầu.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xử lý được version.')
       await loadFiles()
-      setNotice('Đã cập nhật trạng thái version.')
+      setNotice(successMessage ?? 'Đã cập nhật trạng thái version.')
       onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không xử lý được version.')
@@ -282,14 +288,44 @@ export function FileList({
     })
   }
 
-  function deleteVersion(versionId: string) {
+  function deleteVersion(version: VersionItem, activeVersionCount: number) {
+    const status = normalizeVersionReviewStatus(version.review_status)
+    const warnings = [
+      activeVersionCount <= 1 ? 'Đây là version cuối cùng.' : '',
+      isVersionPending(status) ? 'Version đang chờ duyệt.' : '',
+    ].filter(Boolean)
     openReasonDialog({
-      title: 'Xóa/hủy version chưa duyệt',
-      description: 'Version được giữ audit log và không còn tính là hợp lệ.',
-      defaultReason: 'Up nhầm file',
-      confirmLabel: 'Xác nhận hủy',
-      onConfirm: (reason) => void runVersionLifecycleAction(versionId, 'deleteVersion', reason),
+      title: 'Xóa version này?',
+      description: [
+        `Version ${version.version_number} sẽ được đánh dấu đã xóa. Bạn có thể dùng version khác hoặc upload version mới.`,
+        ...warnings,
+      ].join(' '),
+      defaultReason: 'Xóa version upload nhầm từ menu tài liệu.',
+      confirmLabel: 'Xóa',
+      hideReasonInput: true,
+      tone: 'danger',
+      onConfirm: (reason) => void runVersionLifecycleAction(version.id, 'deleteVersion', reason, `Đã xóa Version ${version.version_number}`),
     })
+  }
+
+  function getDeleteVersionState(version: VersionItem, activeVersionCount: number) {
+    const status = normalizeVersionReviewStatus(version.review_status)
+    if (isVersionInvalid(status)) {
+      return { disabled: true, tooltip: 'Version này đã được xử lý trước đó.' }
+    }
+    if (status === 'APPROVED') {
+      return { disabled: true, tooltip: 'Version đã duyệt không thể xóa.' }
+    }
+    const isOwner = Boolean(currentPersonId && version.submitted_by === currentPersonId)
+    const isReviewer = Boolean(currentPersonId && effectiveReviewerId === currentPersonId)
+    if (!isOwner && !isReviewer) {
+      return { disabled: true, tooltip: 'Chỉ owner hoặc người duyệt có thể xóa.' }
+    }
+    const warnings = [
+      activeVersionCount <= 1 ? 'Đây là version cuối cùng.' : '',
+      isVersionPending(status) ? 'Version đang chờ duyệt.' : '',
+    ].filter(Boolean).join(' ')
+    return { disabled: false, tooltip: warnings || 'Xóa version upload nhầm.' }
   }
 
   function markVersionMistake(versionId: string) {
@@ -395,6 +431,8 @@ export function FileList({
   if (deliverableId) {
     if (!versions.length) return <div style={mutedText}>Chưa có version nào. Hãy nộp file hoặc gắn link.</div>
 
+    const activeVersionCount = versions.filter((item) => !isVersionInvalid(normalizeVersionReviewStatus(item.review_status))).length
+
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {reasonDialog ? (
@@ -406,10 +444,11 @@ export function FileList({
               onChange={(event) => setReasonInput(event.target.value)}
               placeholder="Nhập lý do..."
               style={reasonInputStyle}
+              hidden={reasonDialog.hideReasonInput}
             />
             <div style={reasonDialogActionStyle}>
               <button type="button" onClick={closeReasonDialog} style={secondaryButtonStyle}>Hủy</button>
-              <button type="button" onClick={confirmReasonDialog} style={primaryButtonStyle}>{reasonDialog.confirmLabel}</button>
+              <button type="button" onClick={confirmReasonDialog} style={reasonDialog.tone === 'danger' ? dangerConfirmButtonStyle : primaryButtonStyle}>{reasonDialog.confirmLabel}</button>
             </div>
           </div>
         ) : null}
@@ -453,6 +492,7 @@ export function FileList({
           const needsRevision = status === 'REVISION_REQUESTED' || status === 'REJECTED'
           const menuOpen = menuOpenId === version.id
           const busy = deletingId === version.id || replacingId === version.id
+          const deleteState = getDeleteVersionState(version, activeVersionCount)
 
           return (
             <div key={version.id} style={versionRowStyle(invalid)}>
@@ -492,7 +532,7 @@ export function FileList({
                         <>
                           <a href={url} target="_blank" rel="noopener noreferrer" style={menuItemStyle}>
                             <i className={`ti ${isExternalLink ? 'ti-external-link' : 'ti-eye'}`} />
-                            {isExternalLink ? 'Mở link' : 'Xem file'}
+                            {isExternalLink ? 'Mở link' : 'Mở file'}
                           </a>
                           {!isExternalLink ? (
                             <a href={url} download style={menuItemStyle}>
@@ -524,6 +564,10 @@ export function FileList({
                             <i className="ti ti-replace" />
                             Đánh dấu đã thay thế
                           </button>
+                          <button type="button" disabled title={deleteState.tooltip} style={disabledDangerMenuItemStyle}>
+                            <i className="ti ti-trash" />
+                            Xóa version
+                          </button>
                         </>
                       ) : null}
                       {!invalid && !approved ? (
@@ -552,7 +596,13 @@ export function FileList({
                             <i className="ti ti-alert-circle" />
                             Đánh dấu up nhầm
                           </button>
-                          <button type="button" onClick={() => void deleteVersion(version.id)} style={dangerMenuItemStyle}>
+                          <button
+                            type="button"
+                            onClick={() => deleteState.disabled ? undefined : void deleteVersion(version, activeVersionCount)}
+                            disabled={deleteState.disabled}
+                            title={deleteState.tooltip}
+                            style={deleteState.disabled ? disabledDangerMenuItemStyle : dangerMenuItemStyle}
+                          >
                             <i className="ti ti-trash" />
                             Xóa version
                           </button>
@@ -861,6 +911,19 @@ const menuItemStyle: React.CSSProperties = {
 const dangerMenuItemStyle: React.CSSProperties = {
   ...menuItemStyle,
   color: 'var(--color-danger)',
+}
+
+const disabledDangerMenuItemStyle: React.CSSProperties = {
+  ...dangerMenuItemStyle,
+  opacity: 0.45,
+  cursor: 'not-allowed',
+}
+
+const dangerConfirmButtonStyle: React.CSSProperties = {
+  ...primaryButtonStyle,
+  border: '1px solid rgba(184,64,64,.38)',
+  background: 'var(--color-danger)',
+  color: '#fff',
 }
 
 const loaderStyle: React.CSSProperties = {
