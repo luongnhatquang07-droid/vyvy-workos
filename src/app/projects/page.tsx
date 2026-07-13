@@ -6,7 +6,7 @@ import { Drawer } from '@/components/feedback/Drawer'
 import { ConfirmDialog } from '@/components/feedback/Modal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
-import { FileUpload } from '@/components/ui/FileUpload'
+import { FileUpload, type UploadedFile } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
 import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { getVietnamDateKey } from '@/features/command-center/utils'
@@ -387,7 +387,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const FLOWCHART_MAX_ZOOM = 1.5
 const FLOWCHART_ZOOM_LEVELS = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const
 const FLOWCHART_STEP_GROUP_THRESHOLD = 8
-const FLOWCHART_GROUP_STEP_PREVIEW_LIMIT = 10
+const FLOWCHART_WORKFLOW_STEP_PREVIEW_LIMIT = 12
+const STEP_FILE_PREVIEW_LIMIT = 2
 const FLOWCHART_PROJECT_COLOR = '#DADF21'
 const FLOWCHART_BRANCH_COLORS = ['#DADF21', '#55C7B9', '#F3A83B', '#8EA7FF', '#F472B6', '#A3D977', '#FB7185', '#38BDF8']
 const FLOWCHART_LAYOUT_PADDING_X = 72
@@ -554,7 +555,7 @@ function ProjectsPageContent() {
   const workspaceLoading = loading && !ready && !error
   const metricValue = (value: number) => (workspaceLoading || error ? '—' : value)
   const selectedUploadStep = selectedSubtask?.steps.find((step) => step.id === activeUploadStepId) ?? null
-  const activeUploadStep = selectedUploadStep?.deliverableId ? selectedUploadStep : null
+  const activeUploadStep = selectedUploadStep
   const editContext = editTarget ? resolveEditContext(workspace, editTarget) : null
   const currentPersonId = data?.currentUser?.personId ?? null
   const currentRole = data?.currentUser?.role ?? null
@@ -739,6 +740,11 @@ function ProjectsPageContent() {
   }
 
   async function openStepUpload(subtaskId: string, stepId: string) {
+    if (activeUploadStepId === stepId) {
+      setActiveUploadStepId(null)
+      return
+    }
+
     if (!selectedProject) return
     const subtask = findSubtask(selectedProject, subtaskId)
     const step = subtask?.steps.find((item) => item.id === stepId)
@@ -788,8 +794,8 @@ function ProjectsPageContent() {
     }
 
     setActiveUploadStepId(stepId)
-    openSubtaskSection('files')
-    showToast('Đã mở khu File/Link bàn giao cho bước.')
+    openSubtaskSection('workflow')
+    showToast('Đã mở khu nộp File/Link ngay tại bước.')
   }
 
   function toggleSubtaskSection(section: DetailSection) {
@@ -1793,12 +1799,32 @@ function SubtaskCompactDetail({
   const blockers = getCompletionBlockers(subtask)
   const workflowSummary = getWorkflowSummary(subtask)
   const fileSummary = getFileSummary(subtask)
+  const fileGroups = getSubtaskFileGroups(subtask)
   const deadlineSummary = getDeadlineSummary(subtask)
-  const peopleById = React.useMemo(
-    () => Object.fromEntries(Object.values(people).map((person) => [person.id, { full_name: person.full_name }])),
-    [people],
-  )
+
   const peopleOptions = React.useMemo(() => Object.values(people), [people])
+
+  function handleUploadedFile(file: UploadedFile, step: StepItem | null) {
+    onUpdateAttachments([
+      {
+        id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
+        name: file.fileName,
+        url: file.url,
+        deliverableId: file.deliverableId ?? step?.deliverableId ?? null,
+        versionId: file.versionId ?? null,
+        attachmentId: file.attachmentId ?? null,
+        stepId: step?.id ?? null,
+        mimeType: file.mimeType,
+        sizeBytes: file.fileSize,
+        status: file.versionId ? 'PENDING_REVIEW' : undefined,
+        submittedBy: currentPersonId,
+        submittedAt: new Date().toISOString(),
+        versionNumber: file.versionNumber ?? null,
+      },
+      ...subtask.attachments,
+    ])
+    onFilesChanged()
+  }
 
   return (
     <div style={compactDetailStack}>
@@ -1894,64 +1920,54 @@ function SubtaskCompactDetail({
           onToggle={() => onToggleSection('files')}
           allowOverflow
         >
-          <div style={fieldLabel}>
-            {activeUploadStep ? `Nộp file hoặc link cho bước: ${activeUploadStep.title}` : 'Nộp file hoặc link kết quả'}
-          </div>
+          <div style={fieldLabel}>Nộp file hoặc link bàn giao chung cho đầu việc con</div>
           <FileUpload
+            key={`subtask-${subtask.id}`}
             workspaceId={workspaceId}
             projectId={project.sourceProjectId ?? undefined}
             taskId={subtask.sourceTaskId ?? undefined}
-            deliverableId={activeUploadStep?.deliverableId ?? undefined}
             peopleOptions={peopleOptions}
-            defaultApproverId={activeUploadStep?.deliverableReviewerId ?? activeUploadStep?.reviewerId ?? project.reviewerId ?? project.ownerId}
-            requiresApproval={Boolean(activeUploadStep?.deliverableId)}
+            defaultApproverId={project.reviewerId ?? project.ownerId}
+            requiresApproval={false}
             allowLink
             compact
             label="Tải file hoàn thành, báo cáo, ảnh chụp, tài liệu"
-            onUploaded={(file) => {
-              onUpdateAttachments([
-                {
-                  id: file.attachmentId ?? file.versionId ?? file.url ?? `${Date.now()}`,
-                  name: file.fileName,
-                  url: file.url,
-                  deliverableId: file.deliverableId ?? activeUploadStep?.deliverableId ?? null,
-                  versionId: file.versionId ?? null,
-                  attachmentId: file.attachmentId ?? null,
-                  status: file.versionId ? 'PENDING_REVIEW' : undefined,
-                },
-                ...subtask.attachments,
-              ])
-              onFilesChanged()
-            }}
+            onUploaded={(file) => handleUploadedFile(file, null)}
           />
 
-          {activeUploadStep?.deliverableId ? (
-            <FileList
-              workspaceId={workspaceId}
-              projectId={project.sourceProjectId ?? undefined}
-              taskId={subtask.sourceTaskId ?? undefined}
-              deliverableId={activeUploadStep.deliverableId}
-              reviewerId={activeUploadStep.deliverableReviewerId ?? activeUploadStep.reviewerId}
-              currentPersonId={currentPersonId}
-              requiresApproval={activeUploadStep.deliverableRequiresApproval || Boolean(activeUploadStep.deliverableId)}
-              refreshKey={fileRefreshKey}
-              peopleById={peopleById}
-              onChanged={onFilesChanged}
-            />
-          ) : null}
-
-          <div style={fieldLabel}>File/Link đã gắn vào đầu việc</div>
-          <EvidenceFileList
-            files={subtask.attachments}
+          <div style={fieldLabel}>Kết quả bàn giao theo thứ tự bước</div>
+          <SubtaskStepEvidenceSummary
+            subtask={subtask}
+            filesByStepId={fileGroups.byStepId}
             people={people}
             workspaceId={workspaceId}
-            emptyText="Chưa có file hoặc link nào. Nếu đầu việc cần bằng chứng, hãy nộp ở trên."
             allowVersionDelete
             onVersionDeleted={(deletedFile, result) => {
               onStepVersionDeleted(deletedFile, result)
               onRefreshFileList()
             }}
           />
+
+          {fileGroups.shared.length ? (
+            <div style={sharedEvidenceGroupStyle}>
+              <div style={stepEvidenceSummaryHeaderStyle}>
+                <span style={stepEvidenceSummaryTitleStyle}>Chưa gắn bước</span>
+                <span style={mutedMetaStyle}>{fileGroups.shared.length} tài liệu</span>
+              </div>
+              <div style={mutedMetaStyle}>Bàn giao cũ hoặc bàn giao chung ở cấp đầu việc con. Không tự gán vào bước để tránh sai dữ liệu.</div>
+              <EvidenceFileList
+                files={fileGroups.shared}
+                people={people}
+                workspaceId={workspaceId}
+                emptyText="Chưa có bàn giao chung."
+                allowVersionDelete
+                onVersionDeleted={(deletedFile, result) => {
+                  onStepVersionDeleted(deletedFile, result)
+                  onRefreshFileList()
+                }}
+              />
+            </div>
+          ) : null}
         </AccordionSection>
 
         <AccordionSection
@@ -1964,8 +1980,20 @@ function SubtaskCompactDetail({
           <StepWorkflowPanel
             key={subtask.id}
             subtask={subtask}
+            project={project}
             people={people}
             assignablePeople={assignablePeople}
+            filesByStepId={fileGroups.byStepId}
+            workspaceId={workspaceId}
+            activeUploadStepId={activeUploadStep?.id ?? null}
+            currentPersonId={currentPersonId}
+            fileRefreshKey={fileRefreshKey}
+            onUploadedFile={handleUploadedFile}
+            onFilesChanged={onFilesChanged}
+            onVersionDeleted={(deletedFile, result) => {
+              onStepVersionDeleted(deletedFile, result)
+              onRefreshFileList()
+            }}
             onUpdateStep={onUpdateStep}
             onDeleteStep={onDeleteStep}
             onAddStep={onAddStep}
@@ -2070,8 +2098,17 @@ function AccordionSection({
 
 function StepWorkflowPanel({
   subtask,
+  project,
   people,
   assignablePeople,
+  filesByStepId,
+  workspaceId,
+  activeUploadStepId,
+  currentPersonId,
+  fileRefreshKey,
+  onUploadedFile,
+  onFilesChanged,
+  onVersionDeleted,
   onUpdateStep,
   onDeleteStep,
   onAddStep,
@@ -2079,8 +2116,17 @@ function StepWorkflowPanel({
   onEditStep,
 }: {
   subtask: SubtaskItem
+  project: ProjectWorkspace
   people: Record<string, CommandCenterPersonRow>
   assignablePeople: CommandCenterPersonRow[]
+  filesByStepId: Record<string, AttachmentItem[]>
+  workspaceId?: string
+  activeUploadStepId: string | null
+  currentPersonId: string | null
+  fileRefreshKey: number
+  onUploadedFile: (file: UploadedFile, step: StepItem | null) => void
+  onFilesChanged: () => void
+  onVersionDeleted: (file: AttachmentItem, result: VersionDeleteResult) => void
   onUpdateStep: (stepId: string, patch: Partial<StepItem>) => void
   onDeleteStep: (stepId: string) => void
   onAddStep: (draft: StepDraft) => void
@@ -2127,8 +2173,25 @@ function StepWorkflowPanel({
               key={step.id}
               index={index}
               step={step}
+              files={filesByStepId[step.id] ?? []}
               people={people}
               assignablePeople={assignablePeople}
+              workspaceId={workspaceId}
+              uploadOpen={activeUploadStepId === step.id}
+              uploadPanel={activeUploadStepId === step.id ? (
+                <StepInlineUploadPanel
+                  step={step}
+                  subtask={subtask}
+                  project={project}
+                  people={people}
+                  workspaceId={workspaceId}
+                  currentPersonId={currentPersonId}
+                  fileRefreshKey={fileRefreshKey}
+                  onUploaded={(file) => onUploadedFile(file, step)}
+                  onFilesChanged={onFilesChanged}
+                />
+              ) : null}
+              onVersionDeleted={onVersionDeleted}
               onUpdate={(patch) => onUpdateStep(step.id, patch)}
               onDelete={() => onDeleteStep(step.id)}
               onUpload={() => onUploadForStep(step.id)}
@@ -2163,8 +2226,13 @@ function StepWorkflowPanel({
 function StepCard({
   index,
   step,
+  files,
   people,
   assignablePeople,
+  workspaceId,
+  uploadOpen,
+  uploadPanel,
+  onVersionDeleted,
   onUpdate,
   onDelete,
   onUpload,
@@ -2172,8 +2240,13 @@ function StepCard({
 }: {
   index: number
   step: StepItem
+  files: AttachmentItem[]
   people: Record<string, CommandCenterPersonRow>
   assignablePeople: CommandCenterPersonRow[]
+  workspaceId?: string
+  uploadOpen: boolean
+  uploadPanel: React.ReactNode
+  onVersionDeleted: (file: AttachmentItem, result: VersionDeleteResult) => void
   onUpdate: (patch: Partial<StepItem>) => void
   onDelete: () => void
   onUpload: () => void
@@ -2230,6 +2303,17 @@ function StepCard({
           <span>File/Link kết quả: <strong>{deliverableStatusLabel(step)}</strong></span>
         </div>
 
+        {uploadOpen ? null : (
+          <StepEvidenceFiles
+            files={files}
+            people={people}
+            workspaceId={workspaceId}
+            emptyText="Chưa có kết quả bàn giao cho bước này."
+            allowVersionDelete
+            onVersionDeleted={onVersionDeleted}
+          />
+        )}
+
         {editing ? (
           <StepDraftForm
             draft={draft}
@@ -2245,14 +2329,179 @@ function StepCard({
             <GhostButton icon={step.status === 'COMPLETED' ? 'ti-rotate-clockwise' : nextQuickStatus === 'COMPLETED' ? 'ti-check' : 'ti-player-play'} onClick={() => onUpdate({ status: nextQuickStatus })}>
               {step.status === 'COMPLETED' ? 'Mở lại' : nextQuickStatus === 'COMPLETED' ? 'Đánh dấu xong' : 'Bắt đầu'}
             </GhostButton>
-            <GhostButton icon="ti-upload" onClick={onUpload}>
-              {step.deliverableId ? 'Nộp file/link cho bước này' : 'Tạo bàn giao & nộp file/link'}
+            <GhostButton icon={uploadOpen ? 'ti-x' : 'ti-upload'} onClick={onUpload}>
+              {uploadOpen ? 'Đóng khu nộp' : step.deliverableId ? 'Nộp file/link cho bước này' : 'Tạo bàn giao & nộp file/link'}
             </GhostButton>
             <GhostButton icon="ti-pencil" onClick={onEdit}>Sửa</GhostButton>
             <IconButton label="Xóa bước" icon="ti-trash" tone="danger" onClick={onDelete} />
           </div>
         )}
+
+        {uploadOpen ? uploadPanel : null}
       </div>
+    </div>
+  )
+}
+
+function StepInlineUploadPanel({
+  step,
+  subtask,
+  project,
+  people,
+  workspaceId,
+  currentPersonId,
+  fileRefreshKey,
+  onUploaded,
+  onFilesChanged,
+}: {
+  step: StepItem
+  subtask: SubtaskItem
+  project: ProjectWorkspace
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+  currentPersonId: string | null
+  fileRefreshKey: number
+  onUploaded: (file: UploadedFile) => void
+  onFilesChanged: () => void
+}) {
+  const peopleOptions = React.useMemo(() => Object.values(people), [people])
+  const peopleById = React.useMemo(
+    () => Object.fromEntries(Object.values(people).map((person) => [person.id, { full_name: person.full_name }])),
+    [people],
+  )
+
+  if (!step.deliverableId) {
+    return (
+      <div style={stepUploadPreparingStyle} role="status">
+        <i className="ti ti-loader-2" />
+        <div style={stepUploadPreparingCopyStyle}>
+          <strong>Đang chuẩn bị mục bàn giao cho bước...</strong>
+          <span>Form File/Link sẽ mở ngay tại đây sau khi xác định đúng Step.</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={stepInlineUploadPanelStyle}>
+      <div style={stepInlineUploadHeaderStyle}>
+        <div style={stepInlineUploadCopyStyle}>
+          <strong>Nộp kết quả cho bước này</strong>
+          <span>Chọn File hoặc Link. Tài liệu sẽ được gắn riêng với “{step.title}”.</span>
+        </div>
+        <span style={stepEvidenceOrderBadgeStyle}>Đúng Step</span>
+      </div>
+      <FileUpload
+        key={step.deliverableId}
+        workspaceId={workspaceId}
+        projectId={project.sourceProjectId ?? undefined}
+        taskId={subtask.sourceTaskId ?? undefined}
+        deliverableId={step.deliverableId}
+        peopleOptions={peopleOptions}
+        defaultApproverId={step.deliverableReviewerId ?? step.reviewerId ?? project.reviewerId ?? project.ownerId}
+        requiresApproval={step.deliverableRequiresApproval || Boolean(step.deliverableId)}
+        allowLink
+        compact
+        label="Nộp file hoặc link kết quả cho bước này"
+        onUploaded={onUploaded}
+      />
+      <FileList
+        workspaceId={workspaceId}
+        projectId={project.sourceProjectId ?? undefined}
+        taskId={subtask.sourceTaskId ?? undefined}
+        deliverableId={step.deliverableId}
+        reviewerId={step.deliverableReviewerId ?? step.reviewerId}
+        currentPersonId={currentPersonId}
+        requiresApproval={step.deliverableRequiresApproval || Boolean(step.deliverableId)}
+        refreshKey={fileRefreshKey}
+        peopleById={peopleById}
+        onChanged={onFilesChanged}
+      />
+    </div>
+  )
+}
+
+function SubtaskStepEvidenceSummary({
+  subtask,
+  filesByStepId,
+  people,
+  workspaceId,
+  allowVersionDelete = false,
+  onVersionDeleted,
+}: {
+  subtask: SubtaskItem
+  filesByStepId: Record<string, AttachmentItem[]>
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+  allowVersionDelete?: boolean
+  onVersionDeleted?: (file: AttachmentItem, result: VersionDeleteResult) => void
+}) {
+  if (!subtask.steps.length) {
+    return <div style={emptyInline}>Đầu việc con chưa có bước. Bàn giao chung sẽ hiển thị ở bên dưới.</div>
+  }
+
+  return (
+    <div style={stepEvidenceSummaryStackStyle}>
+      {subtask.steps.map((step, index) => (
+        <section key={step.id} style={stepEvidenceSummaryGroupStyle}>
+          <div style={stepEvidenceSummaryHeaderStyle}>
+            <span style={stepEvidenceOrderBadgeStyle}>Bước {index + 1}</span>
+            <span style={stepEvidenceSummaryTitleStyle}>{step.title}</span>
+            <span style={statusChipStyle(STATUS_META[step.status].bg, STATUS_META[step.status].color)}>
+              {STATUS_META[step.status].label}
+            </span>
+          </div>
+          <StepEvidenceFiles
+            files={filesByStepId[step.id] ?? []}
+            people={people}
+            workspaceId={workspaceId}
+            emptyText="Chưa có kết quả bàn giao cho bước này."
+            allowVersionDelete={allowVersionDelete}
+            onVersionDeleted={onVersionDeleted}
+          />
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function StepEvidenceFiles({
+  files,
+  people,
+  workspaceId,
+  emptyText,
+  allowVersionDelete = false,
+  onVersionDeleted,
+}: {
+  files: AttachmentItem[]
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+  emptyText: string
+  allowVersionDelete?: boolean
+  onVersionDeleted?: (file: AttachmentItem, result: VersionDeleteResult) => void
+}) {
+  const [expanded, setExpanded] = React.useState(false)
+  const visibleFiles = expanded ? files : files.slice(0, STEP_FILE_PREVIEW_LIMIT)
+
+  return (
+    <div style={stepEvidenceFilesStyle}>
+      <div style={stepEvidenceFilesHeaderStyle}>
+        <span><i className="ti ti-package" /> Kết quả bước</span>
+        <span>{files.length} tài liệu</span>
+      </div>
+      <EvidenceFileList
+        files={visibleFiles}
+        people={people}
+        workspaceId={workspaceId}
+        emptyText={emptyText}
+        allowVersionDelete={allowVersionDelete}
+        onVersionDeleted={onVersionDeleted}
+      />
+      {files.length > STEP_FILE_PREVIEW_LIMIT ? (
+        <button type="button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded} style={stepEvidenceToggleStyle}>
+          {expanded ? 'Thu gọn' : `Xem tất cả ${files.length} tài liệu`}
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -4302,6 +4551,10 @@ function FlowchartDetailDrawer({
   onOpenSubtask: (subtaskId: string) => void
   onEditNode: (target: EditTarget) => void
 }) {
+  const [workflowOpenNodeKey, setWorkflowOpenNodeKey] = React.useState<string | null>(null)
+  const nodeKey = node ? getFlowchartNodeKey(node) : null
+  const workflowOpen = Boolean(nodeKey && workflowOpenNodeKey === nodeKey)
+
   if (!node) return null
 
   const title = getFlowchartNodeTitle(node)
@@ -4312,16 +4565,17 @@ function FlowchartDetailDrawer({
   const progress = getFlowchartNodeProgress(node)
   const description = getFlowchartNodeDescription(node)
   const subtask = node.subtask
-  const fileSummary = subtask ? getFileSummary(subtask) : null
-  const workflowSummary = subtask ? getWorkflowSummary(subtask) : null
+
+  const workflowPanelSummary = getFlowchartWorkflowPanelSummary(node)
   const blockers = subtask ? getCompletionBlockers(subtask) : []
   const path = getFlowchartBreadcrumb(node)
-  const fileItems = getFlowchartNodeFiles(node)
+  const fileGroups = getSubtaskFileGroups(node.subtask)
+  const sharedFileItems = node.kind === 'subtask' ? fileGroups.shared : []
 
   return (
     <aside style={fullscreen ? { ...flowchartDetailPanel, ...flowchartDetailPanelFullscreen } : flowchartDetailPanel}>
       <div style={flowchartPanelHeader}>
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div style={flowchartEyebrow}>Chi tiết node</div>
           <h3 style={flowchartPanelTitle}>{title}</h3>
         </div>
@@ -4369,34 +4623,39 @@ function FlowchartDetailDrawer({
         )}
       </section>
 
-      <section style={flowchartPanelCard}>
-        <div style={sectionTitle}>Quy trình thực hiện</div>
-        <FlowchartWorkflowSummary node={node} />
-        {workflowSummary ? <div style={mutedMetaStyle}>{workflowSummary.value} · {workflowSummary.hint}</div> : null}
-        {blockers.length ? <div style={warningBanner}>Chưa thể hoàn thành: {getCompactBlockerText(subtask as SubtaskItem)}</div> : null}
-      </section>
-
-      <section style={flowchartPanelCard}>
-        <div style={sectionTitle}>Bàn giao / file</div>
-        {fileSummary ? (
-          <>
-            <div style={mutedMetaStyle}>{fileSummary.value} · {fileSummary.hint}</div>
-            <EvidenceFileList
-              files={fileItems}
-              people={people}
-              workspaceId={workspaceId}
-              emptyText="Chưa có file thật nào gắn với node này."
-            />
-          </>
-        ) : node.step ? (
-          <div style={mutedMetaStyle}>
-            {node.step.requiresDeliverable ? deliverableStatusLabel(node.step) : 'Bước này không yêu cầu bàn giao.'}
+      <section style={flowchartWorkflowAccordionCard}>
+        <button
+          type="button"
+          onClick={() => setWorkflowOpenNodeKey(workflowOpen ? null : nodeKey)}
+          aria-expanded={workflowOpen}
+          style={flowchartWorkflowAccordionHeader}
+        >
+          <span style={flowchartWorkflowAccordionHeading}>
+            <strong style={flowchartWorkflowAccordionTitleStyle}>Quy trình thực hiện</strong>
+            <span style={mutedMetaStyle}>{workflowPanelSummary}</span>
+          </span>
+          <i className="ti ti-chevron-down" style={flowchartWorkflowAccordionChevron(workflowOpen)} />
+        </button>
+        {workflowOpen ? (
+          <div style={flowchartWorkflowAccordionBody}>
+            <FlowchartWorkflowSummary key={nodeKey} node={node} people={people} workspaceId={workspaceId} />
+            {blockers.length ? <div style={warningBanner}>Chưa thể hoàn thành: {getCompactBlockerText(subtask as SubtaskItem)}</div> : null}
           </div>
-        ) : (
-          <div style={mutedMetaStyle}>Bàn giao được tổng hợp ở các đầu việc con và bước bên dưới.</div>
-        )}
+        ) : null}
       </section>
 
+      {sharedFileItems.length ? (
+        <section style={flowchartPanelCard}>
+          <div style={sectionTitle}>Bàn giao chung</div>
+          <div style={mutedMetaStyle}>Tài liệu được gắn ở cấp đầu việc con, chưa gắn riêng với bước.</div>
+          <EvidenceFileList
+            files={sharedFileItems}
+            people={people}
+            workspaceId={workspaceId}
+            emptyText="Chưa có bàn giao chung."
+          />
+        </section>
+      ) : null}
       <section style={flowchartPanelCard}>
         <div style={sectionTitle}>Deadline</div>
         <div style={deadline && isOverdue(deadline, status) ? flowchartDeadlineDanger : mutedMetaStyle}>
@@ -4699,59 +4958,202 @@ function FlowchartReportEditor({
   )
 }
 
-function FlowchartWorkflowSummary({ node }: { node: FlowchartNode }) {
+function getFlowchartWorkflowPanelSummary(node: FlowchartNode) {
   if (node.kind === 'project') {
-    return <div style={mutedMetaStyle}>{node.project.workstreams.length} đầu việc lớn · {node.project.workstreams.flatMap((workstream) => workstream.subtasks).length} đầu việc con</div>
+    const subtaskCount = node.project.workstreams.flatMap((workstream) => workstream.subtasks).length
+    return `${node.project.workstreams.length} đầu việc lớn · ${subtaskCount} đầu việc con`
   }
   if (node.kind === 'workstream' && node.workstream) {
-    return <div style={mutedMetaStyle}>{node.workstream.subtasks.length} đầu việc con trong đầu việc lớn này.</div>
+    const subtasks = node.workstream.subtasks
+    const stepCount = subtasks.reduce((total, subtask) => total + subtask.steps.length, 0)
+    const fileCount = subtasks.reduce((total, subtask) => total + subtask.attachments.length, 0)
+    return `${subtasks.length} đầu việc con · ${stepCount} bước · ${fileCount} tài liệu`
   }
   if (node.kind === 'stepGroup' && node.stepGroup) {
-    const previewSteps = node.stepGroup.steps.slice(0, FLOWCHART_GROUP_STEP_PREVIEW_LIMIT)
-    const hiddenStepCount = Math.max(0, node.stepGroup.steps.length - previewSteps.length)
-    return (
-      <div style={flowchartStepMiniList}>
-        {previewSteps.map((step) => (
-          <div key={step.id} style={flowchartStepMiniItem}>
-            <span style={statusChipStyle(STATUS_META[step.status].bg, STATUS_META[step.status].color)}>{STATUS_META[step.status].label}</span>
-            <span>{step.title}</span>
-          </div>
-        ))}
-        {hiddenStepCount ? <div style={mutedMetaStyle}>+{hiddenStepCount} bước còn lại</div> : null}
-      </div>
-    )
+    return `${node.stepGroup.steps.length} bước trong nhóm`
   }
   if (node.kind === 'subtask' && node.subtask) {
-    return (
-      <div style={flowchartStepMiniList}>
-        {node.subtask.steps.length === 0 ? <div style={mutedMetaStyle}>Chưa có bước.</div> : null}
-        {node.subtask.steps.map((step) => (
-          <div key={step.id} style={flowchartStepMiniItem}>
-            <span style={statusChipStyle(STATUS_META[step.status].bg, STATUS_META[step.status].color)}>{STATUS_META[step.status].label}</span>
-            <span>{step.title}</span>
-          </div>
-        ))}
-      </div>
-    )
+    return `${node.subtask.steps.length} bước · ${node.subtask.attachments.length} tài liệu`
   }
   if (node.step) {
-    return <div style={mutedMetaStyle}>{node.step.description || node.step.note || 'Chưa có mô tả cho bước này.'}</div>
+    const files = getSubtaskFileGroups(node.subtask).byStepId[node.step.id] ?? []
+    return `1 bước · ${files.length} tài liệu`
   }
-  return null
+  return 'Bấm để xem chi tiết quy trình'
 }
 
-function getFlowchartNodeFiles(node: FlowchartNode) {
-  if (node.kind === 'step' && node.step?.deliverableId && node.subtask) {
-    return node.subtask.attachments.filter((file) => file.deliverableId === node.step?.deliverableId || file.stepId === node.step?.id)
+interface FlowchartWorkflowStepEntry {
+  subtask: SubtaskItem
+  step: StepItem
+  stepNumber: number
+  contextLabel: string
+}
+
+function getFlowchartWorkflowStepEntries(node: FlowchartNode): FlowchartWorkflowStepEntry[] {
+  function collectSubtaskSteps(subtask: SubtaskItem, workstreamTitle?: string) {
+    return subtask.steps.map((step, index) => ({
+      subtask,
+      step,
+      stepNumber: index + 1,
+      contextLabel: workstreamTitle ? `${workstreamTitle} → ${subtask.title}` : subtask.title,
+    }))
+  }
+
+  if (node.kind === 'project') {
+    return node.project.workstreams.flatMap((workstream) =>
+      workstream.subtasks.flatMap((subtask) => collectSubtaskSteps(subtask, workstream.title)),
+    )
+  }
+  if (node.kind === 'workstream' && node.workstream) {
+    return node.workstream.subtasks.flatMap((subtask) => collectSubtaskSteps(subtask, node.workstream?.title))
   }
   if (node.kind === 'stepGroup' && node.stepGroup && node.subtask) {
-    const stepIds = new Set(node.stepGroup.steps.map((step) => step.id))
-    return node.subtask.attachments.filter((file) => file.stepId && stepIds.has(file.stepId))
+    return node.stepGroup.steps.map((step) => ({
+      subtask: node.subtask as SubtaskItem,
+      step,
+      stepNumber: getSubtaskStepNumber(node.subtask, step.id) ?? 1,
+      contextLabel: node.subtask?.title ?? '',
+    }))
   }
-  if (node.subtask) return node.subtask.attachments
+  if (node.kind === 'subtask' && node.subtask) {
+    return collectSubtaskSteps(node.subtask)
+  }
+  if (node.step && node.subtask) {
+    return [{
+      subtask: node.subtask,
+      step: node.step,
+      stepNumber: getSubtaskStepNumber(node.subtask, node.step.id) ?? 1,
+      contextLabel: node.subtask.title,
+    }]
+  }
   return []
 }
 
+function FlowchartWorkflowSummary({
+  node,
+  people,
+  workspaceId,
+}: {
+  node: FlowchartNode
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+}) {
+  const [expanded, setExpanded] = React.useState(false)
+  const entries = React.useMemo(() => getFlowchartWorkflowStepEntries(node), [node])
+  const fileGroupsBySubtaskId = React.useMemo(() => {
+    const groups = new Map<string, SubtaskFileGroups>()
+    for (const entry of entries) {
+      if (!groups.has(entry.subtask.id)) groups.set(entry.subtask.id, getSubtaskFileGroups(entry.subtask))
+    }
+    return groups
+  }, [entries])
+  const visibleEntries = expanded ? entries : entries.slice(0, FLOWCHART_WORKFLOW_STEP_PREVIEW_LIMIT)
+
+  if (!entries.length) {
+    return <div style={mutedMetaStyle}>Cấp này chưa có bước trong quy trình.</div>
+  }
+
+  return (
+    <div style={flowchartStepMiniList}>
+      {visibleEntries.map((entry) => (
+        <FlowchartWorkflowStepItem
+          key={`${entry.subtask.id}-${entry.step.id}`}
+          step={entry.step}
+          stepNumber={entry.stepNumber}
+          contextLabel={entry.contextLabel}
+          files={fileGroupsBySubtaskId.get(entry.subtask.id)?.byStepId[entry.step.id] ?? []}
+          people={people}
+          workspaceId={workspaceId}
+        />
+      ))}
+      {entries.length > FLOWCHART_WORKFLOW_STEP_PREVIEW_LIMIT ? (
+        <button type="button" onClick={() => setExpanded((current) => !current)} style={stepEvidenceToggleStyle}>
+          {expanded ? 'Thu gọn danh sách bước' : `Xem tất cả ${entries.length} bước`}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function FlowchartWorkflowStepItem({
+  step,
+  stepNumber,
+  contextLabel,
+  files,
+  people,
+  workspaceId,
+}: {
+  step: StepItem
+  stepNumber?: number
+  contextLabel?: string
+  files: AttachmentItem[]
+  people: Record<string, CommandCenterPersonRow>
+  workspaceId?: string
+}) {
+  const ownerName = step.ownerId ? people[step.ownerId]?.full_name ?? 'Chưa gắn người' : 'Chưa gắn người'
+
+  return (
+    <div style={flowchartWorkflowStepCard}>
+      <div style={flowchartWorkflowStepHeader}>
+        <span style={flowchartWorkflowStepTitle}>{stepNumber ? `Bước ${stepNumber} · ` : ''}{step.title}</span>
+        <span style={statusChipStyle(STATUS_META[step.status].bg, STATUS_META[step.status].color)}>{STATUS_META[step.status].label}</span>
+      </div>
+      <div style={flowchartWorkflowStepMeta}>
+        {contextLabel ? <span>{contextLabel}</span> : null}
+        <span>Người phụ trách: <strong>{ownerName}</strong></span>
+      </div>
+      {step.description || step.note ? (
+        <div style={flowchartWorkflowStepDescription}>{step.description || step.note}</div>
+      ) : null}
+      <StepEvidenceFiles
+        files={files}
+        people={people}
+        workspaceId={workspaceId}
+        emptyText="Chưa có file hoặc link cho bước này."
+      />
+    </div>
+  )
+}
+
+interface SubtaskFileGroups {
+  byStepId: Record<string, AttachmentItem[]>
+  shared: AttachmentItem[]
+}
+
+function getSubtaskFileGroups(subtask?: SubtaskItem | null): SubtaskFileGroups {
+  if (!subtask) return { byStepId: {}, shared: [] }
+
+  const byStepId: Record<string, AttachmentItem[]> = {}
+  const shared: AttachmentItem[] = []
+  const knownStepIds = new Set(subtask.steps.map((step) => step.id))
+  const stepIdByDeliverableId = new Map(
+    subtask.steps
+      .filter((step): step is StepItem & { deliverableId: string } => Boolean(step.deliverableId))
+      .map((step) => [step.deliverableId, step.id]),
+  )
+
+  for (const file of subtask.attachments) {
+    const directStepId = file.stepId && knownStepIds.has(file.stepId) ? file.stepId : null
+    const deliverableStepId = file.deliverableId ? stepIdByDeliverableId.get(file.deliverableId) ?? null : null
+    const resolvedStepId = directStepId ?? deliverableStepId
+
+    if (!resolvedStepId) {
+      shared.push(file)
+      continue
+    }
+
+    const stepFiles = byStepId[resolvedStepId] ?? []
+    stepFiles.push(file)
+    byStepId[resolvedStepId] = stepFiles
+  }
+
+  return { byStepId, shared }
+}
+
+function getSubtaskStepNumber(subtask: SubtaskItem | null | undefined, stepId: string) {
+  const index = subtask?.steps.findIndex((step) => step.id === stepId) ?? -1
+  return index >= 0 ? index + 1 : undefined
+}
 function getEvidenceFileStatusLabel(status: VersionReviewStatus) {
   if (status === 'APPROVED') return 'Đã duyệt'
   if (status === 'PENDING' || status === 'PENDING_REVIEW' || status === 'NOT_REQUESTED') return 'Chờ duyệt'
@@ -8660,6 +9062,7 @@ const flowchartDetailPanel: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  minWidth: 0,
   padding: 16,
   borderRadius: 20,
   border: '1px solid var(--line)',
@@ -8685,7 +9088,9 @@ const flowchartPanelTitle: React.CSSProperties = {
   margin: '4px 0 0',
   color: 'var(--txt)',
   fontSize: 18,
-  lineHeight: 1.25,
+  lineHeight: 1.3,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
 }
 
 const flowchartPanelHero: React.CSSProperties = {
@@ -8709,6 +9114,8 @@ const flowchartInfoItem: React.CSSProperties = {
   color: 'var(--txt-2)',
   fontSize: 12,
   lineHeight: 1.35,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
 }
 
 const flowchartPanelCard: React.CSSProperties = {
@@ -8721,6 +9128,66 @@ const flowchartPanelCard: React.CSSProperties = {
   border: '1px solid var(--line)',
 }
 
+const flowchartWorkflowAccordionCard: React.CSSProperties = {
+  ...flowchartPanelCard,
+  gap: 0,
+  minWidth: 0,
+  padding: 0,
+  overflow: 'visible',
+}
+
+const flowchartWorkflowAccordionHeader: React.CSSProperties = {
+  width: '100%',
+  minHeight: 54,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 10,
+  padding: '12px 14px',
+  border: 0,
+  borderRadius: 14,
+  background: 'transparent',
+  color: 'var(--txt)',
+  cursor: 'pointer',
+  textAlign: 'left',
+  font: 'inherit',
+  lineHeight: 1.35,
+}
+
+const flowchartWorkflowAccordionHeading: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+  overflowWrap: 'anywhere',
+}
+
+const flowchartWorkflowAccordionTitleStyle: React.CSSProperties = {
+  display: 'block',
+  margin: 0,
+  color: 'var(--txt)',
+  fontSize: 15,
+  fontWeight: 800,
+  lineHeight: 1.35,
+}
+
+const flowchartWorkflowAccordionChevron = (open: boolean): React.CSSProperties => ({
+  flex: '0 0 auto',
+  color: 'var(--txt-2)',
+  transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+  transition: 'transform .18s ease',
+})
+
+const flowchartWorkflowAccordionBody: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  minWidth: 0,
+  padding: '12px 14px 14px',
+  borderTop: '1px solid var(--line)',
+  overflow: 'visible',
+}
 const flowchartBreadcrumb: React.CSSProperties = {
   display: 'flex',
   gap: 6,
@@ -8758,6 +9225,7 @@ const flowchartPanelActions: React.CSSProperties = {
   paddingTop: 4,
 }
 
+
 const flowchartStepMiniList: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -8777,6 +9245,178 @@ const flowchartStepMiniItem: React.CSSProperties = {
   fontWeight: 700,
 }
 
+const flowchartWorkflowStepCard: React.CSSProperties = {
+  ...flowchartStepMiniItem,
+  flexDirection: 'column',
+  alignItems: 'stretch',
+  gap: 9,
+  padding: 10,
+}
+
+const flowchartWorkflowStepHeader: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  flexWrap: 'wrap',
+  minWidth: 0,
+}
+
+const flowchartWorkflowStepTitle: React.CSSProperties = {
+  flex: '1 1 150px',
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+  color: 'var(--txt)',
+  fontSize: 12,
+  fontWeight: 800,
+  lineHeight: 1.4,
+}
+
+const flowchartWorkflowStepMeta: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+  color: 'var(--txt-3)',
+  fontSize: 10.5,
+  lineHeight: 1.45,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+}
+
+const flowchartWorkflowStepDescription: React.CSSProperties = {
+  color: 'var(--txt-2)',
+  fontSize: 11,
+  lineHeight: 1.45,
+}
+
+const stepInlineUploadPanelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  minWidth: 0,
+  padding: 12,
+  borderRadius: 12,
+  border: '1px solid rgba(218,223,33,.32)',
+  background: 'rgba(218,223,33,.05)',
+}
+
+const stepInlineUploadHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 12,
+  minWidth: 0,
+}
+
+const stepInlineUploadCopyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  minWidth: 0,
+  color: 'var(--txt)',
+  fontSize: 12,
+  lineHeight: 1.45,
+}
+const stepUploadPreparingStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 10,
+  padding: '12px 14px',
+  borderRadius: 12,
+  border: '1px solid rgba(85,199,185,.32)',
+  background: 'rgba(85,199,185,.08)',
+  color: 'var(--txt)',
+}
+
+const stepUploadPreparingCopyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  color: 'var(--txt-2)',
+  fontSize: 12,
+  lineHeight: 1.45,
+}
+
+const stepEvidenceFilesStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  minWidth: 0,
+  paddingTop: 8,
+  borderTop: '1px dashed var(--line)',
+}
+
+const stepEvidenceFilesHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  color: 'var(--txt-2)',
+  fontSize: 11,
+  fontWeight: 800,
+}
+
+const stepEvidenceToggleStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  padding: 0,
+  border: 0,
+  background: 'transparent',
+  color: 'var(--color-lime)',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: 11,
+  fontWeight: 850,
+}
+
+const stepEvidenceSummaryStackStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+}
+
+const stepEvidenceSummaryGroupStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 9,
+  minWidth: 0,
+  padding: 12,
+  borderRadius: 12,
+  border: '1px solid var(--line)',
+  background: 'var(--surface)',
+}
+
+const sharedEvidenceGroupStyle: React.CSSProperties = {
+  ...stepEvidenceSummaryGroupStyle,
+  borderStyle: 'dashed',
+  background: 'var(--surface-2)',
+}
+
+const stepEvidenceSummaryHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  minWidth: 0,
+}
+
+const stepEvidenceSummaryTitleStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  color: 'var(--txt)',
+  fontSize: 12.5,
+  fontWeight: 850,
+  overflowWrap: 'anywhere',
+}
+
+const stepEvidenceOrderBadgeStyle: React.CSSProperties = {
+  flex: '0 0 auto',
+  padding: '4px 7px',
+  borderRadius: 7,
+  border: '1px solid rgba(85,199,185,.32)',
+  background: 'rgba(85,199,185,.1)',
+  color: '#55C7B9',
+  fontSize: 10.5,
+  fontWeight: 900,
+}
 function toastStyle(tone: 'success' | 'danger'): React.CSSProperties {
   return {
     position: 'fixed',
