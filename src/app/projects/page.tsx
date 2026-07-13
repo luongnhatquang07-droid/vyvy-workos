@@ -4713,14 +4713,18 @@ function EvidenceFileList({
   }
 
   async function openResolvedFile(file: AttachmentItem) {
+    const pendingTab = window.open('about:blank', '_blank')
+    if (pendingTab) pendingTab.opener = null
     setResolvingIds((current) => ({ ...current, [file.id]: true }))
     setOpenErrors((current) => ({ ...current, [file.id]: '' }))
     setMenuOpenId(null)
     try {
       const url = await getResolvedFileUrl(file)
       if (!url) throw new Error('Bàn giao này chưa có file/link đính kèm.')
-      window.open(url, '_blank', 'noopener,noreferrer')
+      if (pendingTab) pendingTab.location.replace(url)
+      else window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
+      pendingTab?.close()
       setOpenErrors((current) => ({
         ...current,
         [file.id]: err instanceof Error ? err.message : 'Không mở được file/link.',

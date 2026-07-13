@@ -293,6 +293,14 @@ export default function ApprovalsPage() {
 
   async function resolveFileUrl(approval: CommandCenterApprovalRow) {
     const context = getApprovalContext(approval)
+    if (context.latestVersion?.external_url) return context.latestVersion.external_url
+    if (context.attachment?.workspace_id && context.attachment.storage_path) {
+      const params = new URLSearchParams({
+        workspaceId: context.attachment.workspace_id,
+        path: context.attachment.storage_path,
+      })
+      return `/api/files/open?${params.toString()}`
+    }
     if (!workspaceId || !approval.deliverable_id) return null
 
     const params = new URLSearchParams({ workspaceId, deliverableId: approval.deliverable_id })
@@ -303,19 +311,20 @@ export default function ApprovalsPage() {
     const version = context.latestVersion?.id
       ? payload.versions?.find((item) => item.id === context.latestVersion?.id) ?? payload.versions?.[0]
       : payload.versions?.[0]
-    if (!version) return null
-    if (version.external_url) return version.external_url
-
-    return version.attachment?.url ?? null
+    return version?.external_url ?? version?.attachment?.url ?? null
   }
 
   async function openFile(approval: CommandCenterApprovalRow) {
+    const pendingTab = window.open('about:blank', '_blank')
+    if (pendingTab) pendingTab.opener = null
     setActionError('')
     try {
       const url = await resolveFileUrl(approval)
       if (!url) throw new Error('File/báo cáo này chưa có link để mở.')
-      window.open(url, '_blank', 'noopener,noreferrer')
+      if (pendingTab) pendingTab.location.replace(url)
+      else window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
+      pendingTab?.close()
       setActionError(err instanceof Error ? err.message : 'Không mở được file.')
     }
   }
