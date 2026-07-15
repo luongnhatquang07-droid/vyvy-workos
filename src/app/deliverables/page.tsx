@@ -171,7 +171,7 @@ export default function DeliverablesPage() {
   React.useEffect(() => {
     const urlDeliverableId = new URLSearchParams(window.location.search).get('deliverableId')
     if (!urlDeliverableId) return
-    window.setTimeout(() => {
+    const openTimer = window.setTimeout(() => {
       setDetail(null)
       setDetailError('')
       setDetailLoading(true)
@@ -179,6 +179,7 @@ export default function DeliverablesPage() {
       selectedIdRef.current = urlDeliverableId
       setSelectedId(urlDeliverableId)
     }, 0)
+    return () => window.clearTimeout(openTimer)
   }, [])
 
   React.useEffect(() => {

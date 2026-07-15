@@ -28,14 +28,36 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<ToastMessage[]>([])
+  const timeoutIds = React.useRef<Map<string, number>>(new Map())
+
+  const dismiss = React.useCallback((id: string) => {
+    const timeoutId = timeoutIds.current.get(id)
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+      timeoutIds.current.delete(id)
+    }
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
 
   const toast = React.useCallback((message: string, variant: ToastVariant = 'info', duration = 4000) => {
     const id = generateId()
     setToasts(prev => [...prev, { id, message, variant, duration }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
+    const timeoutId = window.setTimeout(() => {
+      timeoutIds.current.delete(id)
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, duration)
+    timeoutIds.current.set(id, timeoutId)
   }, [])
 
-  const dismiss = (id: string) => setToasts(prev => prev.filter(t => t.id !== id))
+  React.useEffect(() => {
+    const timers = timeoutIds.current
+    return () => {
+      timers.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      timers.clear()
+    }
+  }, [])
 
   return (
     <ToastContext.Provider value={{ toast }}>

@@ -25,7 +25,7 @@ export function useFocusTrap(
     const getFocusable = () => Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE))
 
     // Focus first focusable element
-    setTimeout(() => getFocusable()[0]?.focus(), 10)
+    const focusTimer = window.setTimeout(() => getFocusable()[0]?.focus(), 10)
 
     const handleTab = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return
@@ -42,6 +42,7 @@ export function useFocusTrap(
 
     document.addEventListener('keydown', handleTab)
     return () => {
+      window.clearTimeout(focusTimer)
       document.removeEventListener('keydown', handleTab)
       triggerRef.current?.focus()
     }
