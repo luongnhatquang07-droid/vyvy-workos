@@ -6793,12 +6793,30 @@ function deriveWorkstreamStatus(subtasks: SubtaskItem[]): TaskStatus {
   return 'NOT_STARTED'
 }
 
+interface ProjectHealthSummary {
+  label: string
+  bg: string
+  color: string
+}
+
+// Workspace updates are immutable, so object identity safely invalidates these calculations.
+const subtaskProgressMemo = new WeakMap<SubtaskItem, number>()
+const workstreamProgressMemo = new WeakMap<WorkstreamItem, number>()
+const projectProgressMemo = new WeakMap<ProjectWorkspace, number>()
+const projectHealthMemo = new WeakMap<ProjectWorkspace, ProjectHealthSummary>()
+
 function getSubtaskProgress(subtask: SubtaskItem) {
-  if (subtask.status === 'COMPLETED') return 100
-  if (!subtask.steps.length) return 0
+  const cached = subtaskProgressMemo.get(subtask)
+  if (cached !== undefined) return cached
   const requiredSteps = subtask.steps.filter((step) => step.isRequired)
   const progressSteps = requiredSteps.length ? requiredSteps : subtask.steps
-  return Math.round((progressSteps.filter((step) => step.status === 'COMPLETED').length / progressSteps.length) * 100)
+  const progress = subtask.status === 'COMPLETED'
+    ? 100
+    : progressSteps.length
+      ? Math.round((progressSteps.filter((step) => step.status === 'COMPLETED').length / progressSteps.length) * 100)
+      : 0
+  subtaskProgressMemo.set(subtask, progress)
+  return progress
 }
 
 function getRequiredStepStats(subtask: SubtaskItem) {
@@ -7052,16 +7070,28 @@ function getCompletionBlockers(subtask: SubtaskItem) {
 }
 
 function getWorkstreamProgress(workstream: WorkstreamItem) {
-  if (!workstream.subtasks.length) return 0
-  return Math.round(workstream.subtasks.reduce((sum, subtask) => sum + getSubtaskProgress(subtask), 0) / workstream.subtasks.length)
+  const cached = workstreamProgressMemo.get(workstream)
+  if (cached !== undefined) return cached
+  const progress = workstream.subtasks.length
+    ? Math.round(workstream.subtasks.reduce((sum, subtask) => sum + getSubtaskProgress(subtask), 0) / workstream.subtasks.length)
+    : 0
+  workstreamProgressMemo.set(workstream, progress)
+  return progress
 }
 
 function getProjectProgress(project: ProjectWorkspace) {
-  if (!project.workstreams.length) return 0
-  return Math.round(project.workstreams.reduce((sum, workstream) => sum + getWorkstreamProgress(workstream), 0) / project.workstreams.length)
+  const cached = projectProgressMemo.get(project)
+  if (cached !== undefined) return cached
+  const progress = project.workstreams.length
+    ? Math.round(project.workstreams.reduce((sum, workstream) => sum + getWorkstreamProgress(workstream), 0) / project.workstreams.length)
+    : 0
+  projectProgressMemo.set(project, progress)
+  return progress
 }
 
 function projectHealth(project: ProjectWorkspace) {
+  const cached = projectHealthMemo.get(project)
+  if (cached) return cached
   const subtasks = project.workstreams.flatMap((item) => item.subtasks)
   const progress = getProjectProgress(project)
   const overdue = subtasks.filter((subtask) => isOverdue(subtask.dueDate, subtask.status)).length
@@ -7071,22 +7101,22 @@ function projectHealth(project: ProjectWorkspace) {
     !['NOT_STARTED', 'CANCELLED'].includes(subtask.status),
   ).length
 
+  let health: ProjectHealthSummary
   if (!project.workstreams.length && !subtasks.length) {
-    return { label: 'Chưa khởi tạo', bg: 'var(--surface-3)', color: 'var(--txt-2)' }
+    health = { label: 'Chưa khởi tạo', bg: 'var(--surface-3)', color: 'var(--txt-2)' }
+  } else if (progress === 100 && subtasks.length > 0) {
+    health = { label: 'Hoàn thành', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
+  } else if (overdue > 0 || blocked > 0) {
+    health = { label: 'Có rủi ro', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
+  } else if (pending >= Math.max(2, Math.ceil(subtasks.length * 0.25))) {
+    health = { label: 'Chờ duyệt', bg: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
+  } else if (active > 0 || progress > 0) {
+    health = { label: 'Đang triển khai', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' }
+  } else {
+    health = { label: 'Đã lên kế hoạch', bg: 'rgba(107,138,153,0.16)', color: '#8AA4B2' }
   }
-  if (progress === 100 && subtasks.length > 0) {
-    return { label: 'Hoàn thành', bg: 'var(--color-success-bg)', color: 'var(--color-success)' }
-  }
-  if (overdue > 0 || blocked > 0) {
-    return { label: 'Có rủi ro', bg: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
-  }
-  if (pending >= Math.max(2, Math.ceil(subtasks.length * 0.25))) {
-    return { label: 'Chờ duyệt', bg: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
-  }
-  if (active > 0 || progress > 0) {
-    return { label: 'Đang triển khai', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' }
-  }
-  return { label: 'Đã lên kế hoạch', bg: 'rgba(107,138,153,0.16)', color: '#8AA4B2' }
+  projectHealthMemo.set(project, health)
+  return health
 }
 
 function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
