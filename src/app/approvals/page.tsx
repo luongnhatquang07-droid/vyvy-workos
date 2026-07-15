@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
@@ -451,24 +452,15 @@ export default function ApprovalsPage() {
               <Th>Thao tác</Th>
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <Td colSpan={7}>Đang tải...</Td>
-              </tr>
-            ) : filteredApprovals.length === 0 ? (
-              <tr>
-                <Td colSpan={7}>Không có yêu cầu phê duyệt nào.</Td>
-              </tr>
-            ) : (
-              filteredApprovals.map((approval) => {
+          <ApprovalTableBody loading={loading} items={filteredApprovals}>
+            {(approval, rowProps) => {
                 const state = resolveApprovalState(approval, today)
                 const context = getApprovalContext(approval)
                 const delegated = isDelegatedApproval(approval)
                 const info = getApprovalDisplayInfo(approval)
 
                 return (
-                  <tr key={approval.id}>
+                  <tr key={approval.id} {...rowProps}>
                     <Td>
                       <div style={requestCellStyle}>
                         <strong>{context.title}</strong>
@@ -513,9 +505,8 @@ export default function ApprovalsPage() {
                     </Td>
                   </tr>
                 )
-              })
-            )}
-          </tbody>
+              }}
+          </ApprovalTableBody>
         </table>
       </section>
 
@@ -552,6 +543,109 @@ export default function ApprovalsPage() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+const VIRTUALIZE_APPROVALS_AFTER = 50
+
+type ApprovalTableRowProps = React.HTMLAttributes<HTMLTableRowElement> & {
+  ref?: React.Ref<HTMLTableRowElement>
+  'data-index'?: number
+}
+
+function ApprovalTableBody({
+  loading,
+  items,
+  children,
+}: {
+  loading: boolean
+  items: CommandCenterApprovalRow[]
+  children: (item: CommandCenterApprovalRow, rowProps: ApprovalTableRowProps) => React.ReactNode
+}) {
+  'use no memo'
+  const shouldVirtualize = !loading && items.length > VIRTUALIZE_APPROVALS_AFTER
+  const bodyRef = React.useRef<HTMLTableSectionElement>(null)
+  const [scrollMargin, setScrollMargin] = React.useState(0)
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+    count: shouldVirtualize ? items.length : 0,
+    getScrollElement: () => (
+      typeof document === 'undefined' ? null : document.getElementById('main-content') as HTMLDivElement | null
+    ),
+    estimateSize: () => 148,
+    overscan: 6,
+    scrollMargin,
+    enabled: shouldVirtualize,
+    getItemKey: (index) => items[index]?.id ?? index,
+  })
+
+  React.useLayoutEffect(() => {
+    if (!shouldVirtualize) return
+
+    const bodyElement = bodyRef.current
+    const scrollElement = document.getElementById('main-content')
+    if (!bodyElement || !scrollElement) return
+
+    const updateScrollMargin = () => {
+      const bodyRect = bodyElement.getBoundingClientRect()
+      const scrollRect = scrollElement.getBoundingClientRect()
+      const nextMargin = bodyRect.top - scrollRect.top + scrollElement.scrollTop
+      setScrollMargin((current) => Math.abs(current - nextMargin) > 0.5 ? nextMargin : current)
+    }
+
+    updateScrollMargin()
+    const resizeObserver = new ResizeObserver(updateScrollMargin)
+    resizeObserver.observe(scrollElement)
+    if (bodyElement.parentElement) resizeObserver.observe(bodyElement.parentElement)
+    window.addEventListener('resize', updateScrollMargin)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateScrollMargin)
+    }
+  }, [items.length, shouldVirtualize])
+
+  if (loading) {
+    return (
+      <tbody>
+        <tr><Td colSpan={7}>Đang tải...</Td></tr>
+      </tbody>
+    )
+  }
+
+  if (items.length === 0) {
+    return (
+      <tbody>
+        <tr><Td colSpan={7}>Không có yêu cầu phê duyệt nào.</Td></tr>
+      </tbody>
+    )
+  }
+
+  if (!shouldVirtualize) {
+    return <tbody>{items.map((item) => children(item, {}))}</tbody>
+  }
+
+  const virtualRows = virtualizer.getVirtualItems()
+  const firstRow = virtualRows[0]
+  const lastRow = virtualRows[virtualRows.length - 1]
+  const topSpacer = firstRow ? Math.max(0, firstRow.start - scrollMargin) : 0
+  const bottomSpacer = lastRow
+    ? Math.max(0, virtualizer.getTotalSize() - (lastRow.end - scrollMargin))
+    : 0
+
+  return (
+    <tbody ref={bodyRef}>
+      {topSpacer > 0 ? (
+        <tr aria-hidden="true"><td colSpan={7} style={{ height: topSpacer, padding: 0, border: 0, lineHeight: 0 }} /></tr>
+      ) : null}
+      {virtualRows.map((virtualRow) => {
+        const item = items[virtualRow.index]
+        if (!item) return null
+        return children(item, { ref: virtualizer.measureElement, 'data-index': virtualRow.index })
+      })}
+      {bottomSpacer > 0 ? (
+        <tr aria-hidden="true"><td colSpan={7} style={{ height: bottomSpacer, padding: 0, border: 0, lineHeight: 0 }} /></tr>
+      ) : null}
+    </tbody>
   )
 }
 
