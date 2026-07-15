@@ -264,6 +264,7 @@ export interface CommandCenterTaskStepRow {
   due_date: string | null
   is_required: boolean
   sort_order: number | null
+  created_at: string | null
   deleted_at: string | null
 }
 

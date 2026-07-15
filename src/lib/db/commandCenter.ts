@@ -69,7 +69,7 @@ export async function getCommandCenterData(
       .is('deleted_at', null),
 
     sb.from('task_steps')
-      .select('id,task_id,title,description,owner_id,status,priority,start_date,due_date,is_required,sort_order,deleted_at')
+      .select('id,task_id,title,description,owner_id,status,priority,start_date,due_date,is_required,sort_order,created_at,deleted_at')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('sort_order', { ascending: true }),

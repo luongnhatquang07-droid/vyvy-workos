@@ -2,6 +2,8 @@
 
 import React from 'react'
 import { createPortal } from 'react-dom'
+import { PlanDocumentsPanel } from '@/components/documents/PlanDocumentsPanel'
+import { ProjectPlanProvider } from '@/components/documents/ProjectPlanProvider'
 import { Drawer } from '@/components/feedback/Drawer'
 import { ConfirmDialog } from '@/components/feedback/Modal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
@@ -90,6 +92,9 @@ interface StepItem {
   reviewerId: string | null
   dueDate: string
   missingDueDate?: boolean
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  createdAt?: string | null
+  sortOrder?: number | null
   status: TaskStatus
   note: string
   isRequired: boolean
@@ -1483,6 +1488,7 @@ function ProjectsPageContent() {
           </aside>
 
           {selectedProject ? (
+            <ProjectPlanProvider key={selectedProject.id} projectId={selectedProject.sourceProjectId ?? selectedProject.id}>
             <div style={workspaceMainLayout}>
               <section style={detailShell}>
               <div style={detailHeader}>
@@ -1514,6 +1520,14 @@ function ProjectsPageContent() {
                   </PrimaryButton>
                 </div>
               </div>
+
+              <PlanDocumentsPanel
+                key={`project-plan-${selectedProject.id}`}
+                targetType="PROJECT"
+                targetId={selectedProject.sourceProjectId ?? selectedProject.id}
+                title="Kế hoạch tổng dự án"
+                defaultExpanded={false}
+              />
 
               {selectedProjectOps ? (
                 <ProjectOpsStrip
@@ -1603,6 +1617,7 @@ function ProjectsPageContent() {
 
               </section>
             </div>
+            </ProjectPlanProvider>
           ) : null}
         </div>
       )}
@@ -1800,6 +1815,7 @@ function SubtaskCompactDetail({
   const workflowSummary = getWorkflowSummary(subtask)
   const fileSummary = getFileSummary(subtask)
   const fileGroups = getSubtaskFileGroups(subtask)
+  const parentWorkstream = findWorkstreamForSubtask(project, subtask.id)
   const deadlineSummary = getDeadlineSummary(subtask)
 
   const peopleOptions = React.useMemo(() => Object.values(people), [people])
@@ -1857,6 +1873,16 @@ function SubtaskCompactDetail({
             Mở phần cần xử lý
           </button>
         </div>
+      ) : null}
+
+      {parentWorkstream ? (
+        <PlanDocumentsPanel
+          key={`subtask-plan-${subtask.id}`}
+          targetType="WORKSTREAM"
+          targetId={parentWorkstream.id}
+          title="Plan từ đầu việc lớn"
+          readOnly
+        />
       ) : null}
 
       <div style={summaryCardGrid}>
@@ -2902,6 +2928,13 @@ function OverviewTab({
               <GhostButton icon="ti-plus" onClick={() => onOpenSubtaskComposer(workstream.id)}>Thêm đầu việc con</GhostButton>
             </div>
           </div>
+
+          <PlanDocumentsPanel
+            key={`workstream-plan-${workstream.id}`}
+            targetType="WORKSTREAM"
+            targetId={workstream.id}
+            title="Plan đầu việc lớn"
+          />
 
           {visibleSubtasks.length === 0 ? (
             <div style={emptyInline}>{workstream.subtasks.length ? 'Không có việc phù hợp với bộ lọc.' : 'Đầu việc lớn này chưa có đầu việc con.'}</div>
@@ -4609,6 +4642,32 @@ function FlowchartDetailDrawer({
         </div>
       </section>
 
+      {node.kind === 'project' ? (
+        <PlanDocumentsPanel
+          key={`flowchart-project-plan-${node.project.id}`}
+          targetType="PROJECT"
+          targetId={node.project.sourceProjectId ?? node.project.id}
+          title="Kế hoạch tổng dự án"
+        />
+      ) : null}
+      {node.kind === 'workstream' && node.workstream ? (
+        <PlanDocumentsPanel
+          key={`flowchart-workstream-plan-${node.workstream.id}`}
+          targetType="WORKSTREAM"
+          targetId={node.workstream.id}
+          title="Plan đầu việc lớn"
+        />
+      ) : null}
+      {node.kind === 'subtask' && node.workstream ? (
+        <PlanDocumentsPanel
+          key={`flowchart-subtask-plan-${node.subtask?.id ?? node.workstream.id}`}
+          targetType="WORKSTREAM"
+          targetId={node.workstream.id}
+          title="Plan từ đầu việc lớn"
+          readOnly
+        />
+      ) : null}
+
       <section style={flowchartPanelCard}>
         <div style={sectionTitle}>Mô tả</div>
         <div style={mutedMetaStyle}>{description || 'Chưa có mô tả chi tiết.'}</div>
@@ -4995,7 +5054,7 @@ interface FlowchartWorkflowStepEntry {
 
 function getFlowchartWorkflowStepEntries(node: FlowchartNode): FlowchartWorkflowStepEntry[] {
   function collectSubtaskSteps(subtask: SubtaskItem, workstreamTitle?: string) {
-    return subtask.steps.map((step, index) => ({
+    return sortStepsForFlowchart(subtask.steps).map((step, index) => ({
       subtask,
       step,
       stepNumber: index + 1,
@@ -5155,7 +5214,7 @@ function getSubtaskFileGroups(subtask?: SubtaskItem | null): SubtaskFileGroups {
 }
 
 function getSubtaskStepNumber(subtask: SubtaskItem | null | undefined, stepId: string) {
-  const index = subtask?.steps.findIndex((step) => step.id === stepId) ?? -1
+  const index = sortStepsForFlowchart(subtask?.steps ?? []).findIndex((step) => step.id === stepId)
   return index >= 0 ? index + 1 : undefined
 }
 function getEvidenceFileStatusLabel(status: VersionReviewStatus) {
@@ -5973,6 +6032,9 @@ function toSeedSubtask(
         reviewerId: step.reviewer_id ?? null,
         dueDate: normalizeDateKey(step.due_date) ?? dueDate,
         missingDueDate: !normalizeDateKey(step.due_date),
+        priority: step.priority,
+        createdAt: step.created_at,
+        sortOrder: step.sort_order,
         status: evidence.valid ? 'COMPLETED' : stepStatus,
         note: stepText.expectedResult,
         isRequired: step.is_required !== false,
@@ -6149,6 +6211,9 @@ function makeStep(title: string, ownerId: string | null, dueDate: string, review
     ownerId,
     reviewerId,
     dueDate,
+    priority: 'MEDIUM',
+    createdAt: new Date().toISOString(),
+    sortOrder: null,
     status: 'NOT_STARTED',
     note: '',
     isRequired: true,
@@ -7331,13 +7396,44 @@ function matchesStepFlowchartFilter(step: StepItem, filter: FlowchartFilter) {
   return true
 }
 
+const FLOWCHART_STEP_PRIORITY_ORDER: Record<NonNullable<StepItem['priority']>, number> = {
+  CRITICAL: 0,
+  HIGH: 1,
+  MEDIUM: 2,
+  LOW: 3,
+}
+
+function sortStepsForFlowchart(steps: StepItem[]) {
+  return [...steps].sort((left, right) => {
+    const leftDeadline = !left.missingDueDate && left.dueDate ? left.dueDate : null
+    const rightDeadline = !right.missingDueDate && right.dueDate ? right.dueDate : null
+    if (leftDeadline && !rightDeadline) return -1
+    if (!leftDeadline && rightDeadline) return 1
+    if (leftDeadline && rightDeadline) {
+      const deadlineOrder = leftDeadline.localeCompare(rightDeadline)
+      if (deadlineOrder) return deadlineOrder
+    }
+
+    const priorityOrder = FLOWCHART_STEP_PRIORITY_ORDER[left.priority ?? 'MEDIUM']
+      - FLOWCHART_STEP_PRIORITY_ORDER[right.priority ?? 'MEDIUM']
+    if (priorityOrder) return priorityOrder
+
+    const leftCreatedAt = left.createdAt ? new Date(left.createdAt).getTime() : Number.MAX_SAFE_INTEGER
+    const rightCreatedAt = right.createdAt ? new Date(right.createdAt).getTime() : Number.MAX_SAFE_INTEGER
+    if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt
+
+    const sortOrder = (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER)
+    return sortOrder || left.id.localeCompare(right.id)
+  })
+}
+
 function getVisibleFlowchartSteps(subtask: SubtaskItem, filter: FlowchartFilter, projectFilters: ProjectFilters) {
   const subtaskMatches = matchesSubtaskFlowchartFilter(subtask, filter) && matchesProjectWorkFilter(subtask, projectFilters)
-  if (subtaskMatches) return subtask.steps
-  return subtask.steps.filter((step) =>
+  if (subtaskMatches) return sortStepsForFlowchart(subtask.steps)
+  return sortStepsForFlowchart(subtask.steps.filter((step) =>
     matchesStepFlowchartFilter(step, filter) &&
     matchesStepProjectFilter(step, projectFilters),
-  )
+  ))
 }
 
 function getFlowchartStepGroups(subtask: SubtaskItem, steps: StepItem[]): FlowchartStepGroup[] {
