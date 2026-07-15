@@ -112,7 +112,10 @@ function useCommandDataState(enabled: boolean): UseCommandDataResult {
     await load(true, { silent: options.silent ?? Boolean(commandDataCache.data) })
   }, [load])
 
-  return { data, loading, error, refresh }
+  return React.useMemo(
+    () => ({ data, loading, error, refresh }),
+    [data, error, loading, refresh],
+  )
 }
 
 async function fetchCommandCenterData() {
