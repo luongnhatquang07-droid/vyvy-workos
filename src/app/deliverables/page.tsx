@@ -90,6 +90,8 @@ export default function DeliverablesPage() {
   const { data, loading, error, refresh } = useCommandData()
   const [filter, setFilter] = React.useState<FilterKey>('all')
   const [query, setQuery] = React.useState('')
+  const deferredFilter = React.useDeferredValue(filter)
+  const deferredQuery = React.useDeferredValue(query)
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<DetailPayload | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
@@ -144,14 +146,14 @@ export default function DeliverablesPage() {
   }, [selectedId])
 
   const filtered = React.useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = deferredQuery.trim().toLowerCase()
     return deliverables.filter((item) => {
       const isOverdue = Boolean(item.due_date && item.due_date < today && !['SUBMITTED', 'APPROVED'].includes(item.status))
-      if (filter === 'not_submitted' && !['REQUIRED', 'NOT_SUBMITTED'].includes(item.status)) return false
-      if (filter === 'overdue' && !isOverdue) return false
-      if (filter === 'submitted' && item.status !== 'SUBMITTED') return false
-      if (filter === 'revision' && !['REVISION_REQUIRED', 'MISSING_INFORMATION'].includes(item.status)) return false
-      if (filter === 'approved' && item.status !== 'APPROVED') return false
+      if (deferredFilter === 'not_submitted' && !['REQUIRED', 'NOT_SUBMITTED'].includes(item.status)) return false
+      if (deferredFilter === 'overdue' && !isOverdue) return false
+      if (deferredFilter === 'submitted' && item.status !== 'SUBMITTED') return false
+      if (deferredFilter === 'revision' && !['REVISION_REQUIRED', 'MISSING_INFORMATION'].includes(item.status)) return false
+      if (deferredFilter === 'approved' && item.status !== 'APPROVED') return false
 
       if (!normalized) return true
       const task = item.task_id ? tasksById[item.task_id] : null
@@ -160,7 +162,7 @@ export default function DeliverablesPage() {
       const haystack = `${item.name} ${item.description ?? ''} ${task?.title ?? ''} ${project?.name ?? ''} ${submitter?.full_name ?? ''}`.toLowerCase()
       return haystack.includes(normalized)
     })
-  }, [deliverables, filter, peopleById, projectsById, query, tasksById, today])
+  }, [deferredFilter, deferredQuery, deliverables, peopleById, projectsById, tasksById, today])
 
   const lateCount = deliverables.filter((item) => item.due_date && item.due_date < today && !['SUBMITTED', 'APPROVED'].includes(item.status)).length
   const submittedCount = deliverables.filter((item) => item.status === 'SUBMITTED').length

@@ -24,6 +24,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter()
   const { data } = useCommandData()
   const [query, setQuery] = React.useState('')
+  const deferredQuery = React.useDeferredValue(query)
   const [activeIndex, setActiveIndex] = React.useState(0)
   const containerRef = React.useRef<HTMLDivElement>(null)
 
@@ -100,7 +101,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return [...navItems, ...projectItems, ...taskItems, ...meetingItems, ...peopleItems, ...reminderItems]
   }, [data?.meetings, data?.people, data?.projects, data?.reminders, data?.tasks, open, projectById])
 
-  const normalizedQuery = query.trim().toLowerCase()
+  const normalizedQuery = deferredQuery.trim().toLowerCase()
   const filtered = React.useMemo(() => {
     if (!open) return []
     if (!normalizedQuery) return items

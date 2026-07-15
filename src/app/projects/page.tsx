@@ -452,6 +452,7 @@ function ProjectsPageContent() {
   const [selectedSubtaskId, setSelectedSubtaskId] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<ViewTab>('overview')
   const [projectFilters, setProjectFilters] = React.useState<ProjectFilters>(() => createDefaultProjectFilters())
+  const deferredProjectFilters = React.useDeferredValue(projectFilters)
   const [composerMode, setComposerMode] = React.useState<ComposerMode>(null)
   const [composerParentId, setComposerParentId] = React.useState<string | null>(null)
   const [composerDraft, setComposerDraft] = React.useState<ComposerDraft>(createDraft())
@@ -585,8 +586,8 @@ function ProjectsPageContent() {
     [currentPersonId, people, selectedProject],
   )
   const selectedProjectFilterSummary = React.useMemo(
-    () => selectedProject ? getProjectFilterSummary(selectedProject, projectFilters) : null,
-    [projectFilters, selectedProject],
+    () => selectedProject ? getProjectFilterSummary(selectedProject, deferredProjectFilters) : null,
+    [deferredProjectFilters, selectedProject],
   )
 
   function ensureSelection(nextWorkspace: ProjectWorkspace[]) {
@@ -1558,7 +1559,7 @@ function ProjectsPageContent() {
                 <OverviewTab
                   project={selectedProject}
                   people={people}
-                  filters={projectFilters}
+                  filters={deferredProjectFilters}
                   selectedSubtaskId={selectedSubtaskId}
                   onSelectSubtask={selectSubtask}
                   renderSubtaskDetail={renderInlineSubtaskDetail}
@@ -1572,7 +1573,7 @@ function ProjectsPageContent() {
                 <KanbanTab
                   project={selectedProject}
                   people={people}
-                  filters={projectFilters}
+                  filters={deferredProjectFilters}
                   onSelectSubtask={selectSubtask}
                   onChangeStatus={updateKanbanSubtaskStatus}
                   selectedSubtaskId={selectedSubtaskId}
@@ -1584,7 +1585,7 @@ function ProjectsPageContent() {
                 <GanttTab
                   key={selectedProject.id}
                   project={selectedProject}
-                  filters={projectFilters}
+                  filters={deferredProjectFilters}
                   onOpenSubtask={(subtaskId) => {
                     setSelectedSubtaskId(subtaskId)
                     setActiveTab('overview')
@@ -1598,7 +1599,7 @@ function ProjectsPageContent() {
                   project={selectedProject}
                   people={people}
                   workspaceId={workspaceId}
-                  projectFilters={projectFilters}
+                  projectFilters={deferredProjectFilters}
                   visibilitySummary={data?.visibilitySummary}
                   currentUser={data?.currentUser}
                   onSaveSubtaskReport={saveFlowchartSubtaskReport}

@@ -181,6 +181,10 @@ export default function UserManagementPage() {
   const [roleFilter, setRoleFilter] = React.useState('')
   const [departmentFilter, setDepartmentFilter] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
+  const deferredQuery = React.useDeferredValue(query)
+  const deferredRoleFilter = React.useDeferredValue(roleFilter)
+  const deferredDepartmentFilter = React.useDeferredValue(departmentFilter)
+  const deferredStatusFilter = React.useDeferredValue(statusFilter)
   const [mode, setMode] = React.useState<'create' | 'edit' | 'reset' | null>(null)
   const [createFormNonce, setCreateFormNonce] = React.useState(0)
   const [panelTab, setPanelTab] = React.useState<'account' | 'permissions'>('account')
@@ -603,7 +607,7 @@ export default function UserManagementPage() {
   }
 
   const filteredUsers = React.useMemo(() => {
-    const needle = query.trim().toLowerCase()
+    const needle = deferredQuery.trim().toLowerCase()
     return users.filter((user) => {
       const matchesQuery = !needle || [
         user.fullName,
@@ -612,12 +616,12 @@ export default function UserManagementPage() {
         user.departmentName,
         user.roleLabel,
       ].some((value) => value?.toLowerCase().includes(needle))
-      const matchesRole = !roleFilter || user.roleCode === roleFilter
-      const matchesDepartment = !departmentFilter || user.departmentId === departmentFilter
-      const matchesStatus = !statusFilter || normalizeStatus(user.status) === statusFilter
+      const matchesRole = !deferredRoleFilter || user.roleCode === deferredRoleFilter
+      const matchesDepartment = !deferredDepartmentFilter || user.departmentId === deferredDepartmentFilter
+      const matchesStatus = !deferredStatusFilter || normalizeStatus(user.status) === deferredStatusFilter
       return matchesQuery && matchesRole && matchesDepartment && matchesStatus
     })
-  }, [departmentFilter, query, roleFilter, statusFilter, users])
+  }, [deferredDepartmentFilter, deferredQuery, deferredRoleFilter, deferredStatusFilter, users])
 
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PAGE_SIZE))
   const safePageIndex = Math.min(pageIndex, pageCount - 1)

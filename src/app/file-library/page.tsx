@@ -61,6 +61,8 @@ export default function FileLibraryPage() {
   const { toast } = useToast()
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<FilterKey>('all')
+  const deferredQuery = React.useDeferredValue(query)
+  const deferredFilter = React.useDeferredValue(filter)
   const [scope, setScope] = React.useState<LibraryScope>({ type: 'all', id: null, label: 'Tất cả dự án' })
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<DetailPayload | null>(null)
@@ -113,12 +115,12 @@ export default function FileLibraryPage() {
   }, [deliverables, today, versionsByDeliverable])
 
   const filtered = React.useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = deferredQuery.trim().toLowerCase()
     return deliverables.filter((item) => {
       const latest = versionsByDeliverable[item.id]?.[0]
       const attachment = latest?.attachment_id ? attachmentsById[latest.attachment_id] : null
       if (!matchesScope(item, scope, tasksById)) return false
-      if (!matchesFilter(item, filter, today, latest)) return false
+      if (!matchesFilter(item, deferredFilter, today, latest)) return false
       if (!normalized) return true
 
       const task = item.task_id ? tasksById[item.task_id] : null
@@ -145,10 +147,10 @@ export default function FileLibraryPage() {
   }, [
     attachmentsById,
     deliverables,
-    filter,
+    deferredFilter,
+    deferredQuery,
     peopleById,
     projectsById,
-    query,
     scope,
     stepsById,
     tasksById,
