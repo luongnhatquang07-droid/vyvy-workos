@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
@@ -317,24 +318,19 @@ export default function FileLibraryPage() {
           ) : filtered.length === 0 ? (
             <EmptyBlock icon="ti-folder-search" title="Không có file phù hợp" desc="Thử đổi bộ lọc, cây dự án hoặc từ khóa tìm kiếm." />
           ) : (
-            <div style={fileListStyle}>
-              {filtered.map((item) => (
-                <FileRow
-                  key={item.id}
-                  item={item}
-                  today={today}
-                  selected={item.id === selectedId}
-                  latestVersion={versionsByDeliverable[item.id]?.[0] ?? null}
-                  attachment={versionsByDeliverable[item.id]?.[0]?.attachment_id ? attachmentsById[versionsByDeliverable[item.id][0].attachment_id!] : null}
-                  peopleById={peopleById}
-                  projectsById={projectsById}
-                  tasksById={tasksById}
-                  stepsById={stepsById}
-                  workstreamsById={workstreamsById}
-                  onClick={() => selectDeliverable(item.id)}
-                />
-              ))}
-            </div>
+            <FileLibraryList
+              items={filtered}
+              today={today}
+              selectedId={selectedId}
+              versionsByDeliverable={versionsByDeliverable}
+              attachmentsById={attachmentsById}
+              peopleById={peopleById}
+              projectsById={projectsById}
+              tasksById={tasksById}
+              stepsById={stepsById}
+              workstreamsById={workstreamsById}
+              onSelect={selectDeliverable}
+            />
           )}
         </section>
 
@@ -359,6 +355,99 @@ export default function FileLibraryPage() {
             attachmentsById={attachmentsById}
           />
         </aside>
+      </div>
+    </div>
+  )
+}
+
+const VIRTUALIZE_FILE_LIBRARY_AFTER = 50
+
+function FileLibraryList({
+  items,
+  today,
+  selectedId,
+  versionsByDeliverable,
+  attachmentsById,
+  peopleById,
+  projectsById,
+  tasksById,
+  stepsById,
+  workstreamsById,
+  onSelect,
+}: {
+  items: CommandCenterDeliverableRow[]
+  today: string
+  selectedId: string | null
+  versionsByDeliverable: Record<string, CommandCenterDeliverableVersionRow[]>
+  attachmentsById: Record<string, CommandCenterAttachmentRow>
+  peopleById: Record<string, CommandCenterPersonRow>
+  projectsById: Record<string, CommandCenterProjectRow>
+  tasksById: Record<string, CommandCenterTaskRow>
+  stepsById: Record<string, CommandCenterTaskStepRow>
+  workstreamsById: Record<string, CommandCenterWorkstreamRow>
+  onSelect: (id: string) => void
+}) {
+  'use no memo'
+  const shouldVirtualize = items.length > VIRTUALIZE_FILE_LIBRARY_AFTER
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: shouldVirtualize ? items.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 114,
+    overscan: 8,
+    enabled: shouldVirtualize,
+    getItemKey: (index) => items[index]?.id ?? index,
+  })
+
+  const renderRow = (item: CommandCenterDeliverableRow) => {
+    const latestVersion = versionsByDeliverable[item.id]?.[0] ?? null
+    const attachment = latestVersion?.attachment_id ? attachmentsById[latestVersion.attachment_id] ?? null : null
+    return (
+      <FileRow
+        key={item.id}
+        item={item}
+        today={today}
+        selected={item.id === selectedId}
+        latestVersion={latestVersion}
+        attachment={attachment}
+        peopleById={peopleById}
+        projectsById={projectsById}
+        tasksById={tasksById}
+        stepsById={stepsById}
+        workstreamsById={workstreamsById}
+        onClick={() => onSelect(item.id)}
+      />
+    )
+  }
+
+  if (!shouldVirtualize) {
+    return <div style={fileListStyle}>{items.map(renderRow)}</div>
+  }
+
+  return (
+    <div ref={scrollRef} style={{ ...fileListStyle, display: 'block' }}>
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const item = items[virtualRow.index]
+          if (!item) return null
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                paddingBottom: virtualRow.index === items.length - 1 ? 0 : 10,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {renderRow(item)}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
