@@ -627,7 +627,8 @@ function ProjectsPageContent() {
 
   function updateWorkspace(mutator: (current: ProjectWorkspace[]) => ProjectWorkspace[]) {
     setWorkspace((current) => {
-      const next = normalizeWorkspaceTree(mutator(current))
+      const next = normalizeWorkspaceTree(mutator(current), current)
+      if (next === current) return current
       ensureSelection(next)
       return next
     })
@@ -6730,8 +6731,68 @@ function findWorkstreamForSubtask(project: ProjectWorkspace, subtaskId: string |
   return project.workstreams.find((workstream) => workstream.subtasks.some((subtask) => subtask.id === subtaskId)) ?? null
 }
 
-function normalizeWorkspaceTree(projects: ProjectWorkspace[]) {
-  return projects.map((project) => {
+function isStructuralShareRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getStructuralShareId(value: unknown) {
+  if (!isStructuralShareRecord(value)) return null
+  return typeof value.id === 'string' ? value.id : null
+}
+
+function structurallyShareValue(previous: unknown, next: unknown): unknown {
+  if (Object.is(previous, next)) return previous
+
+  if (Array.isArray(next)) {
+    if (!Array.isArray(previous)) return next
+
+    const previousById = new Map<string, unknown>()
+    for (const item of previous) {
+      const id = getStructuralShareId(item)
+      if (id) previousById.set(id, item)
+    }
+
+    const sharedItems = next.map((item, itemIndex) => {
+      const id = getStructuralShareId(item)
+      const previousItem = id ? previousById.get(id) : previous[itemIndex]
+      return structurallyShareValue(previousItem, item)
+    })
+    const canReusePrevious = previous.length === sharedItems.length
+      && sharedItems.every((item, itemIndex) => Object.is(item, previous[itemIndex]))
+    return canReusePrevious ? previous : sharedItems
+  }
+
+  if (isStructuralShareRecord(next)) {
+    if (!isStructuralShareRecord(previous)) return next
+
+    const nextKeys = Object.keys(next)
+    const previousKeys = Object.keys(previous)
+    let canReusePrevious = nextKeys.length === previousKeys.length
+    const sharedRecord: Record<string, unknown> = {}
+
+    for (const key of nextKeys) {
+      const sharedValue = structurallyShareValue(previous[key], next[key])
+      if (!Object.prototype.hasOwnProperty.call(previous, key)) canReusePrevious = false
+      sharedRecord[key] = sharedValue
+      if (!Object.is(sharedValue, previous[key])) canReusePrevious = false
+    }
+
+    return canReusePrevious ? previous : sharedRecord
+  }
+
+  return next
+}
+
+function structurallyShareWorkspace(previous: ProjectWorkspace[], next: ProjectWorkspace[]) {
+  const shared = structurallyShareValue(previous, next)
+  return Array.isArray(shared) ? shared as ProjectWorkspace[] : next
+}
+
+function normalizeWorkspaceTree(
+  projects: ProjectWorkspace[],
+  previousProjects?: ProjectWorkspace[],
+) {
+  const normalized = projects.map((project) => {
     const workstreams = project.workstreams.map((workstream) => {
       const subtasks = workstream.subtasks.map(normalizeSubtaskState)
       const subtaskDueDates = subtasks.map((subtask) => subtask.dueDate).filter(Boolean)
@@ -6757,6 +6818,8 @@ function normalizeWorkspaceTree(projects: ProjectWorkspace[]) {
       workstreams,
     }
   })
+
+  return previousProjects ? structurallyShareWorkspace(previousProjects, normalized) : normalized
 }
 
 function normalizeSubtaskState(subtask: SubtaskItem): SubtaskItem {
@@ -6775,11 +6838,10 @@ function normalizeSubtaskState(subtask: SubtaskItem): SubtaskItem {
     nextStatus = 'PENDING_APPROVAL'
   }
 
-  return {
-    ...subtask,
-    status: nextStatus,
-    dueDate: latestStepDate > subtask.dueDate ? latestStepDate : subtask.dueDate,
-  }
+  const nextDueDate = latestStepDate > subtask.dueDate ? latestStepDate : subtask.dueDate
+  if (nextStatus === subtask.status && nextDueDate === subtask.dueDate) return subtask
+
+  return { ...subtask, status: nextStatus, dueDate: nextDueDate }
 }
 
 function deriveWorkstreamStatus(subtasks: SubtaskItem[]): TaskStatus {
