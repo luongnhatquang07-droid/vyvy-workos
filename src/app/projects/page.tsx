@@ -355,6 +355,19 @@ interface ProjectFilterSummary {
   visibleSteps: number
 }
 
+interface WorkspaceSeedIndex {
+  tasksByProjectId: Map<string, CommandCenterTaskRow[]>
+  tasksByProjectWorkstream: Map<string, CommandCenterTaskRow[]>
+  workstreamsByProjectId: Map<string, CommandCenterWorkstreamRow[]>
+  taskStepsByTaskId: Map<string, CommandCenterTaskStepRow[]>
+  deliverablesByTaskId: Map<string, CommandCenterDeliverableRow[]>
+  firstDeliverableByStepId: Map<string, CommandCenterDeliverableRow>
+  versionsByDeliverableId: Map<string, CommandCenterDeliverableVersionRow[]>
+  versionsByTaskId: Map<string, CommandCenterDeliverableVersionRow[]>
+  attachmentsById: Map<string, CommandCenterAttachmentRow>
+  meetingsByProjectId: Map<string, CommandCenterMeetingRow[]>
+}
+
 const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string }> = {
   NOT_STARTED: { label: 'Chưa bắt đầu', bg: 'var(--surface-3)', color: 'var(--txt-2)' },
   IN_PROGRESS: { label: 'Đang làm', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' },
@@ -447,6 +460,27 @@ function ProjectsPageContent() {
   )
 
   const [workspace, setWorkspace] = React.useState<ProjectWorkspace[]>([])
+  const workspaceSeedIndex = React.useMemo(
+    () => buildWorkspaceSeedIndex(
+      data?.tasks ?? [],
+      data?.workstreams ?? [],
+      data?.taskSteps ?? [],
+      data?.deliverables ?? [],
+      data?.deliverableVersions ?? [],
+      data?.attachments ?? [],
+      data?.meetings ?? [],
+    ),
+    [
+      data?.attachments,
+      data?.deliverableVersions,
+      data?.deliverables,
+      data?.meetings,
+      data?.taskSteps,
+      data?.tasks,
+      data?.workstreams,
+    ],
+  )
+
   const [ready, setReady] = React.useState(false)
   const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null)
   const [selectedSubtaskId, setSelectedSubtaskId] = React.useState<string | null>(null)
@@ -485,14 +519,8 @@ function ProjectsPageContent() {
 
     const seeded = seedWorkspace(
       data?.projects ?? [],
-      data?.tasks ?? [],
       data?.people ?? [],
-      data?.workstreams ?? [],
-      data?.taskSteps ?? [],
-      data?.deliverables ?? [],
-      data?.deliverableVersions ?? [],
-      data?.attachments ?? [],
-      data?.meetings ?? [],
+      workspaceSeedIndex,
     )
     queueMicrotask(() => {
       const routeTarget = routeSelectionAppliedRef.current ? null : readProjectsRouteTarget()
@@ -523,7 +551,7 @@ function ProjectsPageContent() {
       setSelectedSubtaskId(nextSubtaskId)
       setReady(true)
     })
-  }, [data?.attachments, data?.deliverableVersions, data?.deliverables, data?.meetings, data?.people, data?.projects, data?.taskSteps, data?.tasks, data?.workstreams, loading])
+  }, [data?.people, data?.projects, loading, workspaceSeedIndex])
 
   React.useEffect(() => {
     queueMicrotask(() => {
@@ -5915,31 +5943,110 @@ function IconButton({
   )
 }
 
-function seedWorkspace(
-  projects: CommandCenterProjectRow[],
+function appendIndexValue<T>(index: Map<string, T[]>, key: string | null | undefined, value: T) {
+  if (!key) return
+  const values = index.get(key)
+  if (values) values.push(value)
+  else index.set(key, [value])
+}
+
+function projectWorkstreamIndexKey(projectId: string, workstreamId: string) {
+  return `${projectId}:${workstreamId}`
+}
+
+function buildWorkspaceSeedIndex(
   tasks: CommandCenterTaskRow[],
-  people: CommandCenterPersonRow[],
   workstreams: CommandCenterWorkstreamRow[],
   taskSteps: CommandCenterTaskStepRow[],
   deliverables: CommandCenterDeliverableRow[],
   deliverableVersions: CommandCenterDeliverableVersionRow[],
   attachments: CommandCenterAttachmentRow[],
   meetings: CommandCenterMeetingRow[],
+): WorkspaceSeedIndex {
+  const tasksByProjectId = new Map<string, CommandCenterTaskRow[]>()
+  const tasksByProjectWorkstream = new Map<string, CommandCenterTaskRow[]>()
+  const workstreamsByProjectId = new Map<string, CommandCenterWorkstreamRow[]>()
+  const taskStepsByTaskId = new Map<string, CommandCenterTaskStepRow[]>()
+  const deliverablesByTaskId = new Map<string, CommandCenterDeliverableRow[]>()
+  const firstDeliverableByStepId = new Map<string, CommandCenterDeliverableRow>()
+  const versionsByDeliverableId = new Map<string, CommandCenterDeliverableVersionRow[]>()
+  const versionsByTaskId = new Map<string, CommandCenterDeliverableVersionRow[]>()
+  const meetingsByProjectId = new Map<string, CommandCenterMeetingRow[]>()
+
+  const deliverablesById = new Map(deliverables.map((deliverable) => [deliverable.id, deliverable]))
+  for (const task of tasks) {
+    appendIndexValue(tasksByProjectId, task.project_id, task)
+    if (task.project_id && task.workstream_id) {
+      appendIndexValue(
+        tasksByProjectWorkstream,
+        projectWorkstreamIndexKey(task.project_id, task.workstream_id),
+        task,
+      )
+    }
+  }
+
+  for (const workstream of workstreams) {
+    appendIndexValue(workstreamsByProjectId, workstream.project_id, workstream)
+  }
+
+  for (const step of taskSteps) {
+    appendIndexValue(taskStepsByTaskId, step.task_id, step)
+  }
+
+  for (const deliverable of deliverables) {
+    appendIndexValue(deliverablesByTaskId, deliverable.task_id, deliverable)
+    if (deliverable.step_id && !firstDeliverableByStepId.has(deliverable.step_id)) {
+      firstDeliverableByStepId.set(deliverable.step_id, deliverable)
+    }
+  }
+
+  for (const version of deliverableVersions) {
+    appendIndexValue(versionsByDeliverableId, version.deliverable_id, version)
+    const taskId = deliverablesById.get(version.deliverable_id)?.task_id
+    appendIndexValue(versionsByTaskId, taskId, version)
+  }
+  for (const versions of versionsByDeliverableId.values()) {
+    versions.sort((left, right) => right.version_number - left.version_number)
+  }
+
+  for (const meeting of meetings) {
+    appendIndexValue(meetingsByProjectId, meeting.project_id, meeting)
+  }
+
+  return {
+    tasksByProjectId,
+    tasksByProjectWorkstream,
+    workstreamsByProjectId,
+    taskStepsByTaskId,
+    deliverablesByTaskId,
+    firstDeliverableByStepId,
+    versionsByDeliverableId,
+    attachmentsById: new Map(attachments.map((attachment) => [attachment.id, attachment])),
+    meetingsByProjectId,
+    versionsByTaskId,
+  }
+}
+
+function seedWorkspace(
+  projects: CommandCenterProjectRow[],
+  people: CommandCenterPersonRow[],
+  seedIndex: WorkspaceSeedIndex,
 ): ProjectWorkspace[] {
   const today = getVietnamDateKey()
   const fallbackOwner = people[0]?.id ?? null
 
-  return normalizeWorkspaceTree(projects.map((project, index) => {
-    const projectTasks = tasks.filter((task) => task.project_id === project.id)
-    const projectWorkstreams = workstreams.filter((workstream) => workstream.project_id === project.id)
-    const startDate = normalizeDateKey(project.start_date) ?? shiftDate(today, index * 3)
+  return normalizeWorkspaceTree(projects.map((project, projectIndex) => {
+    const projectTasks = seedIndex.tasksByProjectId.get(project.id) ?? []
+    const projectWorkstreams = seedIndex.workstreamsByProjectId.get(project.id) ?? []
+    const startDate = normalizeDateKey(project.start_date) ?? shiftDate(today, projectIndex * 3)
     const mappedWorkstreams = projectWorkstreams.map((workstream) => {
-      const streamTasks = projectTasks.filter((task) => task.workstream_id === workstream.id)
-      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments))
+      const streamTasks = seedIndex.tasksByProjectWorkstream.get(projectWorkstreamIndexKey(project.id, workstream.id)) ?? []
+      const subtasks = streamTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, seedIndex))
       return toWorkstreamItem(workstream, subtasks, startDate, fallbackOwner)
     })
 
-    const ungroupedTasks = projectTasks.filter((task) => !task.workstream_id || !projectWorkstreams.some((stream) => stream.id === task.workstream_id))
+    const projectWorkstreamIds = new Set(projectWorkstreams.map((stream) => stream.id))
+    const ungroupedTasks = projectTasks.filter((task) => !task.workstream_id || !projectWorkstreamIds.has(task.workstream_id))
     const ungroupedWorkstream: WorkstreamItem | null = ungroupedTasks.length
       ? {
           id: `ungrouped-${project.id}`,
@@ -5951,7 +6058,7 @@ function seedWorkspace(
           startDate,
           dueDate: normalizeDateKey(project.due_date) ?? shiftDate(startDate, 21),
           status: 'NOT_STARTED',
-          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, taskSteps, deliverables, deliverableVersions, attachments)),
+          subtasks: ungroupedTasks.map((task, taskIndex) => toSeedSubtask(task, startDate, taskIndex, seedIndex)),
         }
       : null
     const projectTree = ungroupedWorkstream ? [...mappedWorkstreams, ungroupedWorkstream] : mappedWorkstreams
@@ -5961,7 +6068,7 @@ function seedWorkspace(
       id: project.id,
       sourceProjectId: project.id,
       name: project.name,
-      code: project.code ?? `PRJ-${index + 1}`,
+      code: project.code ?? `PRJ-${projectIndex + 1}`,
       status: normalizeStatus(project.status),
       storedStatus: project.status,
       ownerId: project.owner_id ?? fallbackOwner,
@@ -5970,8 +6077,7 @@ function seedWorkspace(
       dueDate,
       description: project.description ?? '',
       workstreams: projectTree,
-      meetings: meetings
-        .filter((meeting) => meeting.project_id === project.id)
+      meetings: (seedIndex.meetingsByProjectId.get(project.id) ?? [])
         .map((meeting) => ({
           id: meeting.id,
           title: meeting.title,
@@ -6008,21 +6114,17 @@ function toWorkstreamItem(
 function toSeedSubtask(
   task: CommandCenterTaskRow,
   projectStart: string,
-  index: number,
-  taskSteps: CommandCenterTaskStepRow[],
-  deliverables: CommandCenterDeliverableRow[],
-  deliverableVersions: CommandCenterDeliverableVersionRow[],
-  attachments: CommandCenterAttachmentRow[],
+  taskIndex: number,
+  seedIndex: WorkspaceSeedIndex,
 ): SubtaskItem {
-  const dueDate = normalizeDateKey(task.due_date) ?? shiftDate(projectStart, 5 + index * 2)
+  const dueDate = normalizeDateKey(task.due_date) ?? shiftDate(projectStart, 5 + taskIndex * 2)
   const startDate = normalizeDateKey(task.start_date) ?? shiftDate(dueDate, -3)
-  const taskDeliverables = deliverables.filter((deliverable) => deliverable.task_id === task.id)
-  const taskAttachments = buildDeliverableFileItems(taskDeliverables, deliverableVersions, attachments)
-  const persistedSteps = taskSteps
-    .filter((step) => step.task_id === task.id)
+  const taskDeliverables = seedIndex.deliverablesByTaskId.get(task.id) ?? []
+  const taskAttachments = buildDeliverableFileItems(taskDeliverables, task.id, seedIndex)
+  const persistedSteps = (seedIndex.taskStepsByTaskId.get(task.id) ?? [])
     .map((step) => {
-      const linkedDeliverable = taskDeliverables.find((deliverable) => deliverable.step_id === step.id)
-      const evidence = getDeliverableEvidenceState(linkedDeliverable, deliverableVersions)
+      const linkedDeliverable = seedIndex.firstDeliverableByStepId.get(step.id)
+      const evidence = getDeliverableEvidenceState(linkedDeliverable, seedIndex.versionsByDeliverableId)
       const stepStatus = normalizeStatus(step.status)
       const stepText = parseStepText(step.description)
       return {
@@ -6050,10 +6152,10 @@ function toSeedSubtask(
       }
     })
   const taskLevelDeliverable = taskDeliverables.find((deliverable) => !deliverable.step_id)
-  const taskEvidence = getDeliverableEvidenceState(taskLevelDeliverable, deliverableVersions)
+  const taskEvidence = getDeliverableEvidenceState(taskLevelDeliverable, seedIndex.versionsByDeliverableId)
   const requiredDeliverableEvidence = taskDeliverables
     .filter((deliverable) => deliverable.is_required !== false)
-    .map((deliverable) => getDeliverableEvidenceState(deliverable, deliverableVersions))
+    .map((deliverable) => getDeliverableEvidenceState(deliverable, seedIndex.versionsByDeliverableId))
   const allRequiredDeliverablesValid = requiredDeliverableEvidence.length > 0 && requiredDeliverableEvidence.every((evidence) => evidence.valid)
   const requiredSteps = persistedSteps.filter((step) => step.isRequired)
   const allRequiredStepsSatisfied = requiredSteps.every((step) => step.status === 'COMPLETED' || (step.requiresDeliverable && step.deliverableIsValid))
@@ -6090,7 +6192,7 @@ function toSeedSubtask(
 
 function getDeliverableEvidenceState(
   deliverable: CommandCenterDeliverableRow | null | undefined,
-  versions: CommandCenterDeliverableVersionRow[],
+  versionsByDeliverableId: Map<string, CommandCenterDeliverableVersionRow[]>,
 ): {
   status: CommandCenterDeliverableRow['status'] | null
   reviewStatus: VersionReviewStatus | null
@@ -6102,9 +6204,7 @@ function getDeliverableEvidenceState(
     return { status: null, reviewStatus: null, valid: false, blocker: null, requiresApproval: false }
   }
 
-  const relatedVersions = versions
-    .filter((version) => version.deliverable_id === deliverable.id)
-    .sort((a, b) => b.version_number - a.version_number)
+  const relatedVersions = versionsByDeliverableId.get(deliverable.id) ?? []
   const latestRelevant = relatedVersions.find((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
 
   if (relatedVersions.length && !latestRelevant) {
@@ -6231,13 +6331,12 @@ function makeStep(title: string, ownerId: string | null, dueDate: string, review
 
 function buildDeliverableFileItems(
   deliverables: CommandCenterDeliverableRow[],
-  versions: CommandCenterDeliverableVersionRow[],
-  attachments: CommandCenterAttachmentRow[],
+  taskId: string,
+  seedIndex: WorkspaceSeedIndex,
 ): AttachmentItem[] {
   const deliverablesById = new Map(deliverables.map((deliverable) => [deliverable.id, deliverable]))
-  const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
 
-  return versions
+  return (seedIndex.versionsByTaskId.get(taskId) ?? [])
     .filter((version) => deliverablesById.has(version.deliverable_id))
     .filter((version) => !isVersionInvalid(normalizeVersionReviewStatus(version.review_status)))
     .sort((a, b) => {
@@ -6246,7 +6345,7 @@ function buildDeliverableFileItems(
     })
     .map((version) => {
       const deliverable = deliverablesById.get(version.deliverable_id)
-      const attachment = version.attachment_id ? attachmentsById.get(version.attachment_id) : null
+      const attachment = version.attachment_id ? seedIndex.attachmentsById.get(version.attachment_id) : null
       const name = version.external_url
         ? externalLinkDisplayName(version.external_url, version.change_note)
         : attachment?.file_name ?? deliverable?.name ?? `Version ${version.version_number}`
