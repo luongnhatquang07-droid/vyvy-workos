@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Drawer } from '@/components/feedback/Drawer'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
@@ -443,23 +444,16 @@ export default function DeliverablesPage() {
         ) : filtered.length === 0 ? (
           <div style={emptyState}>Không có bàn giao phù hợp bộ lọc hiện tại.</div>
         ) : (
-          <div style={listStyle}>
-            {filtered.map((item, index) => (
-              <DeliverableRow
-                key={item.id}
-                item={item}
-                index={index}
-                total={filtered.length}
-                today={today}
-                people={peopleById}
-                tasks={tasksById}
-                projects={projectsById}
-                versions={versionsByDeliverable[item.id] ?? []}
-                onOpen={() => openDeliverable(item.id)}
-                onRemind={() => void prepareReminder(item)}
-              />
-            ))}
-          </div>
+          <DeliverableList
+            items={filtered}
+            today={today}
+            people={peopleById}
+            tasks={tasksById}
+            projects={projectsById}
+            versionsByDeliverable={versionsByDeliverable}
+            onOpen={openDeliverable}
+            onRemind={(item) => void prepareReminder(item)}
+          />
         )}
       </section>
 
@@ -510,6 +504,123 @@ export default function DeliverablesPage() {
           />
         </Drawer>
       ) : null}
+    </div>
+  )
+}
+
+const VIRTUALIZE_DELIVERABLES_AFTER = 50
+
+function DeliverableList({
+  items,
+  today,
+  people,
+  tasks,
+  projects,
+  versionsByDeliverable,
+  onOpen,
+  onRemind,
+}: {
+  items: CommandCenterDeliverableRow[]
+  today: string
+  people: Record<string, { full_name: string }>
+  tasks: Record<string, CommandCenterTaskRow>
+  projects: Record<string, CommandCenterProjectRow>
+  versionsByDeliverable: Record<string, CommandCenterDeliverableVersionRow[]>
+  onOpen: (id: string) => void
+  onRemind: (item: CommandCenterDeliverableRow) => void
+}) {
+  'use no memo'
+  const shouldVirtualize = items.length > VIRTUALIZE_DELIVERABLES_AFTER
+  const listRef = React.useRef<HTMLDivElement>(null)
+  const [scrollMargin, setScrollMargin] = React.useState(0)
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: shouldVirtualize ? items.length : 0,
+    getScrollElement: () => (
+      typeof document === 'undefined' ? null : document.getElementById('main-content') as HTMLDivElement | null
+    ),
+    estimateSize: () => 114,
+    overscan: 8,
+    scrollMargin,
+    enabled: shouldVirtualize,
+    getItemKey: (index) => items[index]?.id ?? index,
+  })
+
+  React.useLayoutEffect(() => {
+    if (!shouldVirtualize) return
+
+    const listElement = listRef.current
+    const scrollElement = document.getElementById('main-content')
+    if (!listElement || !scrollElement) return
+
+    const updateScrollMargin = () => {
+      const listRect = listElement.getBoundingClientRect()
+      const scrollRect = scrollElement.getBoundingClientRect()
+      const nextMargin = listRect.top - scrollRect.top + scrollElement.scrollTop
+      setScrollMargin((current) => Math.abs(current - nextMargin) > 0.5 ? nextMargin : current)
+    }
+
+    updateScrollMargin()
+    const resizeObserver = new ResizeObserver(updateScrollMargin)
+    resizeObserver.observe(scrollElement)
+    if (listElement.parentElement) resizeObserver.observe(listElement.parentElement)
+    window.addEventListener('resize', updateScrollMargin)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateScrollMargin)
+    }
+  }, [items.length, shouldVirtualize])
+
+  const renderRow = (item: CommandCenterDeliverableRow, index: number) => (
+    <DeliverableRow
+      key={item.id}
+      item={item}
+      index={index}
+      total={items.length}
+      today={today}
+      people={people}
+      tasks={tasks}
+      projects={projects}
+      versions={versionsByDeliverable[item.id] ?? []}
+      onOpen={() => onOpen(item.id)}
+      onRemind={() => onRemind(item)}
+    />
+  )
+
+  if (!shouldVirtualize) {
+    return <div style={listStyle}>{items.map(renderRow)}</div>
+  }
+
+  return (
+    <div
+      ref={listRef}
+      style={{
+        ...listStyle,
+        display: 'block',
+        height: virtualizer.getTotalSize(),
+        position: 'relative',
+      }}
+    >
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        const item = items[virtualRow.index]
+        if (!item) return null
+        return (
+          <div
+            key={virtualRow.key}
+            data-index={virtualRow.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+            }}
+          >
+            {renderRow(item, virtualRow.index)}
+          </div>
+        )
+      })}
     </div>
   )
 }
