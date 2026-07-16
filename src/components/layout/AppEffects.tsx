@@ -7,6 +7,12 @@ const CARD_SELECTOR = 'main section, main article, [data-vyvy-card], [data-vyvy-
 const STAGGER_SELECTOR = 'main section:not([data-vyvy-no-stagger]), main table tbody tr, main [role="listitem"], main [data-vyvy-card]'
 const RIPPLE_SELECTOR = 'button, a[role="button"]'
 const CONFETTI_COLORS = ['#DADF21', '#4A8C5C', '#6B8A99', '#C47B2B', '#B84040']
+const POINTER_EFFECT_DELAY_MS = 32
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
+function prefersReducedMotion() {
+  return window.matchMedia(REDUCED_MOTION_QUERY).matches
+}
 
 interface ConfettiPiece {
   id: string
@@ -26,13 +32,29 @@ export function AppEffects() {
   const [radarVisible, setRadarVisible] = React.useState(false)
   const [confettiPieces, setConfettiPieces] = React.useState<ConfettiPiece[]>([])
   const spotlightRef = React.useRef<HTMLDivElement>(null)
+  const effectTimersRef = React.useRef<Set<number>>(new Set())
 
-  function triggerRadar() {
+  const scheduleEffectCleanup = React.useCallback((callback: () => void, delay: number) => {
+    const timer = window.setTimeout(() => {
+      effectTimersRef.current.delete(timer)
+      callback()
+    }, delay)
+    effectTimersRef.current.add(timer)
+  }, [])
+
+  React.useEffect(() => () => {
+    effectTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+    effectTimersRef.current.clear()
+  }, [])
+
+  const triggerRadar = React.useCallback(() => {
+    if (prefersReducedMotion()) return
     setRadarPulse((value) => value + 1)
     setRadarVisible(true)
-  }
+  }, [])
 
-  function triggerConfetti(x: number, y: number) {
+  const triggerConfetti = React.useCallback((x: number, y: number) => {
+    if (prefersReducedMotion()) return
     const burstId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     const nextPieces = Array.from({ length: 18 }, (_, index) => ({
       id: `${burstId}-${index}`,
@@ -46,12 +68,19 @@ export function AppEffects() {
       delay: index * 12,
     }))
     setConfettiPieces((current) => [...current, ...nextPieces])
-    window.setTimeout(() => {
+    scheduleEffectCleanup(() => {
       setConfettiPieces((current) => current.filter((piece) => !piece.id.startsWith(burstId)))
     }, 1350)
-  }
+  }, [scheduleEffectCleanup])
 
   React.useEffect(() => {
+    if (prefersReducedMotion()) {
+      document.querySelectorAll<HTMLElement>('[data-vyvy-type]').forEach((element) => {
+        element.classList.remove('vyvy-type-caret')
+      })
+      return
+    }
+
     const timers: number[] = []
 
     function typeElement(el: HTMLElement) {
@@ -99,6 +128,7 @@ export function AppEffects() {
 
   // Lock-on radar sweep on every view change (matches the sample's enterScreen).
   React.useEffect(() => {
+    if (prefersReducedMotion()) return
     const frame = window.requestAnimationFrame(() => {
       setRadarPulse((value) => value + 1)
       setRadarVisible(true)
@@ -107,6 +137,7 @@ export function AppEffects() {
   }, [pathname])
 
   React.useEffect(() => {
+    if (prefersReducedMotion()) return
     // On a route change the elements are freshly mounted, so we can add the
     // stagger class straight away. Crucially we do NOT force a reflow per item
     // (the old `void item.offsetWidth` ran layout up to 40 times = the view-switch
@@ -138,6 +169,16 @@ export function AppEffects() {
     function processPointerMove(event: PointerEvent) {
       const target = event.target instanceof Element ? event.target : null
       if (!target) return
+      if (prefersReducedMotion()) return
+
+      const rectCache = new Map<HTMLElement, DOMRect>()
+      function getRect(element: HTMLElement) {
+        const cached = rectCache.get(element)
+        if (cached) return cached
+        const rect = element.getBoundingClientRect()
+        rectCache.set(element, rect)
+        return rect
+      }
 
       if (spotlightRef.current) {
         spotlightRef.current.style.transform = `translate(${event.clientX - 300}px, ${event.clientY - 300}px)`
@@ -146,14 +187,14 @@ export function AppEffects() {
 
       const card = target.closest<HTMLElement>(CARD_SELECTOR)
       if (card) {
-        const rect = card.getBoundingClientRect()
+        const rect = getRect(card)
         card.style.setProperty('--mx', `${event.clientX - rect.left}px`)
         card.style.setProperty('--my', `${event.clientY - rect.top}px`)
       }
 
       const magnetic = target.closest<HTMLElement>('[data-vyvy-magnetic]')
       if (magnetic) {
-        const rect = magnetic.getBoundingClientRect()
+        const rect = getRect(magnetic)
         const x = (event.clientX - rect.left - rect.width / 2) * 0.25
         const y = (event.clientY - rect.top - rect.height / 2) * 0.34
         magnetic.style.transform = `translate(${x}px, ${y}px)`
@@ -161,7 +202,7 @@ export function AppEffects() {
 
       const tilt = target.closest<HTMLElement>('[data-vyvy-tilt]')
       if (tilt) {
-        const rect = tilt.getBoundingClientRect()
+        const rect = getRect(tilt)
         const px = (event.clientX - rect.left) / rect.width - 0.5
         const py = (event.clientY - rect.top) / rect.height - 0.5
         tilt.style.transition = 'none'
@@ -185,6 +226,7 @@ export function AppEffects() {
     }
 
     function handleClick(event: MouseEvent) {
+      if (prefersReducedMotion()) return
       const target = event.target instanceof Element ? event.target : null
       const button = target?.closest<HTMLElement>(RIPPLE_SELECTOR)
       if (!button || button.getAttribute('aria-disabled') === 'true') return
@@ -199,24 +241,26 @@ export function AppEffects() {
       ripple.style.left = `${event.clientX - rect.left - size / 2}px`
       ripple.style.top = `${event.clientY - rect.top - size / 2}px`
       button.appendChild(ripple)
-      window.setTimeout(() => ripple.remove(), 580)
+      scheduleEffectCleanup(() => ripple.remove(), 580)
 
       if (button.closest('[data-vyvy-radar]')) triggerRadar()
       if (button.closest('[data-vyvy-confetti]')) triggerConfetti(event.clientX, event.clientY)
     }
 
-    // Coalesce pointer moves to one per frame — the handler reads layout
-    // (getBoundingClientRect) a few times, so running it on every raw mousemove
-    // is what made hovering feel heavy.
+    // Decorative pointer effects do not need display-rate layout reads.
     let moveRaf = 0
+    let moveTimer = 0
     let lastMoveEvent: PointerEvent | null = null
     function handlePointerMove(event: PointerEvent) {
       lastMoveEvent = event
-      if (moveRaf) return
-      moveRaf = requestAnimationFrame(() => {
-        moveRaf = 0
-        if (lastMoveEvent) processPointerMove(lastMoveEvent)
-      })
+      if (moveRaf || moveTimer) return
+      moveTimer = window.setTimeout(() => {
+        moveTimer = 0
+        moveRaf = requestAnimationFrame(() => {
+          moveRaf = 0
+          if (lastMoveEvent) processPointerMove(lastMoveEvent)
+        })
+      }, POINTER_EFFECT_DELAY_MS)
     }
 
     document.addEventListener('pointermove', handlePointerMove, { passive: true })
@@ -226,13 +270,14 @@ export function AppEffects() {
     window.addEventListener('vyvy-confetti', handleConfettiEvent)
     return () => {
       if (moveRaf) cancelAnimationFrame(moveRaf)
+      if (moveTimer) window.clearTimeout(moveTimer)
       document.removeEventListener('pointermove', handlePointerMove)
       document.removeEventListener('pointerout', handlePointerLeave)
       document.removeEventListener('click', handleClick)
       window.removeEventListener('vyvy-radar', handleRadarEvent)
       window.removeEventListener('vyvy-confetti', handleConfettiEvent)
     }
-  }, [])
+  }, [scheduleEffectCleanup, triggerConfetti, triggerRadar])
 
   return (
     <>
