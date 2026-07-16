@@ -239,7 +239,7 @@ main table tbody tr:hover {
 }
 
 [data-vyvy-live-dot] {
-  animation: vyvy-live-pulse 1900ms ease-out infinite;
+  animation: vyvy-live-pulse 1900ms ease-out 3;
 }
 
 [data-vyvy-glowborder] {
@@ -258,7 +258,7 @@ main table tbody tr:hover {
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: vyvy-spin 4s linear infinite;
+  animation: vyvy-spin 4s linear 2 both;
   z-index: 0;
   pointer-events: none;
 }
@@ -331,12 +331,12 @@ button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]):active {
 }
 
 [data-vyvy-alert='true'] {
-  animation: vyvy-danger-glow 1800ms ease-in-out infinite;
+  animation: vyvy-danger-glow 1800ms ease-in-out 3;
   box-shadow: 0 0 0 1px rgba(184,64,64,0.18);
 }
 
 [data-vyvy-step-now='true'] {
-  animation: vyvy-step-pulse 1600ms ease-in-out infinite;
+  animation: vyvy-step-pulse 1600ms ease-in-out 3;
 }
 
 [data-vyvy-row] {
@@ -354,10 +354,8 @@ button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]):active {
 }
 
 [data-vyvy-magnetic] {
-  animation: vyvy-breathe 2600ms ease-in-out infinite;
-  will-change: transform;
+  animation: vyvy-breathe 2600ms ease-in-out 2;
   box-shadow: 0 12px 28px rgba(0,0,0,0.14);
-  backdrop-filter: blur(12px);
 }
 
 [data-vyvy-magnetic]::after {
@@ -376,7 +374,6 @@ button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]):active {
 
 [data-vyvy-tilt] {
   transform-style: preserve-3d;
-  will-change: transform;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.03),
     0 10px 28px rgba(0,0,0,0.14);
@@ -406,7 +403,6 @@ button:not([data-vyvy-magnetic]):not([data-vyvy-tilt]):active {
 
 [data-vyvy-card='true'] {
   overflow: hidden;
-  backdrop-filter: blur(16px);
 }
 
 [data-vyvy-card='true'] > * {
