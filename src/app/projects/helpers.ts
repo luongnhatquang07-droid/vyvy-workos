@@ -1,5 +1,6 @@
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import type {
+  AttachmentItem,
   BadgeTone,
   DeadlineSignalKind,
   ProjectDeadlineFilter,
@@ -455,4 +456,39 @@ export function hasEvidence(subtask: SubtaskItem) {
 
 export function requiresEvidence(status: TaskStatus) {
   return status === 'PENDING_APPROVAL' || status === 'COMPLETED'
+}
+
+export interface SubtaskFileGroups {
+  byStepId: Record<string, AttachmentItem[]>
+  shared: AttachmentItem[]
+}
+
+export function getSubtaskFileGroups(subtask?: SubtaskItem | null): SubtaskFileGroups {
+  if (!subtask) return { byStepId: {}, shared: [] }
+
+  const byStepId: Record<string, AttachmentItem[]> = {}
+  const shared: AttachmentItem[] = []
+  const knownStepIds = new Set(subtask.steps.map((step) => step.id))
+  const stepIdByDeliverableId = new Map(
+    subtask.steps
+      .filter((step): step is StepItem & { deliverableId: string } => Boolean(step.deliverableId))
+      .map((step) => [step.deliverableId, step.id]),
+  )
+
+  for (const file of subtask.attachments) {
+    const directStepId = file.stepId && knownStepIds.has(file.stepId) ? file.stepId : null
+    const deliverableStepId = file.deliverableId ? stepIdByDeliverableId.get(file.deliverableId) ?? null : null
+    const resolvedStepId = directStepId ?? deliverableStepId
+
+    if (!resolvedStepId) {
+      shared.push(file)
+      continue
+    }
+
+    const stepFiles = byStepId[resolvedStepId] ?? []
+    stepFiles.push(file)
+    byStepId[resolvedStepId] = stepFiles
+  }
+
+  return { byStepId, shared }
 }

@@ -135,3 +135,13 @@ export interface VersionDeleteResult {
     autoCompletedStepIds?: string[]
   }
 }
+
+export type EditableKind = 'project' | 'workstream' | 'subtask' | 'step'
+
+export interface EditTarget {
+  kind: EditableKind
+  projectId: string
+  workstreamId?: string
+  subtaskId?: string
+  stepId?: string
+}
