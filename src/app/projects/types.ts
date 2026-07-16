@@ -125,3 +125,13 @@ export interface ProjectHealthSummary {
   bg: string
   color: string
 }
+
+export interface VersionDeleteResult {
+  deliverableStatus?: CommandCenterDeliverableRow['status']
+  approvedVersionId?: string | null
+  taskSync?: {
+    taskId: string | null
+    status: TaskStatus | null
+    autoCompletedStepIds?: string[]
+  }
+}

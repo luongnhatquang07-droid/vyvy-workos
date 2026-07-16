@@ -5,12 +5,10 @@ import { createPortal } from 'react-dom'
 import { PlanDocumentsPanel } from '@/components/documents/PlanDocumentsPanel'
 import { ProjectPlanProvider } from '@/components/documents/ProjectPlanProvider'
 import { Drawer } from '@/components/feedback/Drawer'
-import { ConfirmDialog } from '@/components/feedback/Modal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload, type UploadedFile } from '@/components/ui/FileUpload'
 import { PageHead } from '@/components/ui/PageHead'
-import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { getVietnamDateKey } from '@/features/command-center/utils'
 import { useCommandData } from '@/hooks/useCommandData'
 import {
@@ -42,27 +40,38 @@ import {
   dayDiff,
   formatDeadlineLabel,
   getAssigneeFilterId,
+  getCompactBlockerText,
+  getCompletionBlockers,
   getDeadlineSignal,
+  getMissingDeliverableSteps,
+  getMistakenDeliverableSteps,
+  getPendingApprovalDeliverableSteps,
   getProjectProgress,
   getRequiredStepStats,
+  getRevisionDeliverableSteps,
   getSubtaskProgress,
   getSubtaskProgressText,
   getWorkstreamProgress,
   hasActiveProjectFilters,
+  hasEvidence,
   isOverdue,
   isUnassignedSubtask,
   matchesDeadlineFilter,
   matchesProjectWorkFilter,
   matchesSearchFilter,
   matchesStatusFilter,
+  matchesStepProjectFilter,
   normalizeDateKey,
+  progressStatus,
   projectHealth,
+  requiresEvidence,
   sortSubtasksForOperations,
   toFullDate,
   toShortDate,
 } from './helpers'
 import {
   emptyInline,
+  filterChipStyle,
   ghostBtnStyle,
   mutedMetaStyle,
   progressBadgeStyle,
@@ -70,8 +79,19 @@ import {
   progressTrack,
   sectionTitle,
   statusChipStyle,
+  stepEvidenceToggleStyle,
   subtaskInlineItem,
+  textareaStyle,
+  toneColor,
+  warningBanner,
 } from './styles'
+import {
+  EvidenceFileList,
+  GhostButton,
+  PrimaryButton,
+  ProgressBadge,
+  StepEvidenceFiles,
+} from './ui-primitives'
 import type {
   AttachmentItem,
   BadgeTone,
@@ -83,6 +103,7 @@ import type {
   StepItem,
   SubtaskItem,
   TaskStatus,
+  VersionDeleteResult,
   WorkstreamItem,
 } from './types'
 
@@ -93,27 +114,6 @@ type FlowchartNodeKind = 'project' | 'workstream' | 'subtask' | 'stepGroup' | 's
 type StepTemplate = 'none' | 'basic' | 'approval'
 type DetailSection = 'report' | 'files' | 'workflow' | 'deadline'
 type EditableKind = 'project' | 'workstream' | 'subtask' | 'step'
-
-interface VersionDeleteResult {
-  deliverableStatus?: CommandCenterDeliverableRow['status']
-  approvedVersionId?: string | null
-  taskSync?: {
-    taskId: string | null
-    status: TaskStatus | null
-    autoCompletedStepIds?: string[]
-  }
-}
-
-interface DeliverableOpenLinkVersion {
-  id: string
-  external_url: string | null
-  attachment_id?: string | null
-  attachment: {
-    url: string | null
-    file_name: string | null
-    mime_type: string | null
-  } | null
-}
 
 interface StepDraft {
   title: string
@@ -317,7 +317,6 @@ const FLOWCHART_MAX_ZOOM = 1.5
 const FLOWCHART_ZOOM_LEVELS = [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const
 const FLOWCHART_STEP_GROUP_THRESHOLD = 8
 const FLOWCHART_WORKFLOW_STEP_PREVIEW_LIMIT = 12
-const STEP_FILE_PREVIEW_LIMIT = 2
 const FLOWCHART_PROJECT_COLOR = '#DADF21'
 const FLOWCHART_BRANCH_COLORS = ['#DADF21', '#55C7B9', '#F3A83B', '#8EA7FF', '#F472B6', '#A3D977', '#FB7185', '#38BDF8']
 const FLOWCHART_LAYOUT_PADDING_X = 72
@@ -2418,47 +2417,6 @@ function SubtaskStepEvidenceSummary({
   )
 }
 
-function StepEvidenceFiles({
-  files,
-  people,
-  workspaceId,
-  emptyText,
-  allowVersionDelete = false,
-  onVersionDeleted,
-}: {
-  files: AttachmentItem[]
-  people: Record<string, CommandCenterPersonRow>
-  workspaceId?: string
-  emptyText: string
-  allowVersionDelete?: boolean
-  onVersionDeleted?: (file: AttachmentItem, result: VersionDeleteResult) => void
-}) {
-  const [expanded, setExpanded] = React.useState(false)
-  const visibleFiles = expanded ? files : files.slice(0, STEP_FILE_PREVIEW_LIMIT)
-
-  return (
-    <div style={stepEvidenceFilesStyle}>
-      <div style={stepEvidenceFilesHeaderStyle}>
-        <span><i className="ti ti-package" /> Kết quả bước</span>
-        <span>{files.length} tài liệu</span>
-      </div>
-      <EvidenceFileList
-        files={visibleFiles}
-        people={people}
-        workspaceId={workspaceId}
-        emptyText={emptyText}
-        allowVersionDelete={allowVersionDelete}
-        onVersionDeleted={onVersionDeleted}
-      />
-      {files.length > STEP_FILE_PREVIEW_LIMIT ? (
-        <button type="button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded} style={stepEvidenceToggleStyle}>
-          {expanded ? 'Thu gọn' : `Xem tất cả ${files.length} tài liệu`}
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
 function StepDraftForm({
   draft,
   people,
@@ -2777,12 +2735,6 @@ function EditWorkItemDrawerBody({
       ) : null}
     </Drawer>
   )
-}
-
-function ProgressBadge({ value, label }: { value: number; label?: string }) {
-  const zero = value === 0
-  const text = zero && label ? `0% · ${label}` : `${value}%`
-  return <span style={progressBadgeStyle} title={label ? `Tiến độ ${value}% · ${label}` : `Tiến độ ${value}%`}>{text}</span>
 }
 
 function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskItem; compact?: boolean }) {
@@ -4665,259 +4617,6 @@ function FlowchartDetailDrawer({
   )
 }
 
-function EvidenceFileList({
-  files,
-  people,
-  workspaceId,
-  emptyText,
-  allowVersionDelete = false,
-  onVersionDeleted,
-}: {
-  files: AttachmentItem[]
-  people: Record<string, CommandCenterPersonRow>
-  workspaceId?: string
-  emptyText: string
-  allowVersionDelete?: boolean
-  onVersionDeleted?: (file: AttachmentItem, result: VersionDeleteResult) => void
-}) {
-  const [resolvingIds, setResolvingIds] = React.useState<Record<string, boolean>>({})
-  const [resolvedUrls, setResolvedUrls] = React.useState<Record<string, string>>({})
-  const [openErrors, setOpenErrors] = React.useState<Record<string, string>>({})
-  const [menuOpenId, setMenuOpenId] = React.useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
-  const [deletingId, setDeletingId] = React.useState<string | null>(null)
-  const [hiddenIds, setHiddenIds] = React.useState<Record<string, boolean>>({})
-  const [notice, setNotice] = React.useState('')
-
-  async function getResolvedFileUrl(file: AttachmentItem) {
-    const existing = resolvedUrls[file.id] ?? file.url
-    if (existing) return existing
-    if (!workspaceId) return null
-    const url = await resolveDeliverableVersionOpenUrl(workspaceId, file)
-    if (url) setResolvedUrls((current) => ({ ...current, [file.id]: url }))
-    return url
-  }
-
-  async function openResolvedFile(file: AttachmentItem) {
-    const pendingTab = window.open('about:blank', '_blank')
-    if (pendingTab) pendingTab.opener = null
-    setResolvingIds((current) => ({ ...current, [file.id]: true }))
-    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
-    setMenuOpenId(null)
-    try {
-      const url = await getResolvedFileUrl(file)
-      if (!url) throw new Error('Bàn giao này chưa có file/link đính kèm.')
-      if (pendingTab) pendingTab.location.replace(url)
-      else window.open(url, '_blank', 'noopener,noreferrer')
-    } catch (err) {
-      pendingTab?.close()
-      setOpenErrors((current) => ({
-        ...current,
-        [file.id]: err instanceof Error ? err.message : 'Không mở được file/link.',
-      }))
-    } finally {
-      setResolvingIds((current) => ({ ...current, [file.id]: false }))
-    }
-  }
-
-  async function copyExternalLink(file: AttachmentItem) {
-    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
-    setMenuOpenId(null)
-    try {
-      const url = await getResolvedFileUrl(file)
-      if (!url) throw new Error('Link này chưa có URL để copy.')
-      await navigator.clipboard.writeText(url)
-      setNotice(`Đã copy link: ${file.name}`)
-    } catch (err) {
-      setOpenErrors((current) => ({
-        ...current,
-        [file.id]: err instanceof Error ? err.message : 'Không copy được link.',
-      }))
-    }
-  }
-
-  async function deleteEvidenceVersion(file: AttachmentItem) {
-    if (!workspaceId || !file.deliverableId || !file.versionId) return
-    setDeletingId(file.id)
-    setNotice('')
-    setOpenErrors((current) => ({ ...current, [file.id]: '' }))
-    try {
-      const response = await fetch('/api/deliverables', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId,
-          deliverableId: file.deliverableId,
-          versionId: file.versionId,
-          action: 'deleteVersion',
-          reason: 'Xóa tài liệu upload nhầm từ Step Document Management.',
-        }),
-      })
-      const payload = await readJsonResponse<VersionDeleteResult & { error?: string }>(response, 'Không xóa được tài liệu.')
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không xóa được tài liệu.')
-
-      setHiddenIds((current) => ({ ...current, [file.id]: true }))
-      setMenuOpenId(null)
-      setNotice(`Đã xóa ${file.name}${file.versionNumber ? ` · Version ${file.versionNumber}` : ''}`)
-      onVersionDeleted?.(file, payload)
-    } catch (err) {
-      setOpenErrors((current) => ({
-        ...current,
-        [file.id]: err instanceof Error ? err.message : 'Không xóa được tài liệu.',
-      }))
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
-  const visibleFiles = files.filter((file) => !hiddenIds[file.id])
-  if (!visibleFiles.length) {
-    return (
-      <div>
-        {notice ? <div style={evidenceFileNoticeStyle}>{notice}</div> : null}
-        <div style={emptyInline}>{emptyText}</div>
-      </div>
-    )
-  }
-
-  return (
-    <>
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget) void deleteEvidenceVersion(deleteTarget)
-        }}
-        title="Xóa tài liệu?"
-        message={deleteTarget
-          ? `Bạn có chắc muốn xóa tài liệu "${deleteTarget.name}"${deleteTarget.versionNumber ? `, Version ${deleteTarget.versionNumber}` : ''}? Hành động này chỉ áp dụng với tài liệu chưa được duyệt, không xóa lịch sử và không Hard Delete.`
-          : ''}
-        confirmLabel="Xóa"
-        danger
-      />
-      {notice ? <div style={evidenceFileNoticeStyle}>{notice}</div> : null}
-      <div style={evidenceFileStackStyle}>
-        {visibleFiles.map((file) => {
-          const submitter = file.submittedBy ? people[file.submittedBy] : null
-          const meta = [
-            file.status ? getEvidenceFileStatusLabel(file.status) : null,
-            file.versionNumber ? `Version ${file.versionNumber}` : null,
-            file.mimeType ? getEvidenceFileTypeLabel(file.name, file.mimeType) : null,
-            file.submittedAt ? `Nộp lúc ${formatDateTime(file.submittedAt)}` : null,
-            submitter ? `bởi ${submitter.full_name}` : null,
-          ].filter(Boolean).join(' · ')
-
-          const isExternalLink = file.mimeType === 'external_url'
-          const actionLabel = isExternalLink ? 'Mở link' : 'Mở file'
-          const resolvedUrl = resolvedUrls[file.id] ?? file.url
-          const canResolveOnDemand = Boolean(!resolvedUrl && workspaceId && file.deliverableId && (file.versionId || file.attachmentId))
-          const canOpen = Boolean(resolvedUrl || canResolveOnDemand)
-          const isResolving = Boolean(resolvingIds[file.id])
-          const isDeleting = deletingId === file.id
-          const openError = openErrors[file.id]
-          const menuOpen = menuOpenId === file.id
-          const approved = normalizeVersionReviewStatus(file.status) === 'APPROVED'
-          const hasVersionTarget = Boolean(workspaceId && file.deliverableId && file.versionId)
-          const deleteDisabled = approved || !hasVersionTarget || isDeleting
-          const deleteTooltip = approved
-            ? 'Version đã duyệt không thể xóa.'
-            : !hasVersionTarget
-              ? 'Tài liệu này chưa có version hợp lệ để xóa.'
-              : 'Xóa tài liệu upload nhầm.'
-          const content = (
-            <>
-              <i className={`ti ${isExternalLink ? 'ti-link' : 'ti-paperclip'}`} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={evidenceFileNameStyle}>{file.name}</div>
-                {meta ? <div style={evidenceFileMetaStyle}>{meta}</div> : null}
-                {openError ? <div style={evidenceFileErrorStyle}>{openError}</div> : null}
-              </div>
-              {canOpen ? (
-                <span style={evidenceFileActionStyle}>{isResolving ? 'Đang mở...' : actionLabel} <i className="ti ti-external-link" /></span>
-              ) : (
-                <span style={evidenceFileUnavailableStyle}>Không có file/link đính kèm</span>
-              )}
-            </>
-          )
-
-          const openControl = resolvedUrl ? (
-            <a href={resolvedUrl} target="_blank" rel="noopener noreferrer" style={{ ...fileRowStyle, flex: 1, minWidth: 0 }}>
-              {content}
-            </a>
-          ) : canResolveOnDemand ? (
-            <button type="button" onClick={() => void openResolvedFile(file)} disabled={isResolving} style={{ ...fileRowButtonStyle(isResolving), flex: 1, minWidth: 0 }}>
-              {content}
-            </button>
-          ) : (
-            <div style={{ ...fileRowStyle, flex: 1, minWidth: 0 }}>{content}</div>
-          )
-
-          return (
-            <div key={file.id} style={evidenceFileRowShellStyle}>
-              {openControl}
-              {allowVersionDelete ? (
-                <div style={evidenceFileMenuWrapStyle}>
-                  <button
-                    type="button"
-                    onClick={() => setMenuOpenId(menuOpen ? null : file.id)}
-                    aria-label={`Mở menu tài liệu ${file.name}`}
-                    aria-expanded={menuOpen}
-                    disabled={isDeleting}
-                    style={evidenceFileMenuButtonStyle}
-                  >
-                    {isDeleting ? <i className="ti ti-loader-2" /> : <i className="ti ti-dots" />}
-                  </button>
-                  {menuOpen ? (
-                    <div style={evidenceFileMenuPanelStyle}>
-                      <button type="button" onClick={() => void openResolvedFile(file)} disabled={!canOpen || isResolving} style={evidenceFileMenuItemStyle(!canOpen || isResolving)}>
-                        <i className={`ti ${isExternalLink ? 'ti-external-link' : 'ti-eye'}`} /> {actionLabel}
-                      </button>
-                      {isExternalLink ? (
-                        <button type="button" onClick={() => void copyExternalLink(file)} disabled={!canOpen} style={evidenceFileMenuItemStyle(!canOpen)}>
-                          <i className="ti ti-copy" /> Copy Link
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpenId(null)
-                          if (!deleteDisabled) setDeleteTarget(file)
-                        }}
-                        disabled={deleteDisabled}
-                        title={deleteTooltip}
-                        style={evidenceFileDeleteItemStyle(deleteDisabled)}
-                      >
-                        <i className="ti ti-trash" /> Xóa tài liệu
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          )
-        })}
-      </div>
-    </>
-  )
-}
-async function resolveDeliverableVersionOpenUrl(workspaceId: string, file: AttachmentItem) {
-  if (file.url) return file.url
-  if (!file.deliverableId) return null
-
-  const params = new URLSearchParams({ workspaceId, deliverableId: file.deliverableId })
-  const response = await fetch(`/api/deliverables?${params.toString()}`)
-  const payload = await readJsonResponse<{ versions?: DeliverableOpenLinkVersion[]; error?: string }>(response, 'Không lấy được link bàn giao.')
-  if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không lấy được link bàn giao.')
-
-  const versions = payload.versions ?? []
-  const version = versions.find((item) => file.versionId && item.id === file.versionId)
-    ?? versions.find((item) => file.attachmentId && item.attachment_id === file.attachmentId)
-    ?? versions.find((item) => item.id === file.id)
-    ?? versions.find((item) => item.external_url || item.attachment?.url)
-
-  return version?.external_url ?? version?.attachment?.url ?? null
-}
-
 function FlowchartReportEditor({
   subtask,
   onSave,
@@ -5144,35 +4843,6 @@ function getSubtaskStepNumber(subtask: SubtaskItem | null | undefined, stepId: s
   const index = sortStepsForFlowchart(subtask?.steps ?? []).findIndex((step) => step.id === stepId)
   return index >= 0 ? index + 1 : undefined
 }
-function getEvidenceFileStatusLabel(status: VersionReviewStatus) {
-  if (status === 'APPROVED') return 'Đã duyệt'
-  if (status === 'PENDING' || status === 'PENDING_REVIEW' || status === 'NOT_REQUESTED') return 'Chờ duyệt'
-  if (status === 'REVISION_REQUESTED') return 'Cần sửa'
-  if (status === 'REJECTED') return 'Từ chối'
-  if (status === 'CANCELLED') return 'Đã hủy'
-  if (status === 'UPLOADED_BY_MISTAKE') return 'Up nhầm'
-  if (status === 'SUPERSEDED') return 'Đã thay thế'
-  return status
-}
-
-function getEvidenceFileTypeLabel(name: string, mime = '') {
-  if (mime === 'external_url') return 'Link'
-  const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  if (['html', 'htm'].includes(ext) || mime.includes('html')) return 'HTML'
-  if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return 'Ảnh'
-  if (ext === 'pdf' || mime.includes('pdf')) return 'PDF'
-  if (['doc', 'docx'].includes(ext) || mime.includes('word')) return 'Word'
-  if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('excel')) return 'Excel/CSV'
-  if (['zip', 'rar', '7z'].includes(ext)) return 'Nén'
-  return ext ? ext.toUpperCase() : 'File'
-}
-
-function formatDateTime(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('vi-VN')
-}
-
 type GanttLevel = 'project' | 'workstream' | 'subtask' | 'step'
 
 interface GanttBarItem {
@@ -5515,13 +5185,6 @@ function TimelineBar({
   )
 }
 
-function progressStatus(progress: number, dueDate: string, fallback: TaskStatus = 'NOT_STARTED'): TaskStatus {
-  if (progress >= 100) return 'COMPLETED'
-  if (isOverdue(dueDate, fallback)) return 'BLOCKED'
-  if (progress > 0) return 'IN_PROGRESS'
-  return fallback
-}
-
 function buildGanttWorkstreamGroups(project: ProjectWorkspace, filters: ProjectFilters): GanttWorkstreamGroup[] {
   return project.workstreams.flatMap((workstream) => {
     const subtasks = sortSubtasksForOperations(workstream.subtasks)
@@ -5767,42 +5430,6 @@ function Metric({ icon, label, value, danger = false }: { icon: string; label: s
         <div style={metricLabel}>{label}</div>
       </div>
     </div>
-  )
-}
-
-function GhostButton({
-  children,
-  icon,
-  onClick,
-}: {
-  children: React.ReactNode
-  icon: string
-  onClick?: () => void
-}) {
-  return (
-    <button onClick={onClick} style={ghostBtnStyle}>
-      <i className={`ti ${icon}`} />
-      {children}
-    </button>
-  )
-}
-
-function PrimaryButton({
-  children,
-  icon,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode
-  icon: string
-  onClick?: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} style={{ ...primaryBtnStyle, opacity: disabled ? 0.45 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
-      <i className={`ti ${icon}`} />
-      {children}
-    </button>
   )
 }
 
@@ -6858,44 +6485,6 @@ function getDeadlineSummary(subtask: SubtaskItem): { value: string; hint: string
   }
 }
 
-function getMissingDeliverableSteps(subtask: SubtaskItem) {
-  return subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.isRequired &&
-      !step.deliverableIsValid &&
-      step.deliverableBlocker !== 'REVISION' &&
-      step.deliverableBlocker !== 'MISTAKE' &&
-      step.deliverableBlocker !== 'PENDING_APPROVAL',
-  )
-}
-
-function getRevisionDeliverableSteps(subtask: SubtaskItem) {
-  return subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.deliverableBlocker === 'REVISION',
-  )
-}
-
-function getMistakenDeliverableSteps(subtask: SubtaskItem) {
-  return subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.isRequired &&
-      step.deliverableBlocker === 'MISTAKE',
-  )
-}
-
-function getPendingApprovalDeliverableSteps(subtask: SubtaskItem) {
-  return subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.isRequired &&
-      step.deliverableBlocker === 'PENDING_APPROVAL',
-  )
-}
-
 function getBlockedSection(subtask: SubtaskItem): DetailSection {
   if (
     getMissingDeliverableSteps(subtask).length ||
@@ -6906,72 +6495,6 @@ function getBlockedSection(subtask: SubtaskItem): DetailSection {
   if ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask)) return 'files'
   if (!subtask.reportText.trim() && !hasEvidence(subtask)) return 'report'
   return 'workflow'
-}
-
-function getCompactBlockerText(subtask: SubtaskItem) {
-  if (subtask.fileBlocker === 'MISTAKE' || getMistakenDeliverableSteps(subtask).length) {
-    return 'file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng.'
-  }
-  if (subtask.fileBlocker === 'PENDING_APPROVAL' || getPendingApprovalDeliverableSteps(subtask).length) return 'file/báo cáo đang chờ duyệt.'
-  if (getRevisionDeliverableSteps(subtask).length) return 'file/báo cáo đang bị yêu cầu sửa.'
-  if (getMissingDeliverableSteps(subtask).length || ((subtask.needsFile || requiresEvidence(subtask.status)) && !hasEvidence(subtask))) {
-    return 'thiếu file/báo cáo.'
-  }
-  if (subtask.steps.some((step) => step.isRequired && step.status !== 'COMPLETED')) return 'còn bước bắt buộc chưa hoàn thành.'
-  if (!subtask.reportText.trim() && !hasEvidence(subtask)) return 'thiếu báo cáo/kết quả đầu việc.'
-  return getCompletionBlockers(subtask).join('; ') || 'còn điều kiện chưa đạt.'
-}
-
-function getCompletionBlockers(subtask: SubtaskItem) {
-  if (subtask.status === 'COMPLETED') return []
-  const blockers: string[] = []
-  if (!subtask.reportText.trim() && !hasEvidence(subtask)) {
-    blockers.push('nhập báo cáo/kết quả đầu việc')
-  }
-
-  const requiredSteps = subtask.steps.filter((step) => step.isRequired)
-  const incompleteRequired = requiredSteps.filter((step) => step.status !== 'COMPLETED')
-  if (incompleteRequired.length) {
-    blockers.push(`${incompleteRequired.length} bước bắt buộc chưa hoàn thành`)
-  }
-
-  const mistakenDeliverables = getMistakenDeliverableSteps(subtask)
-  if (subtask.fileBlocker === 'MISTAKE' || mistakenDeliverables.length) {
-    blockers.push('file đã nộp bị đánh dấu up nhầm. Vui lòng nộp lại file đúng')
-  }
-
-  const pendingApprovalDeliverables = getPendingApprovalDeliverableSteps(subtask)
-  if (subtask.fileBlocker === 'PENDING_APPROVAL' || pendingApprovalDeliverables.length) {
-    blockers.push(`file đang chờ duyệt${pendingApprovalDeliverables.length ? ` ở ${pendingApprovalDeliverables.map((step) => step.title).join(', ')}` : ''}`)
-  }
-
-  const missingDeliverables = subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.isRequired &&
-      !step.deliverableIsValid &&
-      step.deliverableBlocker !== 'REVISION' &&
-      step.deliverableBlocker !== 'MISTAKE' &&
-      step.deliverableBlocker !== 'PENDING_APPROVAL',
-  )
-  if (missingDeliverables.length) {
-    blockers.push(missingDeliverables.map((step) => step.title).join(', '))
-  }
-
-  const revisionDeliverables = subtask.steps.filter(
-    (step) =>
-      step.requiresDeliverable &&
-      step.deliverableBlocker === 'REVISION',
-  )
-  if (subtask.fileBlocker === 'REVISION' || revisionDeliverables.length) {
-    blockers.push(revisionDeliverables.length ? `file cần sửa ở ${revisionDeliverables.map((step) => step.title).join(', ')}` : 'file/báo cáo đang bị yêu cầu sửa')
-  }
-
-  if (!subtask.steps.length && subtask.needsFile && !hasEvidence(subtask)) {
-    blockers.push('nộp kết quả / file / báo cáo')
-  }
-
-  return blockers
 }
 
 function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
@@ -7041,10 +6564,6 @@ function addPersonId(target: Set<string>, personId: string | null | undefined) {
   if (personId) target.add(personId)
 }
 
-function stepMatchesAssignee(step: StepItem, personId: string | null) {
-  return !personId || step.ownerId === personId
-}
-
 function matchesWorkstreamProjectFilter(workstream: WorkstreamItem, filters: ProjectFilters, project: ProjectWorkspace) {
   const assigneeId = getAssigneeFilterId(filters)
   const directMatch =
@@ -7055,14 +6574,6 @@ function matchesWorkstreamProjectFilter(workstream: WorkstreamItem, filters: Pro
     (!assigneeId || workstream.ownerId === assigneeId)
 
   return directMatch || workstream.subtasks.some((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
-}
-
-function matchesStepProjectFilter(step: StepItem, filters: ProjectFilters) {
-  if (filters.quick === 'unassigned' && step.ownerId) return false
-  if (!stepMatchesAssignee(step, getAssigneeFilterId(filters))) return false
-  if (!matchesStatusFilter(step.status, step.dueDate, filters.status)) return false
-  if (!matchesDeadlineFilter(step.dueDate, step.status, filters.deadline)) return false
-  return matchesSearchFilter([step.title, step.description, step.note], filters.search)
 }
 
 function subtaskNeedsEvidence(subtask: SubtaskItem) {
@@ -7516,19 +7027,6 @@ function getFlowchartSignal(status: TaskStatus, deadline: string): { icon: strin
   return { icon: null, label: null, tone: 'neutral' }
 }
 
-function hasEvidence(subtask: SubtaskItem) {
-  return Boolean(
-    subtask.reportText.trim()
-    || subtask.attachments.length
-    || subtask.taskDeliverableValid
-    || subtask.steps.some((step) => step.deliverableIsValid),
-  )
-}
-
-function requiresEvidence(status: TaskStatus) {
-  return status === 'PENDING_APPROVAL' || status === 'COMPLETED'
-}
-
 function shiftDate(date: string, delta: number) {
   const normalized = normalizeDateKey(date) ?? getVietnamDateKey()
   const next = new Date(`${normalized}T00:00:00Z`)
@@ -7706,28 +7204,6 @@ const projectFilterRow: React.CSSProperties = {
   display: 'flex',
   gap: 8,
   flexWrap: 'wrap',
-}
-
-function filterChipStyle(active: boolean, tone: BadgeTone = 'neutral'): React.CSSProperties {
-  const warning = tone === 'warning'
-  const danger = tone === 'danger'
-  const success = tone === 'success'
-  const toneBorder = danger ? 'rgba(184,64,64,.42)' : warning ? 'rgba(184,139,62,.38)' : success ? 'rgba(96,145,92,.38)' : 'var(--line)'
-  const toneBackground = danger ? 'rgba(184,64,64,.11)' : warning ? 'rgba(184,139,62,.10)' : success ? 'rgba(96,145,92,.10)' : 'var(--surface-2)'
-  const toneColor = danger ? 'var(--color-danger)' : warning ? 'var(--color-warning)' : success ? 'var(--color-success)' : 'var(--txt-3)'
-  return {
-    minHeight: 30,
-    padding: '0 12px',
-    borderRadius: 999,
-    border: `1px solid ${active ? 'rgba(218,223,33,.5)' : toneBorder}`,
-    background: active ? 'rgba(218,223,33,.10)' : toneBackground,
-    color: active ? 'var(--txt)' : toneColor,
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    flex: '0 0 auto',
-  }
 }
 
 const sectionCard: React.CSSProperties = {
@@ -9146,37 +8622,6 @@ const stepUploadPreparingCopyStyle: React.CSSProperties = {
   lineHeight: 1.45,
 }
 
-const stepEvidenceFilesStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-  minWidth: 0,
-  paddingTop: 8,
-  borderTop: '1px dashed var(--line)',
-}
-
-const stepEvidenceFilesHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
-  color: 'var(--txt-2)',
-  fontSize: 11,
-  fontWeight: 800,
-}
-
-const stepEvidenceToggleStyle: React.CSSProperties = {
-  alignSelf: 'flex-start',
-  padding: 0,
-  border: 0,
-  background: 'transparent',
-  color: 'var(--color-lime)',
-  cursor: 'pointer',
-  font: 'inherit',
-  fontSize: 11,
-  fontWeight: 850,
-}
-
 const stepEvidenceSummaryStackStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -9564,15 +9009,6 @@ const subtaskPanelHead: React.CSSProperties = {
   alignItems: 'flex-start',
 }
 
-const warningBanner: React.CSSProperties = {
-  padding: '12px 14px',
-  borderRadius: 12,
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning)',
-  fontSize: 12.5,
-  fontWeight: 600,
-}
-
 const compactDetailStack: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -9626,15 +9062,6 @@ const summaryCardGrid: React.CSSProperties = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
   gap: 10,
 }
-
-const toneColor = (tone: 'neutral' | 'good' | 'warning' | 'danger') =>
-  tone === 'good'
-    ? 'var(--color-success)'
-    : tone === 'warning'
-      ? 'var(--color-warning)'
-      : tone === 'danger'
-        ? 'var(--color-danger)'
-        : 'var(--txt-3)'
 
 const toneBg = (tone: 'neutral' | 'good' | 'warning' | 'danger') =>
   tone === 'good'
@@ -9823,17 +9250,6 @@ const progressBigRow: React.CSSProperties = {
   gap: 10,
 }
 
-const textareaStyle: React.CSSProperties = {
-  minHeight: 110,
-  width: '100%',
-  borderRadius: 12,
-  border: '1px solid var(--line)',
-  background: 'var(--surface-2)',
-  color: 'var(--txt)',
-  padding: '12px 14px',
-  resize: 'vertical',
-}
-
 const stepWorkflowShell: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -9974,153 +9390,6 @@ const stepToggleRow: React.CSSProperties = {
   gap: 10,
 }
 
-const fileRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '10px 12px',
-  borderRadius: 12,
-  background: 'var(--surface-2)',
-  border: '1px solid var(--line)',
-  color: 'var(--txt)',
-  textDecoration: 'none',
-}
-
-function fileRowButtonStyle(disabled: boolean): React.CSSProperties {
-  return {
-    ...fileRowStyle,
-    width: '100%',
-    cursor: disabled ? 'wait' : 'pointer',
-    font: 'inherit',
-    textAlign: 'left',
-  }
-}
-
-const evidenceFileRowShellStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) 36px',
-  gap: 6,
-  alignItems: 'start',
-}
-
-const evidenceFileMenuWrapStyle: React.CSSProperties = {
-  position: 'relative',
-}
-
-const evidenceFileMenuButtonStyle: React.CSSProperties = {
-  width: 36,
-  height: 36,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  borderRadius: 10,
-  border: '1px solid var(--line)',
-  background: 'var(--surface-2)',
-  color: 'var(--txt)',
-  cursor: 'pointer',
-  fontSize: 17,
-}
-
-const evidenceFileMenuPanelStyle: React.CSSProperties = {
-  position: 'absolute',
-  zIndex: 30,
-  top: 40,
-  right: 0,
-  minWidth: 185,
-  padding: 6,
-  borderRadius: 10,
-  border: '1px solid var(--line)',
-  background: 'var(--surface)',
-  boxShadow: '0 14px 34px rgba(0,0,0,.24)',
-}
-
-function evidenceFileMenuItemStyle(disabled = false): React.CSSProperties {
-  return {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 9px',
-    border: 0,
-    borderRadius: 7,
-    background: 'transparent',
-    color: disabled ? 'var(--muted)' : 'var(--txt)',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    opacity: disabled ? 0.55 : 1,
-    font: 'inherit',
-    fontSize: 12,
-    fontWeight: 750,
-    textAlign: 'left',
-  }
-}
-
-function evidenceFileDeleteItemStyle(disabled = false): React.CSSProperties {
-  return {
-    ...evidenceFileMenuItemStyle(disabled),
-    color: disabled ? 'var(--muted)' : 'var(--danger)',
-    borderTop: '1px solid var(--line)',
-    borderRadius: 0,
-    marginTop: 4,
-    paddingTop: 10,
-  }
-}
-
-const evidenceFileNoticeStyle: React.CSSProperties = {
-  marginBottom: 8,
-  padding: '8px 10px',
-  borderRadius: 9,
-  border: '1px solid rgba(52,148,92,.28)',
-  background: 'rgba(52,148,92,.1)',
-  color: 'var(--success)',
-  fontSize: 12,
-  fontWeight: 750,
-}
-const evidenceFileStackStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-}
-
-const evidenceFileNameStyle: React.CSSProperties = {
-  fontSize: 13,
-  fontWeight: 800,
-  color: 'var(--txt)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-}
-
-const evidenceFileMetaStyle: React.CSSProperties = {
-  marginTop: 3,
-  fontSize: 11,
-  lineHeight: 1.45,
-  color: 'var(--muted)',
-}
-
-const evidenceFileErrorStyle: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 11,
-  lineHeight: 1.35,
-  color: 'var(--danger)',
-}
-
-const evidenceFileActionStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 5,
-  flexShrink: 0,
-  fontSize: 11,
-  fontWeight: 850,
-  color: 'var(--color-lime)',
-}
-
-const evidenceFileUnavailableStyle: React.CSSProperties = {
-  flexShrink: 0,
-  fontSize: 11,
-  fontWeight: 750,
-  color: 'var(--muted)',
-}
-
 const historyRowStyle: React.CSSProperties = {
   padding: '10px 12px',
   borderRadius: 12,
@@ -10208,19 +9477,6 @@ const toggleWrap: React.CSSProperties = {
   background: 'var(--surface-2)',
   border: '1px solid var(--line)',
   width: 'fit-content',
-}
-
-const primaryBtnStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 7,
-  padding: '9px 13px',
-  borderRadius: 12,
-  border: '1px solid rgba(218,223,33,.4)',
-  background: 'linear-gradient(180deg, #eef25c 0%, #d7df21 58%, #c5cb1b 100%)',
-  color: 'var(--color-lime-ink)',
-  fontSize: 12.5,
-  fontWeight: 700,
 }
 
 const dangerBtnStyle: React.CSSProperties = {
