@@ -145,3 +145,13 @@ export interface EditTarget {
   subtaskId?: string
   stepId?: string
 }
+
+export interface DragDraft {
+  level: 'project' | 'workstream' | 'subtask' | 'step'
+  projectId: string
+  workstreamId?: string
+  subtaskId?: string
+  stepId?: string
+  oldDate: string
+  newDate: string
+}

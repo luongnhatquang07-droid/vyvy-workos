@@ -492,3 +492,10 @@ export function getSubtaskFileGroups(subtask?: SubtaskItem | null): SubtaskFileG
 
   return { byStepId, shared }
 }
+
+export function shiftDate(date: string, delta: number) {
+  const normalized = normalizeDateKey(date) ?? getVietnamDateKey()
+  const next = new Date(`${normalized}T00:00:00Z`)
+  next.setUTCDate(next.getUTCDate() + delta)
+  return next.toISOString().slice(0, 10)
+}
