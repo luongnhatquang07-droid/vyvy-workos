@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import dynamic from 'next/dynamic'
 import { PlanDocumentsPanel } from '@/components/documents/PlanDocumentsPanel'
 import { ProjectPlanProvider } from '@/components/documents/ProjectPlanProvider'
 import { Drawer } from '@/components/feedback/Drawer'
@@ -30,10 +31,6 @@ import type {
   CommandCenterTaskRow,
   CommandCenterWorkstreamRow,
 } from '@/lib/database.types'
-import { FlowchartTab } from './flowchart-tab'
-import { GanttTab } from './gantt-tab'
-import { KanbanTab } from './kanban-tab'
-import { OverviewTab } from './overview-tab'
 import {
   STATUS_META,
   TASK_STATUS_OPTIONS,
@@ -110,6 +107,11 @@ type ComposerMode = 'project' | 'workstream' | 'subtask' | 'meeting' | null
 type ViewTab = 'overview' | 'kanban' | 'gantt' | 'meetings' | 'flowchart'
 type StepTemplate = 'none' | 'basic' | 'approval'
 type DetailSection = 'report' | 'files' | 'workflow' | 'deadline'
+
+const OverviewTab = dynamic(() => import('./overview-tab').then((module) => module.OverviewTab))
+const KanbanTab = dynamic(() => import('./kanban-tab').then((module) => module.KanbanTab))
+const GanttTab = dynamic(() => import('./gantt-tab').then((module) => module.GanttTab))
+const FlowchartTab = dynamic(() => import('./flowchart-tab').then((module) => module.FlowchartTab))
 
 interface StepDraft {
   title: string
