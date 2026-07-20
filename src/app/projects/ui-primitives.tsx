@@ -5,6 +5,7 @@ import { ConfirmDialog } from '@/components/feedback/Modal'
 import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { normalizeVersionReviewStatus, type VersionReviewStatus } from '@/lib/deliverableVersionStatus'
 import type { CommandCenterPersonRow } from '@/lib/database.types'
+import { getDeadlineSignal, isUnassignedSubtask } from './helpers'
 import {
   emptyInline,
   evidenceFileActionStyle,
@@ -29,7 +30,7 @@ import {
   stepEvidenceFilesStyle,
   stepEvidenceToggleStyle,
 } from './styles'
-import type { AttachmentItem, VersionDeleteResult } from './types'
+import type { AttachmentItem, BadgeTone, SubtaskItem, VersionDeleteResult } from './types'
 
 interface DeliverableOpenLinkVersion {
   id: string
@@ -48,6 +49,58 @@ export function ProgressBadge({ value, label }: { value: number; label?: string 
   const zero = value === 0
   const text = zero && label ? `0% · ${label}` : `${value}%`
   return <span style={progressBadgeStyle} title={label ? `Tiến độ ${value}% · ${label}` : `Tiến độ ${value}%`}>{text}</span>
+}
+
+export function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskItem; compact?: boolean }) {
+  const deadline = getDeadlineSignal(subtask)
+  const showDeadline = deadline.kind !== 'normal'
+  const unassigned = isUnassignedSubtask(subtask)
+  const urgentUnassigned = unassigned && (deadline.kind === 'overdue' || deadline.kind === 'today')
+
+  if (!showDeadline && !unassigned) return null
+
+  return (
+    <div style={signalBadgeRowStyle(compact)}>
+      {showDeadline ? (
+        <span title={deadline.hint} style={alertBadgeStyle(deadline.tone)}>
+          {deadline.label}
+        </span>
+      ) : null}
+      {unassigned ? (
+        <span style={alertBadgeStyle(urgentUnassigned ? 'danger' : 'warning')}>
+          Chưa gắn người
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+function signalBadgeRowStyle(compact: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+    marginTop: compact ? 0 : 8,
+  }
+}
+
+function alertBadgeStyle(tone: BadgeTone): React.CSSProperties {
+  const danger = tone === 'danger'
+  const warning = tone === 'warning'
+  const success = tone === 'success'
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    minHeight: 22,
+    padding: '0 8px',
+    borderRadius: 999,
+    border: `1px solid ${danger ? 'rgba(184,64,64,.42)' : warning ? 'rgba(184,139,62,.42)' : success ? 'rgba(96,145,92,.36)' : 'var(--line)'}`,
+    background: danger ? 'rgba(184,64,64,.16)' : warning ? 'rgba(184,139,62,.14)' : success ? 'rgba(96,145,92,.14)' : 'var(--surface-3)',
+    color: danger ? 'var(--color-danger)' : warning ? 'var(--color-warning)' : success ? 'var(--color-success)' : 'var(--txt-3)',
+    fontSize: 11,
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  }
 }
 
 export function EvidenceFileList({

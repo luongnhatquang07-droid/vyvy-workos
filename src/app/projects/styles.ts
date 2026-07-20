@@ -74,6 +74,19 @@ export const subtaskInlineItem: CSSProperties = {
   gap: 8,
 }
 
+export const inlineMetaStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 8,
+  minWidth: 0,
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+  wordBreak: 'normal',
+  fontSize: 11.5,
+  color: 'var(--txt-3)',
+}
+
 export const ghostBtnStyle: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
