@@ -105,6 +105,7 @@ export default function DeliverablesPage() {
   const [formError, setFormError] = React.useState('')
   const [busy, setBusy] = React.useState(false)
   const selectedIdRef = React.useRef<string | null>(null)
+  const detailAbortRef = React.useRef<AbortController | null>(null)
 
   const deliverables = React.useMemo(() => data?.deliverables ?? [], [data?.deliverables])
   const versionsByDeliverable = React.useMemo(() => {
@@ -186,25 +187,33 @@ export default function DeliverablesPage() {
   React.useEffect(() => {
     if (!selectedId || !workspaceId) return
     void loadDetail(selectedId)
+    return () => {
+      detailAbortRef.current?.abort()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, workspaceId])
 
   async function loadDetail(id = selectedId) {
     if (!workspaceId || !id) return
+    detailAbortRef.current?.abort()
+    const controller = new AbortController()
+    detailAbortRef.current = controller
     setDetailLoading(true)
     setDetailError('')
     try {
       const params = new URLSearchParams({ workspaceId, deliverableId: id })
-      const response = await fetch(`/api/deliverables?${params}`)
+      const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
       const payload = await readJsonResponse<DetailPayload>(response, 'Không tải được chi tiết bàn giao.')
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết bàn giao.')
       if (!payload.deliverable?.id) throw new Error('Không tìm thấy bàn giao.')
       if (selectedIdRef.current === id) setDetail(payload)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       if (selectedIdRef.current !== id) return
       setDetail(null)
       setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết bàn giao.')
     } finally {
+      if (detailAbortRef.current === controller) detailAbortRef.current = null
       if (selectedIdRef.current !== id) return
       setDetailLoading(false)
     }

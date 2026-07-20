@@ -71,6 +71,7 @@ export default function FileLibraryPage() {
   const [detailError, setDetailError] = React.useState('')
   const [submissionOpen, setSubmissionOpen] = React.useState(false)
   const searchRef = React.useRef<HTMLInputElement>(null)
+  const detailAbortRef = React.useRef<AbortController | null>(null)
 
   const workspaceId = data?.workspaceId
   const currentPersonId = data?.currentUser?.personId ?? null
@@ -173,24 +174,34 @@ export default function FileLibraryPage() {
 
   React.useEffect(() => {
     if (selectedId && workspaceId) void loadDetail(selectedId)
+    return () => {
+      detailAbortRef.current?.abort()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, workspaceId])
 
   async function loadDetail(id = selectedId) {
     if (!workspaceId || !id) return
+    detailAbortRef.current?.abort()
+    const controller = new AbortController()
+    detailAbortRef.current = controller
     setDetailLoading(true)
     setDetailError('')
     try {
       const params = new URLSearchParams({ workspaceId, deliverableId: id })
-      const response = await fetch(`/api/deliverables?${params}`)
+      const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
       const payload = (await response.json()) as DetailPayload
       if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết file.')
       setDetail(payload)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setDetail(null)
       setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết file.')
     } finally {
-      setDetailLoading(false)
+      if (detailAbortRef.current === controller) {
+        detailAbortRef.current = null
+        setDetailLoading(false)
+      }
     }
   }
 
