@@ -14,7 +14,7 @@ import {
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
 import { inferFileContentType } from '@/lib/files/mime'
-import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { resolveRbacUserContext, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import { canSubmitDeliverableFileOrLink, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -83,61 +83,31 @@ async function ensureStorageBucket() {
 
 async function getUploadContext(workspaceId: string): Promise<UploadContext> {
   const sb = await createServerClient()
-  const {
-    data: { user },
-  } = await sb.auth.getUser()
+  const resolution = await resolveRbacUserContext(sb as unknown as RbacClient, { expectedWorkspaceId: workspaceId })
 
-  if (!user) {
-    return { ok: false, status: 401, message: 'Bạn cần đăng nhập trước khi tải file.' }
+  if (!resolution.ok) {
+    switch (resolution.stage) {
+      case 'unauthenticated':
+        return { ok: false, status: 401, message: 'Bạn cần đăng nhập trước khi tải file.' }
+      case 'profile_error':
+        return { ok: false, status: 500, message: 'Không kiểm tra được hồ sơ đăng nhập.' }
+      case 'no_profile':
+        return { ok: false, status: 403, message: 'Tài khoản chưa có profile trong workspace.' }
+      case 'membership_error':
+        return { ok: false, status: 500, message: 'Không kiểm tra được quyền workspace.' }
+      case 'no_membership':
+        return { ok: false, status: 403, message: 'Tài khoản không có quyền tải file vào workspace này.' }
+      case 'workspace_mismatch':
+        return { ok: false, status: 403, message: RBAC_FORBIDDEN_MESSAGE }
+    }
   }
 
-  const profileRes = await sb
-    .from('profiles')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
-
-  if (profileRes.error) {
-    return { ok: false, status: 500, message: 'Không kiểm tra được hồ sơ đăng nhập.' }
-  }
-
-  if (!profileRes.data?.id) {
-    return { ok: false, status: 403, message: 'Tài khoản chưa có profile trong workspace.' }
-  }
-
-  const membershipRes = await sb
-    .from('workspace_memberships')
-    .select('workspace_id, profile_id')
-    .eq('profile_id', profileRes.data.id)
-    .eq('workspace_id', workspaceId)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (membershipRes.error) {
-    return { ok: false, status: 500, message: 'Không kiểm tra được quyền workspace.' }
-  }
-
-  if (!membershipRes.data) {
-    return { ok: false, status: 403, message: 'Tài khoản không có quyền tải file vào workspace này.' }
-  }
-
-  const personRes = await sb
-    .from('people')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('profile_id', membershipRes.data.profile_id)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  if (!actor || actor.workspaceId !== workspaceId) {
-    return { ok: false, status: 403, message: RBAC_FORBIDDEN_MESSAGE }
-  }
+  const actor = resolution.context
 
   return {
     ok: true,
     workspaceId,
-    uploaderId: personRes.data?.id ?? null,
+    uploaderId: actor.personId,
     actor,
   }
 }
