@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { PlanDocumentsPanel } from '@/components/documents/PlanDocumentsPanel'
 import { ProjectPlanProvider } from '@/components/documents/ProjectPlanProvider'
 import { Drawer } from '@/components/feedback/Drawer'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload, type UploadedFile } from '@/components/ui/FileUpload'
@@ -1422,7 +1423,8 @@ function ProjectsPageContent() {
       ) : null}
 
       {composerMode ? (
-        <ModalShell
+        <OverlayPortal isOpen={Boolean(composerMode)}>
+          <ModalShell
           title={composerTitle(composerMode)}
           onClose={() => setComposerMode(null)}
           onSubmit={saveComposer}
@@ -1508,11 +1510,13 @@ function ProjectsPageContent() {
               <textarea value={composerDraft.description} onChange={(e) => setComposerDraft((current) => ({ ...current, description: e.target.value }))} style={textareaStyle} />
             </Field>
           )}
-        </ModalShell>
+          </ModalShell>
+        </OverlayPortal>
       ) : null}
 
       {deadlineDraft ? (
-        <ModalShell
+        <OverlayPortal isOpen={Boolean(deadlineDraft)}>
+          <ModalShell
           title="Lý do dời deadline"
           onClose={() => setDeadlineDraft(null)}
           onSubmit={applyDeadlineShift}
@@ -1525,11 +1529,13 @@ function ProjectsPageContent() {
           <Field label="Lý do của người phụ trách">
             <textarea value={deadlineReason} onChange={(e) => setDeadlineReason(e.target.value)} placeholder="Ghi rõ lý do dời deadline, vướng mắc và cam kết mới..." style={textareaStyle} />
           </Field>
-        </ModalShell>
+          </ModalShell>
+        </OverlayPortal>
       ) : null}
 
       {deleteDraft ? (
-        <ModalShell
+        <OverlayPortal isOpen={Boolean(deleteDraft)}>
+          <ModalShell
           title={deleteDraft.title}
           onClose={() => {
             if (!deleteLoading) setDeleteDraft(null)
@@ -1543,16 +1549,19 @@ function ProjectsPageContent() {
           <div style={deleteWarningStyle}>
             Dữ liệu được xử lý theo cơ chế an toàn, không hard-delete. Sau khi xác nhận, các view vận hành sẽ được cập nhật lại.
           </div>
-        </ModalShell>
+          </ModalShell>
+        </OverlayPortal>
       ) : null}
 
-      <EditWorkItemDrawer
-        context={editContext}
-        people={people}
-        assignablePeople={assignablePeople}
-        onClose={() => setEditTarget(null)}
-        onSave={saveEditTarget}
-      />
+      <OverlayPortal isOpen={Boolean(editContext)}>
+        <EditWorkItemDrawer
+          context={editContext}
+          people={people}
+          assignablePeople={assignablePeople}
+          onClose={() => setEditTarget(null)}
+          onSave={saveEditTarget}
+        />
+      </OverlayPortal>
     </div>
   )
 }

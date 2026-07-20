@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { PageHead } from '@/components/ui/PageHead'
 import { useCommandData } from '@/hooks/useCommandData'
@@ -407,7 +408,8 @@ export default function FollowUpsPage() {
       </div>
 
       {composer ? (
-        <ReminderComposerDrawer
+        <OverlayPortal isOpen={Boolean(composer)}>
+          <ReminderComposerDrawer
           composer={composer}
           logs={logs}
           saving={saving}
@@ -423,8 +425,9 @@ export default function FollowUpsPage() {
             setComposer(null)
           }}
           onSchedule={() => void runAction('schedule')}
-          onEscalate={() => void runAction('escalate')}
-        />
+            onEscalate={() => void runAction('escalate')}
+          />
+        </OverlayPortal>
       ) : null}
     </div>
   )

@@ -3,6 +3,7 @@
 import React from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Drawer } from '@/components/feedback/Drawer'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { FileList } from '@/components/ui/FileList'
 import { FileUpload } from '@/components/ui/FileUpload'
@@ -488,6 +489,7 @@ export default function DeliverablesPage() {
       </section>
 
       {drawerMode === 'detail' ? (
+        <OverlayPortal isOpen={drawerMode === 'detail'}>
         <Drawer open onClose={closeDrawer} title="Chi tiết bàn giao" width={620}>
         {!selected ? (
           <div style={emptyState}>{detailLoading ? 'Đang tải chi tiết bàn giao...' : detailError || 'Chọn một bàn giao để xem chi tiết.'}</div>
@@ -517,9 +519,11 @@ export default function DeliverablesPage() {
           />
         )}
         </Drawer>
+        </OverlayPortal>
       ) : null}
 
       {drawerMode === 'create' ? (
+        <OverlayPortal isOpen={drawerMode === 'create'}>
         <Drawer open onClose={closeDrawer} title="Tạo bàn giao" width={560}>
           <CreateDeliverableForm
             draft={draft}
@@ -533,6 +537,7 @@ export default function DeliverablesPage() {
             onSubmit={() => void createDeliverable()}
           />
         </Drawer>
+        </OverlayPortal>
       ) : null}
     </div>
   )

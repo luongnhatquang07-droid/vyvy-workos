@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { ActivityLog } from './components/ActivityLog'
 import { CEOPanel } from './components/CEOPanel'
 import { COOSummary } from './components/COOSummary'
@@ -116,21 +117,23 @@ export function CommandCenterView({
 
       </div>
 
-      <CommandCenterDrawer
-        state={drawer}
-        workspaceId={workspaceId}
-        data={{
-          reminders: commandData.reminders,
-          meetings: commandData.meetings,
-          approvals: commandData.approvals,
-          ceoRequests: commandData.ceoRequests,
-          tasks: commandData.tasks,
-          deliverables: commandData.deliverables,
-          people: commandData.people,
-          projects: commandData.projects,
-        }}
-        onClose={closeDrawer}
-      />
+      <OverlayPortal isOpen={Boolean(drawer.open && drawer.type && drawer.id)}>
+        <CommandCenterDrawer
+          state={drawer}
+          workspaceId={workspaceId}
+          data={{
+            reminders: commandData.reminders,
+            meetings: commandData.meetings,
+            approvals: commandData.approvals,
+            ceoRequests: commandData.ceoRequests,
+            tasks: commandData.tasks,
+            deliverables: commandData.deliverables,
+            people: commandData.people,
+            projects: commandData.projects,
+          }}
+          onClose={closeDrawer}
+        />
+      </OverlayPortal>
     </>
   )
 }

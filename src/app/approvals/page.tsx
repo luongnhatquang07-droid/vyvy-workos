@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { DataErrorState } from '@/components/ui/DataErrorState'
 import { PageHead } from '@/components/ui/PageHead'
 import { getVietnamDateKey } from '@/features/command-center/utils'
@@ -518,7 +519,8 @@ export default function ApprovalsPage() {
       </div>
 
       {dialog ? (
-        <div style={modalBackdropStyle} role="dialog" aria-modal="true">
+        <OverlayPortal isOpen={Boolean(dialog)}>
+          <div style={modalBackdropStyle} role="dialog" aria-modal="true">
           <div style={modalStyle}>
             <div>
               <div style={modalEyebrowStyle}>{dialog.action === 'reject' ? 'Từ chối / Không đạt' : 'Yêu cầu sửa'}</div>
@@ -540,7 +542,8 @@ export default function ApprovalsPage() {
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </OverlayPortal>
       ) : null}
     </div>
   )

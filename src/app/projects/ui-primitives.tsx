@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { ConfirmDialog } from '@/components/feedback/Modal'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { readJsonResponse } from '@/lib/api/readJsonResponse'
 import { normalizeVersionReviewStatus, type VersionReviewStatus } from '@/lib/deliverableVersionStatus'
 import type { CommandCenterPersonRow } from '@/lib/database.types'
@@ -221,7 +222,8 @@ export function EvidenceFileList({
 
   return (
     <>
-      <ConfirmDialog
+      <OverlayPortal isOpen={Boolean(deleteTarget)}>
+        <ConfirmDialog
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => {
@@ -232,8 +234,9 @@ export function EvidenceFileList({
           ? `Bạn có chắc muốn xóa tài liệu "${deleteTarget.name}"${deleteTarget.versionNumber ? `, Version ${deleteTarget.versionNumber}` : ''}? Hành động này chỉ áp dụng với tài liệu chưa được duyệt, không xóa lịch sử và không Hard Delete.`
           : ''}
         confirmLabel="Xóa"
-        danger
-      />
+          danger
+        />
+      </OverlayPortal>
       {notice ? <div style={evidenceFileNoticeStyle}>{notice}</div> : null}
       <div style={evidenceFileStackStyle}>
         {visibleFiles.map((file) => {
