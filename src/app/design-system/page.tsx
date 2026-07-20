@@ -15,6 +15,7 @@ import { Checkbox, Radio } from '@/components/ui/Checkbox'
 import { Pagination } from '@/components/ui/Pagination'
 import { Drawer } from '@/components/feedback/Drawer'
 import { Modal, ConfirmDialog } from '@/components/feedback/Modal'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import { Popover } from '@/components/feedback/Popover'
 import { useToast } from '@/components/feedback/Toast'
 import { StatusDot } from '@/components/data-display/StatusDot'
@@ -306,30 +307,37 @@ export default function DesignSystemPage() {
       </Section>
 
       {/* Overlays */}
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Drawer bên phải"
-        footer={<><Button variant="ghost" size="sm" onClick={() => setDrawerOpen(false)}>Huỷ</Button><Button variant="primary" size="sm">Lưu</Button></>}
-      >
-        <SkeletonText lines={5} />
-        <div style={{ marginTop: 'var(--space-6)' }}><SkeletonText lines={3} /></div>
-      </Drawer>
+      <OverlayPortal isOpen={drawerOpen}>
+        <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Drawer bên phải"
+          footer={<><Button variant="ghost" size="sm" onClick={() => setDrawerOpen(false)}>Huỷ</Button><Button variant="primary" size="sm">Lưu</Button></>}
+        >
+          <SkeletonText lines={5} />
+          <div style={{ marginTop: 'var(--space-6)' }}><SkeletonText lines={3} /></div>
+          <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>Mở Modal chồng</Button>
+        </Drawer>
+      </OverlayPortal>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Modal tiêu chuẩn"
-        footer={<><Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Huỷ</Button><Button variant="primary" size="sm">Xác nhận</Button></>}
-      >
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text)', lineHeight: 'var(--leading-normal)' }}>
-          Đây là nội dung modal. Nhấn Escape hoặc click ngoài để đóng.
-        </p>
-      </Modal>
+      <OverlayPortal isOpen={modalOpen}>
+        <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Modal tiêu chuẩn"
+          footer={<><Button variant="ghost" size="sm" onClick={() => setModalOpen(false)}>Huỷ</Button><Button variant="primary" size="sm">Xác nhận</Button></>}
+        >
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text)', lineHeight: 'var(--leading-normal)' }}>
+            Đây là nội dung modal. Nhấn Escape hoặc click ngoài để đóng.
+          </p>
+        </Modal>
+      </OverlayPortal>
 
-      <ConfirmDialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        onConfirm={() => toast('Đã xác nhận hành động.', 'success')}
-        title="Xác nhận hành động"
-        message="Bạn có chắc chắn muốn thực hiện thao tác này không? Hành động sẽ không thể hoàn tác."
-        confirmLabel="Xoá"
-        danger
-      />
+      <OverlayPortal isOpen={confirmOpen}>
+        <ConfirmDialog
+          open={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => toast('Đã xác nhận hành động.', 'success')}
+          title="Xác nhận hành động"
+          message="Bạn có chắc chắn muốn thực hiện thao tác này không? Hành động sẽ không thể hoàn tác."
+          confirmLabel="Xoá"
+          danger
+        />
+      </OverlayPortal>
     </div>
   )
 }
