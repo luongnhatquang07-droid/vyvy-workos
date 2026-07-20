@@ -5,7 +5,7 @@ import {
   ensureLocalQaWriteAllowed,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
-import { getCurrentUserProfile, normalizeUserRole, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { resolveRbacUserContext, normalizeUserRole, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   type BulkImportRow,
   type ImportIssue,
@@ -235,48 +235,25 @@ function guardBulkImportPermission(actor: RbacUserContext) {
 
 async function getWorkspace(): Promise<WorkspaceContext> {
   const sb = await createClient()
-  const {
-    data: { user },
-  } = await sb.auth.getUser()
+  const resolution = await resolveRbacUserContext(sb as unknown as RbacClient)
 
-  if (!user) return { ok: false, response: NextResponse.json({ error: 'Bạn cần đăng nhập trước khi nhập đầu việc.' }, { status: 401 }) }
-
-  const profileRes = await sb
-    .from('profiles')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
-
-  if (profileRes.error || !profileRes.data?.id) {
-    return { ok: false, response: NextResponse.json({ error: 'Tài khoản chưa có profile trong workspace.' }, { status: 403 }) }
+  if (!resolution.ok) {
+    switch (resolution.stage) {
+      case 'unauthenticated':
+        return { ok: false, response: NextResponse.json({ error: 'Bạn cần đăng nhập trước khi nhập đầu việc.' }, { status: 401 }) }
+      case 'profile_error':
+      case 'no_profile':
+        return { ok: false, response: NextResponse.json({ error: 'Tài khoản chưa có profile trong workspace.' }, { status: 403 }) }
+      case 'membership_error':
+      case 'no_membership':
+        return { ok: false, response: NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 }) }
+      case 'workspace_mismatch':
+        return { ok: false, response: NextResponse.json({ error: 'Ban khong co quyen thuc hien thao tac nay.' }, { status: 403 }) }
+    }
   }
 
-  const membershipRes = await sb
-    .from('workspace_memberships')
-    .select('workspace_id')
-    .eq('profile_id', profileRes.data.id)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (membershipRes.error || !membershipRes.data?.workspace_id) {
-    return { ok: false, response: NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 }) }
-  }
-
-  const personRes = await sb
-    .from('people')
-    .select('id')
-    .eq('workspace_id', membershipRes.data.workspace_id)
-    .eq('profile_id', profileRes.data.id)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
-    return { ok: false, response: NextResponse.json({ error: 'Ban khong co quyen thuc hien thao tac nay.' }, { status: 403 }) }
-  }
-
-  return { ok: true, sb, workspaceId: membershipRes.data.workspace_id, actorId: personRes.data?.id ?? null, actor }
+  const actor = resolution.context
+  return { ok: true, sb, workspaceId: actor.workspaceId as string, actorId: actor.personId, actor }
 }
 
 async function loadImportContext(auth: Extract<WorkspaceContext, { ok: true }>) {
