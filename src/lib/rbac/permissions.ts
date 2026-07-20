@@ -141,10 +141,35 @@ export interface RbacResource {
   memberIds?: string[] | null
 }
 
-export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUserContext | null> {
+export type RbacContextFailureStage =
+  | 'unauthenticated'
+  | 'profile_error'
+  | 'no_profile'
+  | 'membership_error'
+  | 'no_membership'
+  | 'workspace_mismatch'
+
+export type RbacContextResolution =
+  | { ok: true; context: RbacUserContext }
+  | { ok: false; stage: RbacContextFailureStage }
+
+/**
+ * Single-pass resolver for "who is this request acting as". Runs each dependency
+ * level once and parallelizes queries that don't depend on each other, instead of
+ * every route re-deriving profile/membership/people from scratch before also
+ * calling this function (which used to redo the same lookups again).
+ *
+ * `expectedWorkspaceId`, when given, scopes the membership lookup to that specific
+ * workspace (mirrors callers that previously ran a separate workspace-scoped
+ * membership query and then cross-checked it against this function's own result).
+ */
+export async function resolveRbacUserContext(
+  client: RbacClient,
+  options: { expectedWorkspaceId?: string } = {},
+): Promise<RbacContextResolution> {
   const userResult = await client.auth.getUser()
   const authUserId = userResult.data.user?.id ?? null
-  if (!authUserId) return null
+  if (!authUserId) return { ok: false, stage: 'unauthenticated' }
 
   const profileResult = await client
     .from<ProfileRecord>('profiles')
@@ -152,61 +177,84 @@ export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUse
     .eq('auth_user_id', authUserId)
     .maybeSingle()
 
-  if (profileResult.error || !profileResult.data?.id) return null
+  if (profileResult.error) return { ok: false, stage: 'profile_error' }
+  if (!profileResult.data?.id) return { ok: false, stage: 'no_profile' }
+  const profileId = profileResult.data.id
 
-  const membershipResult = await client
+  let membershipQuery = client
     .from<MembershipRecord>('workspace_memberships')
     .select('workspace_id,role_id,is_active')
-    .eq('profile_id', profileResult.data.id)
+    .eq('profile_id', profileId)
     .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
+  if (options.expectedWorkspaceId) {
+    membershipQuery = membershipQuery.eq('workspace_id', options.expectedWorkspaceId)
+  }
 
-  if (membershipResult.error || !membershipResult.data?.workspace_id) return null
+  const [membershipResult, permissionOverrides] = await Promise.all([
+    membershipQuery.limit(1).maybeSingle(),
+    getPermissionOverrides(client, profileId),
+  ])
 
-  const roleResult = await client
-    .from<RoleRecord>('roles')
-    .select('code')
-    .eq('id', membershipResult.data.role_id)
-    .maybeSingle()
+  if (membershipResult.error) return { ok: false, stage: 'membership_error' }
+  if (!membershipResult.data?.workspace_id) return { ok: false, stage: 'no_membership' }
+  const workspaceId = membershipResult.data.workspace_id
+  if (options.expectedWorkspaceId && workspaceId !== options.expectedWorkspaceId) {
+    return { ok: false, stage: 'workspace_mismatch' }
+  }
 
-  const personResult = await client
-    .from<PersonRecord>('people')
-    .select('id,full_name,department_id,status')
-    .eq('workspace_id', membershipResult.data.workspace_id)
-    .eq('profile_id', profileResult.data.id)
-    .is('deleted_at', null)
-    .maybeSingle()
+  const [roleResult, personResult] = await Promise.all([
+    client
+      .from<RoleRecord>('roles')
+      .select('code')
+      .eq('id', membershipResult.data.role_id)
+      .maybeSingle(),
+    client
+      .from<PersonRecord>('people')
+      .select('id,full_name,department_id,status')
+      .eq('workspace_id', workspaceId)
+      .eq('profile_id', profileId)
+      .is('deleted_at', null)
+      .maybeSingle(),
+  ])
 
   const role = roleResult.data?.code ?? null
   const person = personResult.data ?? null
-  let departmentName: string | null = null
-  if (person?.department_id) {
-    const departmentResult = await client
-      .from<DepartmentRecord>('departments')
-      .select('id,name')
-      .eq('id', person.department_id)
-      .maybeSingle()
 
-    if (!departmentResult.error) departmentName = departmentResult.data?.name ?? null
-  }
-  const managedDepartmentIds = await getManagedDepartmentIds(client, membershipResult.data.workspace_id, person?.id ?? null)
-  const permissionOverrides = await getPermissionOverrides(client, profileResult.data.id)
+  const [departmentResult, managedDepartmentIds] = await Promise.all([
+    person?.department_id
+      ? client
+          .from<DepartmentRecord>('departments')
+          .select('id,name')
+          .eq('id', person.department_id)
+          .maybeSingle()
+      : Promise.resolve(null),
+    getManagedDepartmentIds(client, workspaceId, person?.id ?? null),
+  ])
+
+  const departmentName = departmentResult && !departmentResult.error ? departmentResult.data?.name ?? null : null
 
   return {
-    authUserId,
-    profileId: profileResult.data.id,
-    displayName: person?.full_name ?? profileResult.data.display_name ?? null,
-    personId: person?.id ?? null,
-    workspaceId: membershipResult.data.workspace_id,
-    role,
-    normalizedRole: normalizeRole(role),
-    departmentId: person?.department_id ?? null,
-    departmentName,
-    managedDepartmentIds,
-    status: person?.status ?? profileResult.data.status ?? null,
-    permissionOverrides,
+    ok: true,
+    context: {
+      authUserId,
+      profileId,
+      displayName: person?.full_name ?? profileResult.data.display_name ?? null,
+      personId: person?.id ?? null,
+      workspaceId,
+      role,
+      normalizedRole: normalizeRole(role),
+      departmentId: person?.department_id ?? null,
+      departmentName,
+      managedDepartmentIds,
+      status: person?.status ?? profileResult.data.status ?? null,
+      permissionOverrides,
+    },
   }
+}
+
+export async function getCurrentUserProfile(client: RbacClient): Promise<RbacUserContext | null> {
+  const resolution = await resolveRbacUserContext(client)
+  return resolution.ok ? resolution.context : null
 }
 
 export function normalizeUserRole(user: Pick<RbacUserContext, 'role'> | null | undefined) {

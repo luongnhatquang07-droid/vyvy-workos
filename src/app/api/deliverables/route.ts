@@ -14,7 +14,7 @@ import {
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
 import { buildExternalLinkChangeNote, normalizeExternalSubmissionUrl } from '@/lib/files/externalLinks'
-import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { resolveRbacUserContext, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import {
   canCreateDeliverable,
   canDeleteDeliverableVersionInWorkspace,
@@ -127,50 +127,33 @@ async function getWorkspaceContext(workspaceId: string): Promise<WorkspaceContex
   if (!workspaceId) return { ok: false, response: jsonError('Thiếu workspaceId.', 400) }
 
   const sb = await createServerClient()
-  const {
-    data: { user },
-  } = await sb.auth.getUser()
+  const resolution = await resolveRbacUserContext(sb as unknown as RbacClient, { expectedWorkspaceId: workspaceId })
 
-  if (!user) return { ok: false, response: jsonError('Bạn cần đăng nhập trước khi thao tác bàn giao.', 401) }
-
-  const profileRes = await sb
-    .from('profiles')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
-
-  if (profileRes.error) return { ok: false, response: jsonError('Không kiểm tra được hồ sơ đăng nhập.', 500) }
-  if (!profileRes.data?.id) return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
-
-  const membershipRes = await sb
-    .from('workspace_memberships')
-    .select('workspace_id, profile_id')
-    .eq('profile_id', profileRes.data.id)
-    .eq('workspace_id', workspaceId)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (membershipRes.error) return { ok: false, response: jsonError('Không kiểm tra được quyền workspace.', 500) }
-  if (!membershipRes.data) return { ok: false, response: jsonError('Tài khoản không có quyền trong workspace này.', 403) }
-
-  const personRes = await sb
-    .from('people')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('profile_id', profileRes.data.id)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  if (!actor || actor.workspaceId !== workspaceId) {
-    return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+  if (!resolution.ok) {
+    switch (resolution.stage) {
+      case 'unauthenticated':
+        return { ok: false, response: jsonError('Bạn cần đăng nhập trước khi thao tác bàn giao.', 401) }
+      case 'profile_error':
+        return { ok: false, response: jsonError('Không kiểm tra được hồ sơ đăng nhập.', 500) }
+      case 'no_profile':
+        return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
+      case 'membership_error':
+        return { ok: false, response: jsonError('Không kiểm tra được quyền workspace.', 500) }
+      case 'no_membership':
+        return { ok: false, response: jsonError('Tài khoản không có quyền trong workspace này.', 403) }
+      case 'workspace_mismatch':
+        return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+    }
   }
+
+  const actor = resolution.context
+  if (!actor.profileId) return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
 
   return {
     ok: true,
     workspaceId,
-    profileId: profileRes.data.id,
-    personId: personRes.data?.id ?? null,
+    profileId: actor.profileId,
+    personId: actor.personId,
     actor,
   }
 }
