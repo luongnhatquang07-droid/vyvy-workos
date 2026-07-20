@@ -33,6 +33,7 @@ import type {
 import { FlowchartTab } from './flowchart-tab'
 import { GanttTab } from './gantt-tab'
 import { KanbanTab } from './kanban-tab'
+import { OverviewTab } from './overview-tab'
 import {
   STATUS_META,
   TASK_STATUS_OPTIONS,
@@ -51,7 +52,6 @@ import {
   getSubtaskProgress,
   getSubtaskProgressText,
   getSubtaskFileGroups,
-  getWorkstreamProgress,
   hasEvidence,
   isOverdue,
   isUnassignedSubtask,
@@ -59,12 +59,12 @@ import {
   normalizeDateKey,
   projectHealth,
   requiresEvidence,
-  sortSubtasksForOperations,
   shiftDate,
   toFullDate,
   toShortDate,
 } from './helpers'
 import {
+  detailMeta,
   emptyInline,
   filterChipStyle,
   inlineMetaStyle,
@@ -73,18 +73,20 @@ import {
   progressTrack,
   sectionTitle,
   statusChipStyle,
-  subtaskInlineItem,
+  subtaskTitleStyle,
   textareaStyle,
   toneColor,
   warningBanner,
+  workstreamCard,
+  workstreamHead,
 } from './styles'
 import {
+  DangerButton,
   EvidenceFileList,
   GhostButton,
   PrimaryButton,
   ProgressBadge,
   StepEvidenceFiles,
-  SubtaskSignalBadges,
 } from './ui-primitives'
 import type {
   AttachmentItem,
@@ -2600,99 +2602,6 @@ function EditWorkItemDrawerBody({
   )
 }
 
-function OverviewTab({
-  project,
-  people,
-  filters,
-  selectedSubtaskId,
-  onSelectSubtask,
-  renderSubtaskDetail,
-  onOpenSubtaskComposer,
-  onDeleteWorkstream,
-  onEditWorkstream,
-}: {
-  project: ProjectWorkspace
-  people: Record<string, CommandCenterPersonRow>
-  filters: ProjectFilters
-  selectedSubtaskId: string | null
-  onSelectSubtask: (id: string) => void
-  renderSubtaskDetail: (subtask: SubtaskItem) => React.ReactNode
-  onOpenSubtaskComposer: (workstreamId: string) => void
-  onDeleteWorkstream: (workstreamId: string) => void
-  onEditWorkstream: (workstreamId: string) => void
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {project.workstreams.map((workstream) => {
-        const visibleSubtasks = sortSubtasksForOperations(workstream.subtasks).filter((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
-        return (
-        <section key={workstream.id} style={workstreamCard}>
-          <div style={workstreamHead}>
-            <div>
-              <div style={sectionTitle}>{workstream.title}</div>
-              <div style={detailMeta}>
-                <span>{people[workstream.ownerId ?? '']?.full_name ?? 'Chưa gắn người'}</span>
-                <span>{workstream.subtasks.length} đầu việc con</span>
-                <span>{getWorkstreamProgress(workstream)}%</span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <div style={miniProgressWrap}>
-                <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getWorkstreamProgress(workstream)}%` }} /></div>
-                <span style={mutedMetaStyle}>{getWorkstreamProgress(workstream)}%</span>
-              </div>
-              <GhostButton icon="ti-pencil" onClick={() => onEditWorkstream(workstream.id)}>Sửa</GhostButton>
-              <DangerButton icon="ti-trash" onClick={() => onDeleteWorkstream(workstream.id)}>Xóa đầu việc lớn</DangerButton>
-              <GhostButton icon="ti-plus" onClick={() => onOpenSubtaskComposer(workstream.id)}>Thêm đầu việc con</GhostButton>
-            </div>
-          </div>
-
-          <PlanDocumentsPanel
-            key={`workstream-plan-${workstream.id}`}
-            targetType="WORKSTREAM"
-            targetId={workstream.id}
-            title="Plan đầu việc lớn"
-          />
-
-          {visibleSubtasks.length === 0 ? (
-            <div style={emptyInline}>{workstream.subtasks.length ? 'Không có việc phù hợp với bộ lọc.' : 'Đầu việc lớn này chưa có đầu việc con.'}</div>
-          ) : (
-            <div style={subtaskTable}>
-              {visibleSubtasks.map((subtask) => (
-                <div key={subtask.id} style={subtaskInlineItem}>
-                <button
-                  key={subtask.id}
-                  id={`project-subtask-${subtask.id}`}
-                  data-vyvy-row="true"
-                  onClick={() => onSelectSubtask(subtask.id)}
-                  style={subtaskRowStyle(selectedSubtaskId === subtask.id, subtask)}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={subtaskTitleStyle}>{subtask.title}</div>
-                    <div style={mutedMetaStyle} title={subtask.dueDate ? toFullDate(subtask.dueDate) : undefined}>
-                      {people[subtask.ownerId ?? '']?.full_name ?? 'Chưa gắn người'} · deadline {formatDeadlineLabel(subtask.dueDate, subtask.status)}
-                    </div>
-                    <SubtaskSignalBadges subtask={subtask} />
-                  </div>
-                  <div style={rowRightMeta}>
-                    <span style={statusChipStyle(STATUS_META[subtask.status].bg, STATUS_META[subtask.status].color)}>
-                      {STATUS_META[subtask.status].label}
-                    </span>
-                    <ProgressBadge value={getSubtaskProgress(subtask)} label={STATUS_META[subtask.status].label} />
-                  </div>
-                </button>
-                  {renderSubtaskDetail(subtask)}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-        )
-      })}
-    </div>
-  )
-}
-
 function MeetingsTab({ project }: { project: ProjectWorkspace }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
@@ -2794,23 +2703,6 @@ function Metric({ icon, label, value, danger = false }: { icon: string; label: s
         <div style={metricLabel}>{label}</div>
       </div>
     </div>
-  )
-}
-
-function DangerButton({
-  children,
-  icon,
-  onClick,
-}: {
-  children: React.ReactNode
-  icon: string
-  onClick?: () => void
-}) {
-  return (
-    <button onClick={onClick} style={dangerBtnStyle}>
-      <i className={`ti ${icon}`} />
-      {children}
-    </button>
   )
 }
 
@@ -3964,25 +3856,6 @@ function projectCardStyle(active: boolean): React.CSSProperties {
   }
 }
 
-function subtaskRowStyle(active: boolean, subtask?: SubtaskItem): React.CSSProperties {
-  const deadline = subtask ? getDeadlineSignal(subtask).kind : 'normal'
-  const urgent = deadline === 'overdue' || deadline === 'today'
-  const unassigned = subtask ? isUnassignedSubtask(subtask) : false
-  const alert = urgent && unassigned
-  return {
-    width: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    padding: '12px 14px',
-    borderRadius: 12,
-    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : alert ? 'rgba(184,64,64,.42)' : urgent ? 'rgba(184,139,62,.42)' : 'var(--line)'}`,
-    background: active ? 'rgba(218,223,33,.06)' : alert ? 'rgba(184,64,64,.12)' : urgent ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
-    textAlign: 'left',
-  }
-}
-
 function tabStyle(active: boolean): React.CSSProperties {
   return {
     padding: '10px 14px',
@@ -4190,61 +4063,10 @@ const projectHeadline: React.CSSProperties = {
   color: 'var(--txt)',
 }
 
-const detailMeta: React.CSSProperties = {
-  marginTop: 8,
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 14,
-  fontSize: 12.5,
-  color: 'var(--txt-3)',
-}
-
 const tabRow: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   gap: 8,
-}
-
-const workstreamCard: React.CSSProperties = {
-  padding: 16,
-  background: 'var(--surface)',
-  border: '1px solid var(--line)',
-  borderRadius: 16,
-}
-
-const workstreamHead: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 12,
-  alignItems: 'center',
-  marginBottom: 14,
-}
-
-const miniProgressWrap: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  minWidth: 180,
-}
-
-const subtaskTable: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-}
-
-const subtaskTitleStyle: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 700,
-  color: 'var(--txt)',
-}
-
-const rowRightMeta: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  flexWrap: 'wrap',
-  justifyContent: 'flex-end',
 }
 
 const stepInlineUploadPanelStyle: React.CSSProperties = {
@@ -4882,19 +4704,6 @@ const toggleWrap: React.CSSProperties = {
   background: 'var(--surface-2)',
   border: '1px solid var(--line)',
   width: 'fit-content',
-}
-
-const dangerBtnStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 7,
-  padding: '9px 12px',
-  borderRadius: 12,
-  border: '1px solid rgba(184,64,64,.28)',
-  background: 'var(--color-danger-bg)',
-  color: 'var(--color-danger)',
-  fontSize: 12.5,
-  fontWeight: 700,
 }
 
 const iconButtonStyle = (tone: 'default' | 'danger'): React.CSSProperties => ({

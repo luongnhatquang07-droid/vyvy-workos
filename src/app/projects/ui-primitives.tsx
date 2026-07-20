@@ -7,6 +7,7 @@ import { normalizeVersionReviewStatus, type VersionReviewStatus } from '@/lib/de
 import type { CommandCenterPersonRow } from '@/lib/database.types'
 import { getDeadlineSignal, isUnassignedSubtask } from './helpers'
 import {
+  dangerBtnStyle,
   emptyInline,
   evidenceFileActionStyle,
   evidenceFileDeleteItemStyle,
@@ -438,6 +439,23 @@ export function GhostButton({
 }) {
   return (
     <button onClick={onClick} style={ghostBtnStyle}>
+      <i className={`ti ${icon}`} />
+      {children}
+    </button>
+  )
+}
+
+export function DangerButton({
+  children,
+  icon,
+  onClick,
+}: {
+  children: React.ReactNode
+  icon: string
+  onClick?: () => void
+}) {
+  return (
+    <button onClick={onClick} style={dangerBtnStyle}>
       <i className={`ti ${icon}`} />
       {children}
     </button>

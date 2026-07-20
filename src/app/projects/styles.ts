@@ -68,6 +68,49 @@ export const emptyInline: CSSProperties = {
   fontSize: 12.5,
 }
 
+export const detailMeta: React.CSSProperties = {
+  marginTop: 8,
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 14,
+  fontSize: 12.5,
+  color: 'var(--txt-3)',
+}
+
+export const workstreamCard: React.CSSProperties = {
+  padding: 16,
+  background: 'var(--surface)',
+  border: '1px solid var(--line)',
+  borderRadius: 16,
+}
+
+export const workstreamHead: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  alignItems: 'center',
+  marginBottom: 14,
+}
+
+export const subtaskTitleStyle: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 700,
+  color: 'var(--txt)',
+}
+
+export const dangerBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 7,
+  padding: '9px 12px',
+  borderRadius: 12,
+  border: '1px solid rgba(184,64,64,.28)',
+  background: 'var(--color-danger-bg)',
+  color: 'var(--color-danger)',
+  fontSize: 12.5,
+  fontWeight: 700,
+}
+
 export const subtaskInlineItem: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
