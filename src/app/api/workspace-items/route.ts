@@ -5,7 +5,7 @@ import {
   guardExistingEntityWrite,
   isLocalProductionDatabaseRequest,
 } from '@/lib/localQaGuard'
-import { getCurrentUserProfile, type RbacClient } from '@/lib/rbac/permissions'
+import { resolveRbacUserContext, type RbacClient } from '@/lib/rbac/permissions'
 import {
   canAssignWorkspaceOwner,
   canCreateWorkspaceEntity,
@@ -379,35 +379,25 @@ function workspaceEntityGuardConfig(type: EntityType) {
 
 async function getWorkspace() {
   const sb = await createClient()
-  const {
-    data: { user },
-  } = await sb.auth.getUser()
+  const resolution = await resolveRbacUserContext(sb as unknown as RbacClient)
 
-  if (!user) return { response: NextResponse.json({ error: 'Bạn cần đăng nhập.' }, { status: 401 }) }
-
-  const profileRes = await sb.from('profiles').select('id').eq('auth_user_id', user.id).maybeSingle()
-  if (profileRes.error || !profileRes.data?.id) {
-    return { response: NextResponse.json({ error: 'Tài khoản chưa có profile trong workspace.' }, { status: 403 }) }
+  if (!resolution.ok) {
+    switch (resolution.stage) {
+      case 'unauthenticated':
+        return { response: NextResponse.json({ error: 'Bạn cần đăng nhập.' }, { status: 401 }) }
+      case 'profile_error':
+      case 'no_profile':
+        return { response: NextResponse.json({ error: 'Tài khoản chưa có profile trong workspace.' }, { status: 403 }) }
+      case 'membership_error':
+      case 'no_membership':
+        return { response: NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 }) }
+      case 'workspace_mismatch':
+        return { response: NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 }) }
+    }
   }
 
-  const membershipRes = await sb
-    .from('workspace_memberships')
-    .select('workspace_id')
-    .eq('profile_id', profileRes.data.id)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (membershipRes.error || !membershipRes.data?.workspace_id) {
-    return { response: NextResponse.json({ error: 'Tài khoản chưa được gắn workspace.' }, { status: 403 }) }
-  }
-
-  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
-    return { response: NextResponse.json({ error: RBAC_FORBIDDEN_MESSAGE }, { status: 403 }) }
-  }
-
-  return { sb: createServiceClient(), workspaceId: membershipRes.data.workspace_id, actor }
+  const actor = resolution.context
+  return { sb: createServiceClient(), workspaceId: actor.workspaceId as string, actor }
 }
 
 async function updateEntity(
