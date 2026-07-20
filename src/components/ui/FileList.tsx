@@ -137,11 +137,10 @@ export function FileList({
   const [error, setError] = React.useState('')
   const replaceInputRef = React.useRef<HTMLInputElement>(null)
   const effectiveReviewerId = reviewerId ?? detailDeliverable?.reviewer_id ?? null
+  const loadAbortRef = React.useRef<AbortController | null>(null)
+  const loadInFlightRef = React.useRef<{ key: string; promise: Promise<void> } | null>(null)
 
   const loadFiles = React.useCallback(async () => {
-    setLoading(true)
-    setError('')
-
     if (!workspaceId) {
       setFiles([])
       setVersions([])
@@ -150,41 +149,68 @@ export function FileList({
       return
     }
 
-    try {
-      if (deliverableId) {
-        const params = new URLSearchParams({ workspaceId, deliverableId })
-        const response = await fetch(`/api/deliverables?${params}`)
-        const payload = await readJsonResponse<{ deliverable?: DeliverableDetail; versions?: VersionItem[]; error?: string }>(response, 'Không tải được lịch sử version.')
-        if (!response.ok) throw new Error(payload.error ?? 'Không tải được lịch sử version.')
-        setDetailDeliverable(payload.deliverable ?? null)
-        setVersions(payload.versions ?? [])
+    // Same request (same params) already in flight - StrictMode's double-effect
+    // invocation and refreshKey-triggered reloads both funnel through here, so
+    // dedupe instead of firing a second identical fetch.
+    const requestKey = deliverableId
+      ? `deliverable:${workspaceId}:${deliverableId}`
+      : `list:${workspaceId}:${projectId ?? ''}:${taskId ?? ''}`
+    if (loadInFlightRef.current?.key === requestKey) return loadInFlightRef.current.promise
+
+    loadAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    setLoading(true)
+    setError('')
+
+    const run = (async () => {
+      try {
+        if (deliverableId) {
+          const params = new URLSearchParams({ workspaceId, deliverableId })
+          const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
+          const payload = await readJsonResponse<{ deliverable?: DeliverableDetail; versions?: VersionItem[]; error?: string }>(response, 'Không tải được lịch sử version.')
+          if (!response.ok) throw new Error(payload.error ?? 'Không tải được lịch sử version.')
+          setDetailDeliverable(payload.deliverable ?? null)
+          setVersions(payload.versions ?? [])
+          setFiles([])
+          return
+        }
+
+        const params = new URLSearchParams({ workspaceId })
+        if (projectId) params.set('projectId', projectId)
+        if (taskId) params.set('taskId', taskId)
+
+        const response = await fetch(`/api/upload?${params}`, { signal: controller.signal })
+        const payload = await readJsonResponse<{ files?: StorageFile[]; error?: string }>(response, 'Không tải được danh sách file.')
+        if (!response.ok) throw new Error(payload.error ?? 'Không tải được danh sách file.')
+        setDetailDeliverable(null)
+        setFiles(payload.files ?? [])
+        setVersions([])
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
         setFiles([])
-        return
+        setVersions([])
+        setError(err instanceof Error ? err.message : 'Không tải được danh sách file.')
+      } finally {
+        if (loadInFlightRef.current?.key === requestKey) loadInFlightRef.current = null
+        if (loadAbortRef.current === controller) {
+          loadAbortRef.current = null
+          setLoading(false)
+        }
       }
+    })()
 
-      const params = new URLSearchParams({ workspaceId })
-      if (projectId) params.set('projectId', projectId)
-      if (taskId) params.set('taskId', taskId)
-
-      const response = await fetch(`/api/upload?${params}`)
-      const payload = await readJsonResponse<{ files?: StorageFile[]; error?: string }>(response, 'Không tải được danh sách file.')
-      if (!response.ok) throw new Error(payload.error ?? 'Không tải được danh sách file.')
-      setDetailDeliverable(null)
-      setFiles(payload.files ?? [])
-      setVersions([])
-    } catch (err) {
-      setFiles([])
-      setVersions([])
-      setError(err instanceof Error ? err.message : 'Không tải được danh sách file.')
-    } finally {
-      setLoading(false)
-    }
+    loadInFlightRef.current = { key: requestKey, promise: run }
+    return run
   }, [deliverableId, projectId, taskId, workspaceId])
 
   React.useEffect(() => {
     queueMicrotask(() => {
       void loadFiles()
     })
+    return () => {
+      loadAbortRef.current?.abort()
+    }
   }, [loadFiles, refreshKey])
 
   function openReasonDialog(nextDialog: ReasonDialogState) {

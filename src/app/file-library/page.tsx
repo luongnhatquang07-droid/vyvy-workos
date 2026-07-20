@@ -70,8 +70,15 @@ export default function FileLibraryPage() {
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState('')
   const [submissionOpen, setSubmissionOpen] = React.useState(false)
+  // Bumped only after an explicit refreshAll() so FileList's own effect re-fetches.
+  // Deliberately NOT derived from `detail` - detail?.versions?.length transitions
+  // from its null-fallback to a real count the moment the very first loadDetail()
+  // resolves, which used to look like a "real" refreshKey change and forced an
+  // extra, redundant fetch on every single drawer open.
+  const [fileListRefreshToken, setFileListRefreshToken] = React.useState(0)
   const searchRef = React.useRef<HTMLInputElement>(null)
   const detailAbortRef = React.useRef<AbortController | null>(null)
+  const detailInFlightRef = React.useRef<{ id: string; promise: Promise<void> } | null>(null)
 
   const workspaceId = data?.workspaceId
   const currentPersonId = data?.currentUser?.personId ?? null
@@ -182,32 +189,45 @@ export default function FileLibraryPage() {
 
   async function loadDetail(id = selectedId) {
     if (!workspaceId || !id) return
+    // A fetch for this exact item is already in flight (StrictMode's double-effect
+    // invocation, or two callers racing) - ride the same request instead of firing
+    // a duplicate one.
+    if (detailInFlightRef.current?.id === id) return detailInFlightRef.current.promise
+
     detailAbortRef.current?.abort()
     const controller = new AbortController()
     detailAbortRef.current = controller
     setDetailLoading(true)
     setDetailError('')
-    try {
-      const params = new URLSearchParams({ workspaceId, deliverableId: id })
-      const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
-      const payload = (await response.json()) as DetailPayload
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết file.')
-      setDetail(payload)
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setDetail(null)
-      setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết file.')
-    } finally {
-      if (detailAbortRef.current === controller) {
-        detailAbortRef.current = null
-        setDetailLoading(false)
+
+    const run = (async () => {
+      try {
+        const params = new URLSearchParams({ workspaceId, deliverableId: id })
+        const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
+        const payload = (await response.json()) as DetailPayload
+        if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết file.')
+        setDetail(payload)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setDetail(null)
+        setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết file.')
+      } finally {
+        if (detailInFlightRef.current?.id === id) detailInFlightRef.current = null
+        if (detailAbortRef.current === controller) {
+          detailAbortRef.current = null
+          setDetailLoading(false)
+        }
       }
-    }
+    })()
+
+    detailInFlightRef.current = { id, promise: run }
+    return run
   }
 
   async function refreshAll() {
     await refresh()
     if (selectedId) await loadDetail(selectedId)
+    setFileListRefreshToken((token) => token + 1)
   }
 
   function requireSelection(action: 'upload' | 'link') {
@@ -355,6 +375,7 @@ export default function FileLibraryPage() {
             currentPersonId={currentPersonId}
             submissionOpen={submissionOpen}
             onToggleSubmission={() => setSubmissionOpen((value) => !value)}
+            fileListRefreshToken={fileListRefreshToken}
             onUploaded={() => void refreshAll()}
             today={today}
             peopleById={peopleById}
@@ -814,6 +835,7 @@ function DetailPanel({
   currentPersonId,
   submissionOpen,
   onToggleSubmission,
+  fileListRefreshToken,
   onUploaded,
   today,
   peopleById,
@@ -832,6 +854,7 @@ function DetailPanel({
   currentPersonId: string | null
   submissionOpen: boolean
   onToggleSubmission: () => void
+  fileListRefreshToken: number
   onUploaded: () => void
   today: string
   peopleById: Record<string, CommandCenterPersonRow>
@@ -947,7 +970,7 @@ function DetailPanel({
             projectId={projectId ?? undefined}
             taskId={selected.task_id ?? undefined}
             deliverableId={selected.id}
-            refreshKey={detail?.versions?.length ?? 0}
+            refreshKey={fileListRefreshToken}
             peopleById={peopleById}
             reviewerId={selected.reviewer_id}
             currentPersonId={currentPersonId}

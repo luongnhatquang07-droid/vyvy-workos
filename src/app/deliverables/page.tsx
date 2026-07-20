@@ -104,8 +104,16 @@ export default function DeliverablesPage() {
   const [draft, setDraft] = React.useState<CreateDraft>(createDraft)
   const [formError, setFormError] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  // Bumped only after an explicit reloadAll() (e.g. a new version submitted outside
+  // FileList itself) so FileList's own effect re-fetches. Deliberately NOT derived
+  // from `detail` - detail?.versions?.length transitions from its null-fallback to a
+  // real count the moment the very first loadDetail() resolves, which used to look
+  // like a "real" refreshKey change and forced an extra, redundant fetch on every
+  // single drawer open.
+  const [fileListRefreshToken, setFileListRefreshToken] = React.useState(0)
   const selectedIdRef = React.useRef<string | null>(null)
   const detailAbortRef = React.useRef<AbortController | null>(null)
+  const detailInFlightRef = React.useRef<{ id: string; promise: Promise<void> } | null>(null)
 
   const deliverables = React.useMemo(() => data?.deliverables ?? [], [data?.deliverables])
   const versionsByDeliverable = React.useMemo(() => {
@@ -195,28 +203,40 @@ export default function DeliverablesPage() {
 
   async function loadDetail(id = selectedId) {
     if (!workspaceId || !id) return
+    // A fetch for this exact deliverable is already in flight (StrictMode's
+    // double-effect invocation, or two callers racing) - ride the same request
+    // instead of firing a duplicate one.
+    if (detailInFlightRef.current?.id === id) return detailInFlightRef.current.promise
+
     detailAbortRef.current?.abort()
     const controller = new AbortController()
     detailAbortRef.current = controller
     setDetailLoading(true)
     setDetailError('')
-    try {
-      const params = new URLSearchParams({ workspaceId, deliverableId: id })
-      const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
-      const payload = await readJsonResponse<DetailPayload>(response, 'Không tải được chi tiết bàn giao.')
-      if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết bàn giao.')
-      if (!payload.deliverable?.id) throw new Error('Không tìm thấy bàn giao.')
-      if (selectedIdRef.current === id) setDetail(payload)
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      if (selectedIdRef.current !== id) return
-      setDetail(null)
-      setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết bàn giao.')
-    } finally {
-      if (detailAbortRef.current === controller) detailAbortRef.current = null
-      if (selectedIdRef.current !== id) return
-      setDetailLoading(false)
-    }
+
+    const run = (async () => {
+      try {
+        const params = new URLSearchParams({ workspaceId, deliverableId: id })
+        const response = await fetch(`/api/deliverables?${params}`, { signal: controller.signal })
+        const payload = await readJsonResponse<DetailPayload>(response, 'Không tải được chi tiết bàn giao.')
+        if (!response.ok || payload.error) throw new Error(payload.error ?? 'Không tải được chi tiết bàn giao.')
+        if (!payload.deliverable?.id) throw new Error('Không tìm thấy bàn giao.')
+        if (selectedIdRef.current === id) setDetail(payload)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        if (selectedIdRef.current !== id) return
+        setDetail(null)
+        setDetailError(err instanceof Error ? err.message : 'Không tải được chi tiết bàn giao.')
+      } finally {
+        if (detailInFlightRef.current?.id === id) detailInFlightRef.current = null
+        if (detailAbortRef.current === controller) detailAbortRef.current = null
+        if (selectedIdRef.current !== id) return
+        setDetailLoading(false)
+      }
+    })()
+
+    detailInFlightRef.current = { id, promise: run }
+    return run
   }
 
   function openDeliverable(id: string) {
@@ -261,6 +281,7 @@ export default function DeliverablesPage() {
   async function reloadAll(id = selectedId) {
     await refresh()
     if (id) await loadDetail(id)
+    setFileListRefreshToken((token) => token + 1)
   }
 
   async function createDeliverable() {
@@ -473,7 +494,6 @@ export default function DeliverablesPage() {
         ) : (
           <DeliverableDetail
             item={selected}
-            detail={detail}
             loading={detailLoading}
             error={detailError}
             workspaceId={workspaceId}
@@ -484,6 +504,7 @@ export default function DeliverablesPage() {
             steps={stepsById}
             reviewComment={reviewComment}
             onReviewComment={setReviewComment}
+            fileListRefreshToken={fileListRefreshToken}
             onUploaded={() => void reloadAll(selected.id)}
             onApprove={() => void runAction('approve')}
             onRevision={() => void runAction('requestRevision')}
@@ -732,7 +753,6 @@ function VersionPreview({
 
 function DeliverableDetail({
   item,
-  detail,
   loading,
   error,
   workspaceId,
@@ -743,6 +763,7 @@ function DeliverableDetail({
   steps,
   reviewComment,
   onReviewComment,
+  fileListRefreshToken,
   onUploaded,
   onApprove,
   onRevision,
@@ -754,7 +775,6 @@ function DeliverableDetail({
   onConfirmReminder,
 }: {
   item: CommandCenterDeliverableRow
-  detail: DetailPayload | null
   loading: boolean
   error: string
   workspaceId?: string
@@ -765,6 +785,7 @@ function DeliverableDetail({
   steps: Record<string, CommandCenterTaskStepRow>
   reviewComment: string
   onReviewComment: (value: string) => void
+  fileListRefreshToken: number
   onUploaded: () => void
   onApprove: () => void
   onRevision: () => void
@@ -843,7 +864,7 @@ function DeliverableDetail({
             projectId={item.project_id ?? undefined}
             taskId={item.task_id ?? undefined}
             deliverableId={item.id}
-            refreshKey={detail?.versions?.length ?? 0}
+            refreshKey={fileListRefreshToken}
             peopleById={people}
             reviewerId={item.reviewer_id}
             currentPersonId={currentPersonId}
