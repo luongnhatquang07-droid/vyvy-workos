@@ -22,7 +22,12 @@ interface UseCommandDataResult {
 }
 
 const CommandDataContext = React.createContext<UseCommandDataResult | null>(null)
-const COMMAND_DATA_TIMEOUT_MS = 15000
+// Server-side budget (COMMAND_CENTER_TIMEOUT_MS in the API route) is 15s; this needs
+// real margin above that so a slow-but-successful server response isn't raced by our
+// own abort, and so a server-side timeout error can be read back as a normal response
+// instead of colliding with our AbortError.
+const COMMAND_DATA_TIMEOUT_MS = 22000
+const COMMAND_DATA_RETRY_DELAY_MS = 400
 
 export function CommandDataProvider({
   children,
@@ -76,7 +81,7 @@ function useCommandDataState(enabled: boolean): UseCommandDataResult {
     if (showLoading) setLoading(true)
     setError('')
 
-    const promise = fetchCommandCenterData()
+    const promise = fetchCommandCenterDataWithRetry()
 
     commandDataCache.promise = promise
 
@@ -116,6 +121,22 @@ function useCommandDataState(enabled: boolean): UseCommandDataResult {
     () => ({ data, loading, error, refresh }),
     [data, error, loading, refresh],
   )
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+// One automatic retry before surfacing an error to the user - this is a safety net
+// for a genuinely slow/transient response, not a substitute for fixing the underlying
+// query cost (see resolveRbacUserContext in src/lib/rbac/permissions.ts).
+async function fetchCommandCenterDataWithRetry(): Promise<CommandCenterApiData> {
+  try {
+    return await fetchCommandCenterData()
+  } catch {
+    await wait(COMMAND_DATA_RETRY_DELAY_MS)
+    return await fetchCommandCenterData()
+  }
 }
 
 async function fetchCommandCenterData() {
