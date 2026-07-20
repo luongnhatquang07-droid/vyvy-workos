@@ -7,7 +7,7 @@ import {
   isLocalProductionDatabaseRequest,
   localQaGuardResponse,
 } from '@/lib/localQaGuard'
-import { getCurrentUserProfile, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
+import { resolveRbacUserContext, type RbacClient, type RbacUserContext } from '@/lib/rbac/permissions'
 import { canSubmitToDeliverable, RBAC_FORBIDDEN_MESSAGE } from '@/lib/rbac/workspaceResourceAccess'
 
 type FollowUpAction = 'markSent' | 'schedule' | 'escalate'
@@ -298,50 +298,33 @@ async function guardFollowUpTarget(
 
 async function getWorkspaceContext(): Promise<WorkspaceContext> {
   const sb = await createServerClient()
-  const {
-    data: { user },
-  } = await sb.auth.getUser()
+  const resolution = await resolveRbacUserContext(sb as unknown as RbacClient)
 
-  if (!user) return { ok: false, response: jsonError('Bạn cần đăng nhập trước khi nhắc việc.', 401) }
-
-  const profileRes = await sb
-    .from('profiles')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
-
-  if (profileRes.error) return { ok: false, response: jsonError(profileRes.error.message, 500) }
-  if (!profileRes.data?.id) return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
-
-  const membershipRes = await sb
-    .from('workspace_memberships')
-    .select('workspace_id, profile_id')
-    .eq('profile_id', profileRes.data.id)
-    .eq('is_active', true)
-    .limit(1)
-    .maybeSingle()
-
-  if (membershipRes.error) return { ok: false, response: jsonError(membershipRes.error.message, 500) }
-  if (!membershipRes.data?.workspace_id) return { ok: false, response: jsonError('Tài khoản chưa được gắn workspace.', 403) }
-
-  const personRes = await sb
-    .from('people')
-    .select('id')
-    .eq('workspace_id', membershipRes.data.workspace_id)
-    .eq('profile_id', profileRes.data.id)
-    .is('deleted_at', null)
-    .maybeSingle()
-
-  const actor = await getCurrentUserProfile(sb as unknown as RbacClient)
-  if (!actor || actor.workspaceId !== membershipRes.data.workspace_id) {
-    return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+  if (!resolution.ok) {
+    switch (resolution.stage) {
+      case 'unauthenticated':
+        return { ok: false, response: jsonError('Bạn cần đăng nhập trước khi nhắc việc.', 401) }
+      case 'profile_error':
+        return { ok: false, response: jsonError('Không đọc được hồ sơ đăng nhập.', 500) }
+      case 'no_profile':
+        return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
+      case 'membership_error':
+        return { ok: false, response: jsonError('Không đọc được quyền workspace.', 500) }
+      case 'no_membership':
+        return { ok: false, response: jsonError('Tài khoản chưa được gắn workspace.', 403) }
+      case 'workspace_mismatch':
+        return { ok: false, response: jsonError(RBAC_FORBIDDEN_MESSAGE, 403) }
+    }
   }
+
+  const actor = resolution.context
+  if (!actor.profileId) return { ok: false, response: jsonError('Tài khoản chưa có profile trong workspace.', 403) }
 
   return {
     ok: true,
-    workspaceId: membershipRes.data.workspace_id,
-    profileId: profileRes.data.id,
-    personId: personRes.data?.id ?? null,
+    workspaceId: actor.workspaceId as string,
+    profileId: actor.profileId,
+    personId: actor.personId,
     actor,
   }
 }
