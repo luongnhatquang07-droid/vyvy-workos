@@ -84,6 +84,18 @@ export interface TaskRow {
   deleted_at: string | null
 }
 
+export interface SubtaskDependencyRow {
+  id: string
+  workspace_id: string
+  project_id: string
+  from_subtask_id: string
+  to_subtask_id: string
+  created_at: string
+  created_by: string | null
+  deleted_at: string | null
+  deleted_by: string | null
+}
+
 export interface MeetingRow {
   id: string
   workspace_id: string
