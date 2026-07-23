@@ -15,6 +15,7 @@ import { FilterChips } from './components/FilterChips'
 import { KPICards } from './components/KPICards'
 import { PriorityList } from './components/PriorityList'
 import { SummaryBanner } from './components/SummaryBanner'
+import { UnassignedTasksPanel } from './components/UnassignedTasksPanel'
 import { DEFAULT_COMMAND_CENTER_TIMEZONE, formatCommandCenterDateTime } from './greeting'
 import type { CommandCenterData, DrawerState, FilterView } from './types'
 import { filterPriorityItems } from './utils'
@@ -93,6 +94,11 @@ export function CommandCenterView({
           activeFilter={filter}
           onSelectFilter={setFilter}
           onFocusChase={focusChasePanel}
+        />
+        <UnassignedTasksPanel
+          tasks={commandData.tasks}
+          workstreams={commandData.workstreams}
+          onOpenDrawer={setDrawer}
         />
         <FilterChips value={filter} onChange={setFilter} />
 

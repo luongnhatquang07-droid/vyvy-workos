@@ -32,6 +32,12 @@ export interface Project {
   health: ProjectHealth
 }
 
+export interface Workstream {
+  id: string
+  projectId: string
+  name: string
+}
+
 export interface Meeting {
   id: string
   title: string
@@ -51,6 +57,7 @@ export interface Task {
   title: string
   ownerId: string
   projectId?: string
+  workstreamId?: string
   dueDate: string
   status: TaskStatus
   urgency: Urgency
@@ -171,6 +178,7 @@ export interface PriorityItem {
 // ---- KPI ----
 
 export interface KPIData {
+  unassignedTasks: number
   meetingsToday: number
   unimportedDrafts: number
   pendingDeliverable: number
@@ -204,6 +212,7 @@ export type FilterView = 'all'|'today'|'next_24h'|'overdue'|'waiting'|'pending_a
 export interface CommandCenterData {
   people: Person[]
   projects: Project[]
+  workstreams: Workstream[]
   meetings: Meeting[]
   tasks: Task[]
   deliverables: Deliverable[]

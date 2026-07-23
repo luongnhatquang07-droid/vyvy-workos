@@ -42,6 +42,9 @@ interface KPICardProps {
   icon: string          // tabler icon class
   iconBg: string
   iconColor: string
+  valueSize?: number
+  valueWeight?: number
+  warningSurface?: boolean
   accent?: 'danger' | 'warning' | 'default' | 'lime'
   delta?: number        // +/- change indicator
   route?: string
@@ -61,6 +64,9 @@ function KPICard({
   icon,
   iconBg,
   iconColor,
+  valueSize = 28,
+  valueWeight = 600,
+  warningSurface = false,
   accent = 'default',
   delta,
   route,
@@ -106,7 +112,9 @@ function KPICard({
       onMouseLeave={() => setHovered(false)}
       style={{
         background:
-          accent === 'danger'
+          warningSurface
+            ? 'var(--color-warning-bg)'
+            : accent === 'danger'
             ? 'linear-gradient(180deg, rgba(184,64,64,0.04), rgba(255,255,255,0) 42%), var(--color-surface)'
             : accent === 'lime'
               ? 'linear-gradient(180deg, rgba(218,223,33,0.04), rgba(255,255,255,0) 42%), var(--color-surface)'
@@ -123,7 +131,9 @@ function KPICard({
         overflow: 'hidden',
         willChange: 'transform',
         borderColor:
-          active
+          warningSurface
+            ? 'rgba(196,123,43,0.55)'
+            : active
             ? 'var(--color-lime)'
             : hovered
             ? accent === 'danger'
@@ -161,7 +171,7 @@ function KPICard({
 
       {/* Number */}
       <div style={{
-        fontSize: 28, fontWeight: 600, lineHeight: 1,
+        fontSize: valueSize, fontWeight: valueWeight, lineHeight: 1,
         color: value > 0 ? numColor : 'var(--color-text-muted)',
         fontFamily: 'var(--font-display)',
         display: 'flex',
@@ -173,11 +183,11 @@ function KPICard({
       </div>
 
       {/* Label */}
-      <div style={{ fontSize: 12, color: 'var(--color-text)', marginTop: 5, fontWeight: 700 }}>
+      <div style={{ fontSize: 12, color: warningSurface ? 'var(--color-warning)' : 'var(--color-text)', marginTop: 5, fontWeight: 700 }}>
         {label}
       </div>
 
-      <div style={descriptionStyle}>{description}</div>
+      <div style={warningSurface ? { ...descriptionStyle, color: 'var(--color-warning)' } : descriptionStyle}>{description}</div>
 
       {/* Delta */}
       {delta !== undefined && delta !== 0 && (
@@ -207,7 +217,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
   React.useEffect(() => {
     let resetTimer: number
     const interval = window.setInterval(() => {
-      const next = Math.floor(Math.random() * 6)
+      const next = Math.floor(Math.random() * 7)
       setLiveIndex(next)
       resetTimer = window.setTimeout(() => setLiveIndex(-1), 900)
     }, 5200)
@@ -220,9 +230,24 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(6, 1fr)',
+      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
       gap: 14,
     }}>
+      <KPICard
+        value={kpi.unassignedTasks}
+        label="Chưa giao việc"
+        unit="việc"
+        description="Cần lên lịch giao việc"
+        icon="ti-alert-triangle"
+        iconBg="var(--color-warning-bg)"
+        iconColor="var(--color-warning)"
+        valueSize={24}
+        valueWeight={500}
+        warningSurface
+        accent="warning"
+        route="/projects?filter=unassigned"
+        flashing={liveIndex === 0}
+      />
       <KPICard
         value={kpi.meetingsToday}
         label="Họp hôm nay"
@@ -233,7 +258,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         iconColor="var(--color-waiting)"
         accent="default"
         route="/meetings"
-        flashing={liveIndex === 0}
+        flashing={liveIndex === 1}
       />
       <KPICard
         value={kpi.unimportedDrafts}
@@ -245,7 +270,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         iconColor="#6B8A99"
         accent="warning"
         route="/task-inbox"
-        flashing={liveIndex === 1}
+        flashing={liveIndex === 2}
       />
       <KPICard
         value={kpi.pendingDeliverable}
@@ -258,7 +283,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         accent="warning"
         focusChase
         onFocusChase={onFocusChase}
-        flashing={liveIndex === 2}
+        flashing={liveIndex === 3}
       />
       <KPICard
         value={kpi.overdueItems}
@@ -272,7 +297,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         filter="overdue"
         active={activeFilter === 'overdue'}
         onSelectFilter={onSelectFilter}
-        flashing={liveIndex === 3}
+        flashing={liveIndex === 4}
       />
       <KPICard
         value={kpi.pendingApprovals}
@@ -286,7 +311,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         filter="pending_approval"
         active={activeFilter === 'pending_approval'}
         onSelectFilter={onSelectFilter}
-        flashing={liveIndex === 4}
+        flashing={liveIndex === 5}
       />
       <KPICard
         value={kpi.ceoItems}
@@ -300,7 +325,7 @@ export function KPICards({ kpi, activeFilter, onSelectFilter, onFocusChase }: KP
         filter="ceo_report"
         active={activeFilter === 'ceo_report'}
         onSelectFilter={onSelectFilter}
-        flashing={liveIndex === 5}
+        flashing={liveIndex === 6}
       />
     </div>
   )

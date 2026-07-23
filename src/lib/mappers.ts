@@ -37,6 +37,7 @@ import type {
   Reminder,
   ReminderResponse,
   Task,
+  Workstream,
 } from '@/features/command-center/types'
 import {
   buildCOOSummary,
@@ -115,12 +116,21 @@ function mapProject(row: CommandCenterProjectRow): Project {
   }
 }
 
+function mapWorkstream(row: RawCommandCenterData['workstreams'][number]): Workstream {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+  }
+}
+
 function mapTask(row: CommandCenterTaskRow): Task {
   return {
     id: row.id,
     title: row.title,
     ownerId: row.owner_id ?? '',
     projectId: row.project_id ?? undefined,
+    workstreamId: row.workstream_id ?? undefined,
     dueDate: row.due_date ?? '',
     status: row.status,
     urgency: row.priority,
@@ -465,6 +475,7 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
 
   const people = raw.people.map(mapPerson)
   const projects = raw.projects.map(mapProject)
+  const workstreams = raw.workstreams.map(mapWorkstream)
   const effectiveTaskRows = raw.tasks.map((row) => ({
     ...row,
     status: getEffectiveTaskStatus(row, raw.deliverables, raw.deliverableVersions, raw.taskSteps),
@@ -560,6 +571,7 @@ export function toCommandCenterVM(raw: RawCommandCenterData): CommandCenterData 
   return {
     people,
     projects,
+    workstreams,
     meetings,
     tasks,
     deliverables,

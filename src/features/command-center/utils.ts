@@ -61,6 +61,7 @@ export function computeKPI(
       if (deliverable.ownerId) pendingPeople.add(deliverable.ownerId)
     })
   return {
+    unassignedTasks: tasks.filter((task) => task.status === 'UNASSIGNED').length,
     meetingsToday: meetings.filter((meeting) => meeting.date === today).length,
     unimportedDrafts: meetings.reduce((acc, meeting) => acc + Math.max(0, meeting.taskDraftCount - meeting.importedTaskCount), 0),
     pendingDeliverable: pendingPeople.size,

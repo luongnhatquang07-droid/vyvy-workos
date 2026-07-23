@@ -423,6 +423,7 @@ function formatSeverity(severity?: string | null) {
 }
 
 function statusTone(status?: string | null): StatusTone {
+  if (status === 'UNASSIGNED') return 'warning'
   if (status === 'COMPLETED' || status === 'DONE') return 'success'
   if (status === 'BLOCKED' || status === 'CANCELLED') return 'danger'
   if (status === 'REVISION_REQUIRED') return 'danger'
@@ -455,6 +456,7 @@ function toneBackground(tone: StatusTone) {
 }
 
 const TASK_STATUS_LABELS: Record<string, string> = {
+  UNASSIGNED: 'Chưa giao việc',
   NOT_STARTED: 'Chưa bắt đầu',
   TODO: 'Chưa bắt đầu',
   IN_PROGRESS: 'Đang làm',
