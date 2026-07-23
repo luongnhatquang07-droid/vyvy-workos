@@ -14,6 +14,11 @@ import {
 } from '@/lib/rbac/workspaceResourceAccess'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getDefaultApproverForUser } from '@/lib/approvals/defaultApprover'
+import {
+  isTaskStatus,
+  normalizeTaskStatusForAssignment,
+  type TaskStatus,
+} from '@/lib/tasks/taskStatusService'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -78,6 +83,13 @@ export async function POST(request: Request) {
     if (body.type === 'task') {
       await assertReviewerColumnReadyForManualSelection(auth, 'tasks', payload)
       await assertReviewerColumnReadyForManualSelection(auth, 'task_steps', payload)
+      const ownerId = text(payload.ownerId) || null
+      const dueDate = taskDateOrNull(payload.dueDate)
+      const status = normalizeTaskStatusForAssignment({
+        status: parseTaskStatus(payload.status, 'NOT_STARTED'),
+        ownerId,
+        dueDate,
+      })
       const taskRes = await auth.sb.from('tasks').insert({
         workspace_id: auth.workspaceId,
         project_id: requiredText(payload.projectId, 'Thiếu dự án cho đầu việc con.'),
@@ -85,23 +97,23 @@ export async function POST(request: Request) {
         title: text(payload.name) || 'Đầu việc con mới',
         description: text(payload.description) || null,
         expected_result: text(payload.expectedResult) || null,
-        owner_id: text(payload.ownerId) || null,
+        owner_id: ownerId,
         start_date: dateOrNull(payload.startDate),
-        due_date: dateOrNull(payload.dueDate),
-        status: 'NOT_STARTED',
+        due_date: dueDate,
+        status,
         priority: 'MEDIUM',
-      }).select('id,title,project_id,owner_id,start_date,due_date').single()
+      }).select('id,title,project_id,owner_id,start_date,due_date,status').single()
       if (taskRes.error) throw taskRes.error
       const reviewerId = await resolveWorkspaceItemReviewer(auth, payload, taskRes.data.owner_id)
       await updateWorkspaceItemReviewer(auth, 'tasks', taskRes.data.id, reviewerId, Boolean(text(payload.reviewerId)))
 
-      const dueDate = taskRes.data.due_date ?? dateOrNull(payload.dueDate)
+      const taskDueDate = taskRes.data.due_date ?? dueDate
       const templateSteps = buildTemplateSteps(
         auth.workspaceId,
         taskRes.data.id,
         taskRes.data.owner_id,
         taskRes.data.start_date ?? dateOrNull(payload.startDate),
-        dueDate,
+        taskDueDate,
         parseStepTemplate(payload.stepTemplate),
       )
       let submitStepId: string | null = null
@@ -123,14 +135,14 @@ export async function POST(request: Request) {
           type: 'report',
           submitter_id: taskRes.data.owner_id,
           reviewer_id: reviewerId,
-          due_date: dueDate,
+          due_date: taskDueDate,
           status: 'REQUIRED',
           is_required: true,
         })
       }
 
       await logActivity(auth, 'CREATE_TASK', 'task', taskRes.data.id, payload)
-      return NextResponse.json({ id: taskRes.data.id })
+      return NextResponse.json({ id: taskRes.data.id, status: taskRes.data.status })
     }
 
     if (body.type === 'step') {
@@ -174,7 +186,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: 'Loại thao tác chưa được hỗ trợ.' }, { status: 400 })
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
+    return workspaceItemErrorResponse(error)
   }
 }
 
@@ -197,7 +209,7 @@ export async function PATCH(request: Request) {
     let updated: unknown = null
     if (body.type === 'project') updated = await updateEntity(auth, 'projects', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status']))
     else if (body.type === 'workstream') updated = await updateEntity(auth, 'workstreams', body.id, mapPatch(patch, ['name', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'priority']))
-    else if (body.type === 'task') updated = await updateEntity(auth, 'tasks', body.id, mapTaskPatch(patch))
+    else if (body.type === 'task') updated = await updateTaskEntity(auth, body.id, patch)
     else if (body.type === 'step') {
       updated = await updateEntity(auth, 'task_steps', body.id, mapPatch(patch, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'isRequired', 'priority']))
       if (patch.requiresDeliverable === true) await ensureStepDeliverable(auth, body.id, patch.reviewerId !== undefined ? text(patch.reviewerId) || null : undefined)
@@ -214,9 +226,13 @@ export async function PATCH(request: Request) {
     }
 
     await logActivity(auth, 'UPDATE_WORKSPACE_ITEM', body.type, body.id, patch)
-    return NextResponse.json({ ok: true, item: updated })
+    return NextResponse.json({
+      ok: true,
+      item: updated,
+      ...(body.type === 'task' ? { status: (updated as { status: TaskStatus }).status } : {}),
+    })
   } catch (error) {
-    return NextResponse.json({ error: errorMessage(error) }, { status: 500 })
+    return workspaceItemErrorResponse(error)
   }
 }
 
@@ -409,6 +425,62 @@ async function updateEntity(
   const result = await auth.sb.from(table).update(patch).eq('id', id).eq('workspace_id', auth.workspaceId).select('*').maybeSingle()
   if (result.error) throw result.error
   if (!result.data) throw new Error('Không tìm thấy bản ghi cần cập nhật.')
+  return result.data
+}
+
+async function updateTaskEntity(
+  auth: WorkspaceAuth,
+  id: string,
+  input: Record<string, unknown>,
+) {
+  const patch = mapTaskPatch(input)
+  if (!Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    return updateEntity(auth, 'tasks', id, patch)
+  }
+
+  const hasOwnerPatch = Object.prototype.hasOwnProperty.call(patch, 'owner_id')
+  const hasDueDatePatch = Object.prototype.hasOwnProperty.call(patch, 'due_date')
+  if (hasOwnerPatch && hasDueDatePatch) {
+    patch.status = normalizeTaskStatusForAssignment({
+      status: patch.status as TaskStatus,
+      ownerId: patch.owner_id as string | null,
+      dueDate: patch.due_date as string | null,
+    })
+    return updateEntity(auth, 'tasks', id, patch)
+  }
+
+  const currentResult = await auth.sb
+    .from('tasks')
+    .select('owner_id,due_date')
+    .eq('id', id)
+    .eq('workspace_id', auth.workspaceId)
+    .maybeSingle()
+  if (currentResult.error) throw currentResult.error
+  if (!currentResult.data) throw new Error('Không tìm thấy đầu việc con cần cập nhật.')
+
+  patch.status = normalizeTaskStatusForAssignment({
+    status: patch.status as TaskStatus,
+    ownerId: hasOwnerPatch ? patch.owner_id as string | null : currentResult.data.owner_id,
+    dueDate: hasDueDatePatch ? patch.due_date as string | null : currentResult.data.due_date,
+  })
+
+  let updateQuery = auth.sb
+    .from('tasks')
+    .update(patch)
+    .eq('id', id)
+    .eq('workspace_id', auth.workspaceId)
+  updateQuery = currentResult.data.owner_id === null
+    ? updateQuery.is('owner_id', null)
+    : updateQuery.eq('owner_id', currentResult.data.owner_id)
+  updateQuery = currentResult.data.due_date === null
+    ? updateQuery.is('due_date', null)
+    : updateQuery.eq('due_date', currentResult.data.due_date)
+
+  const result = await updateQuery.select('*').maybeSingle()
+  if (result.error) throw result.error
+  if (!result.data) {
+    throw new WorkspaceItemConflictError('Đầu việc vừa được thay đổi. Vui lòng tải lại và thử lại.')
+  }
   return result.data
 }
 
@@ -670,7 +742,9 @@ function mapPatch(input: Record<string, unknown>, allowed: string[]) {
 }
 
 function mapTaskPatch(input: Record<string, unknown>) {
-  const out = mapPatch(input, ['title', 'description', 'ownerId', 'startDate', 'dueDate', 'status', 'expectedResult', 'priority'])
+  const out = mapPatch(input, ['title', 'description', 'ownerId', 'startDate', 'expectedResult', 'priority'])
+  if (input.dueDate !== undefined) out.due_date = taskDateOrNull(input.dueDate)
+  if (input.status !== undefined) out.status = parseTaskStatus(input.status)
   if (input.name !== undefined) out.title = text(input.name)
   return out
 }
@@ -1051,4 +1125,34 @@ function dateTimeOrNull(value: unknown) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Không thể cập nhật database.'
+}
+
+class WorkspaceItemValidationError extends Error {}
+class WorkspaceItemConflictError extends Error {}
+
+function parseTaskStatus(value: unknown, fallback?: TaskStatus): TaskStatus {
+  if ((value === undefined || value === null || value === '') && fallback) return fallback
+  if (isTaskStatus(value)) return value
+  throw new WorkspaceItemValidationError('Trạng thái đầu việc không hợp lệ.')
+}
+
+function taskDateOrNull(value: unknown) {
+  try {
+    return dateOrNull(value)
+  } catch (error) {
+    throw new WorkspaceItemValidationError(errorMessage(error))
+  }
+}
+
+function workspaceItemErrorResponse(error: unknown) {
+  return NextResponse.json(
+    { error: errorMessage(error) },
+    {
+      status: error instanceof WorkspaceItemValidationError
+        ? 400
+        : error instanceof WorkspaceItemConflictError
+          ? 409
+          : 500,
+    },
+  )
 }
