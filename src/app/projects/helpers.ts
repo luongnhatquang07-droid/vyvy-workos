@@ -197,7 +197,7 @@ export function subtaskMatchesAssignee(subtask: SubtaskItem, personId: string | 
 }
 
 export function matchesProjectWorkFilter(subtask: SubtaskItem, filters: ProjectFilters, context?: { project?: ProjectWorkspace; workstream?: WorkstreamItem }) {
-  if (filters.quick === 'unassigned' && !isUnassignedSubtask(subtask) && !subtask.steps.some((step) => !step.ownerId)) return false
+  if (filters.quick === 'unassigned' && subtask.status !== 'UNASSIGNED') return false
   const assigneeId = getAssigneeFilterId(filters)
   if (!subtaskMatchesAssignee(subtask, assigneeId)) return false
   const statusMatches = filters.status === 'all' || matchesStatusFilter(subtask.status, subtask.dueDate, filters.status) || subtask.steps.some((step) => matchesStatusFilter(step.status, step.dueDate, filters.status))
@@ -353,7 +353,6 @@ export function stepMatchesAssignee(step: StepItem, personId: string | null) {
 }
 
 export function matchesStepProjectFilter(step: StepItem, filters: ProjectFilters) {
-  if (filters.quick === 'unassigned' && step.ownerId) return false
   if (!stepMatchesAssignee(step, getAssigneeFilterId(filters))) return false
   if (!matchesStatusFilter(step.status, step.dueDate, filters.status)) return false
   if (!matchesDeadlineFilter(step.dueDate, step.status, filters.deadline)) return false

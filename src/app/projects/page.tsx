@@ -52,7 +52,6 @@ import {
   getSubtaskFileGroups,
   hasEvidence,
   isOverdue,
-  isUnassignedSubtask,
   matchesProjectWorkFilter,
   normalizeDateKey,
   projectHealth,
@@ -97,6 +96,7 @@ import type {
   DragDraft,
   ProjectDeadlineFilter,
   ProjectFilters,
+  ProjectQuickFilter,
   ProjectStatusFilter,
   ProjectWorkspace,
   StepItem,
@@ -179,6 +179,7 @@ interface ProjectsRouteTarget {
   projectId?: string
   taskId?: string
   tab?: ViewTab
+  filter?: ProjectQuickFilter
 }
 
 interface ProjectOpsStats {
@@ -301,6 +302,9 @@ function ProjectsPageContent() {
       if (routeTarget) {
         routeSelectionAppliedRef.current = true
         if (routeTarget.tab) setActiveTab(routeTarget.tab)
+        if (routeTarget.filter) {
+          setProjectFilters((current) => ({ ...current, quick: routeTarget.filter ?? 'all' }))
+        }
         if (routeTarget.taskId && nextSubtask) {
           setActiveTab('overview')
           pendingScrollSubtaskIdRef.current = nextSubtask.id
@@ -1258,6 +1262,7 @@ function ProjectsPageContent() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {workspace.map((project) => {
                 const progress = getProjectProgress(project)
+                const unassignedCount = getProjectUnassignedCount(project)
                 return (
                   <button
                     key={project.id}
@@ -1275,10 +1280,13 @@ function ProjectsPageContent() {
                           {project.code} · {project.workstreams.length} đầu việc lớn
                         </div>
                       </div>
-                      <ProgressBadge value={progress} label={projectHealth(project).label} />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+                        {unassignedCount > 0 ? <ProjectUnassignedBadge count={unassignedCount} /> : null}
+                        <ProgressBadge value={progress} label={projectHealth(project).label} />
+                      </div>
                     </div>
                     <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${progress}%` }} /></div>
-                    <UnassignedProgressNote count={getProjectUnassignedCount(project)} />
+                    <UnassignedProgressNote count={unassignedCount} />
                     <div style={inlineMetaStyle}>
                       <span>{project.workstreams.flatMap((item) => item.subtasks).length} đầu việc con</span>
                       <span title={toFullDate(project.dueDate)}>{formatDeadlineLabel(project.dueDate, projectHealth(project).label === 'Hoàn thành' ? 'COMPLETED' : 'NOT_STARTED')}</span>
@@ -2415,7 +2423,7 @@ function ProjectOpsStrip({
       <div style={opsStatGrid}>
         <OpsStat label="Đến hạn hôm nay" value={stats.today} tone={stats.today ? 'warning' : 'neutral'} />
         <OpsStat label="Quá hạn" value={stats.overdue} tone={stats.overdue ? 'danger' : 'neutral'} />
-        <OpsStat label="Chưa gắn người" value={stats.unassigned} tone={stats.unassigned ? 'warning' : 'neutral'} />
+        <OpsStat label="Chưa giao việc" value={stats.unassigned} tone={stats.unassigned ? 'warning' : 'neutral'} />
         <OpsStat label="Thiếu file/báo cáo" value={stats.missingEvidence} tone={stats.missingEvidence ? 'danger' : 'neutral'} />
         <OpsStat label="Cần duyệt" value={stats.pendingApproval} tone={stats.pendingApproval ? 'warning' : 'neutral'} />
         <OpsStat label="Bị chặn" value={stats.blocked} tone={stats.blocked ? 'danger' : 'neutral'} />
@@ -2424,11 +2432,12 @@ function ProjectOpsStrip({
         <button type="button" onClick={() => onChangeFilters(createDefaultProjectFilters())} style={filterChipStyle(filters.quick === 'all' && filters.status === 'all' && filters.deadline === 'all' && filters.assigneeId === 'all' && !filters.search)}>
           Tất cả
         </button>
-        <button type="button" onClick={() => onChangeFilters({ quick: filters.quick === 'unassigned' ? 'all' : 'unassigned' })} style={filterChipStyle(filters.quick === 'unassigned', stats.unassigned > 0 ? 'warning' : 'neutral')}>
-          Chưa gắn người · {stats.unassigned}
+        <button type="button" onClick={() => onChangeFilters({ quick: filters.quick === 'unassigned' ? 'all' : 'unassigned' })} style={unassignedFilterChipStyle(filters.quick === 'unassigned')}>
+          Chưa giao việc ({stats.unassigned})
         </button>
         <select aria-label="Lọc trạng thái" value={filters.status} onChange={(event) => onChangeFilters({ status: event.target.value as ProjectStatusFilter })} style={selectStyle}>
           <option value="all">Tất cả trạng thái</option>
+          <option value="UNASSIGNED">{STATUS_META.UNASSIGNED.label}</option>
           {TASK_STATUS_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
@@ -2764,6 +2773,14 @@ function SubtaskOwnerField({
         ))}
       </select>
     </Field>
+  )
+}
+
+function ProjectUnassignedBadge({ count }: { count: number }) {
+  return (
+    <span style={projectUnassignedBadgeStyle}>
+      {count} việc chưa giao
+    </span>
   )
 }
 
@@ -3612,9 +3629,10 @@ function readProjectsRouteTarget(): ProjectsRouteTarget | null {
   const projectId = params.get('projectId') ?? undefined
   const taskId = params.get('taskId') ?? params.get('subtaskId') ?? undefined
   const tab = coerceViewTab(params.get('tab'))
+  const filter = params.get('filter') === 'unassigned' ? 'unassigned' : undefined
 
-  if (!projectId && !taskId && !tab) return null
-  return { projectId, taskId, tab }
+  if (!projectId && !taskId && !tab && !filter) return null
+  return { projectId, taskId, tab, filter }
 }
 
 function coerceViewTab(value: string | null): ViewTab | undefined {
@@ -3907,7 +3925,7 @@ function getProjectOpsStats(project: ProjectWorkspace): ProjectOpsStats {
     today: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'today').length,
     overdue: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'overdue').length,
     upcoming: subtasks.filter((subtask) => getDeadlineSignal(subtask).kind === 'upcoming').length,
-    unassigned: subtasks.filter(isUnassignedSubtask).length,
+    unassigned: getProjectUnassignedCount(project),
     missingEvidence: subtasks.filter(subtaskNeedsEvidence).length,
     pendingApproval: subtasks.filter(subtaskNeedsApproval).length,
     blocked: subtasks.filter((subtask) => subtask.status === 'BLOCKED').length,
@@ -4002,6 +4020,20 @@ function projectCardStyle(active: boolean): React.CSSProperties {
     background: active ? 'rgba(218,223,33,.06)' : 'var(--surface)',
     textAlign: 'left',
   }
+}
+
+const projectUnassignedBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 22,
+  padding: '0 8px',
+  borderRadius: 999,
+  border: '1px solid rgba(184,139,62,.38)',
+  background: 'rgba(184,139,62,.10)',
+  color: 'var(--color-warning)',
+  fontSize: 11,
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
 }
 
 function tabStyle(active: boolean): React.CSSProperties {
@@ -4100,6 +4132,16 @@ const projectFilterRow: React.CSSProperties = {
   display: 'flex',
   gap: 8,
   flexWrap: 'wrap',
+}
+
+function unassignedFilterChipStyle(active: boolean): React.CSSProperties {
+  if (!active) return filterChipStyle(false, 'neutral')
+  return {
+    ...filterChipStyle(false, 'warning'),
+    border: '1px solid rgba(184,139,62,.52)',
+    background: 'rgba(184,139,62,.14)',
+    color: 'var(--color-warning)',
+  }
 }
 
 const sectionCard: React.CSSProperties = {
