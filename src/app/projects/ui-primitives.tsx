@@ -53,7 +53,39 @@ export function ProgressBadge({ value, label }: { value: number; label?: string 
   return <span style={progressBadgeStyle} title={label ? `Tiến độ ${value}% · ${label}` : `Tiến độ ${value}%`}>{text}</span>
 }
 
+export function UnassignedProgressNote({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <div style={unassignedProgressNoteStyle}>
+      <i className="ti ti-info-circle" aria-hidden="true" />
+      <span>{count} việc chưa giao không tính vào tiến độ</span>
+    </div>
+  )
+}
+
 export function SubtaskSignalBadges({ subtask, compact = false }: { subtask: SubtaskItem; compact?: boolean }) {
+  if (subtask.status === 'UNASSIGNED') {
+    const missingOwner = !subtask.ownerId
+    const missingDueDate = !subtask.dueDate || subtask.missingDueDate
+    if (!missingOwner && !missingDueDate) return null
+    return (
+      <div style={signalBadgeRowStyle(compact)}>
+        {missingOwner ? (
+          <span style={unassignedBadgeStyle}>
+            <i className="ti ti-user-off" aria-hidden="true" />
+            Chưa có người phụ trách
+          </span>
+        ) : null}
+        {missingDueDate ? (
+          <span style={unassignedBadgeStyle}>
+            <i className="ti ti-calendar-off" aria-hidden="true" />
+            Chưa có deadline
+          </span>
+        ) : null}
+      </div>
+    )
+  }
+
   const deadline = getDeadlineSignal(subtask)
   const showDeadline = deadline.kind !== 'normal'
   const unassigned = isUnassignedSubtask(subtask)
@@ -75,6 +107,30 @@ export function SubtaskSignalBadges({ subtask, compact = false }: { subtask: Sub
       ) : null}
     </div>
   )
+}
+
+const unassignedProgressNoteStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  color: 'var(--txt-3)',
+  fontSize: 11,
+  fontWeight: 600,
+  lineHeight: 1.35,
+}
+
+const unassignedBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  minHeight: 22,
+  padding: 0,
+  border: 0,
+  background: 'transparent',
+  color: 'var(--txt-3)',
+  fontSize: 11,
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
 }
 
 function signalBadgeRowStyle(compact: boolean): React.CSSProperties {

@@ -44,6 +44,7 @@ import {
   getMistakenDeliverableSteps,
   getPendingApprovalDeliverableSteps,
   getProjectProgress,
+  getProjectUnassignedCount,
   getRequiredStepStats,
   getRevisionDeliverableSteps,
   getSubtaskProgress,
@@ -85,6 +86,7 @@ import {
   PrimaryButton,
   ProgressBadge,
   StepEvidenceFiles,
+  UnassignedProgressNote,
 } from './ui-primitives'
 import type {
   AttachmentItem,
@@ -1008,7 +1010,7 @@ function ProjectsPageContent() {
   async function updateKanbanSubtaskStatus(subtask: SubtaskItem, nextStatus: TaskStatus) {
     if (subtask.status === nextStatus) return true
 
-    if (nextStatus === 'COMPLETED') {
+    if (nextStatus === 'COMPLETED' && subtask.status !== 'UNASSIGNED') {
       const blockers = getCompletionBlockers(subtask)
       if (blockers.length) {
         setSelectedSubtaskId(subtask.id)
@@ -1018,7 +1020,7 @@ function ProjectsPageContent() {
       }
     }
 
-    if (requiresEvidence(nextStatus) && !hasEvidence(subtask)) {
+    if (subtask.status !== 'UNASSIGNED' && requiresEvidence(nextStatus) && !hasEvidence(subtask)) {
       setSelectedSubtaskId(subtask.id)
       openSubtaskSection('files')
     }
@@ -1271,6 +1273,7 @@ function ProjectsPageContent() {
                       <ProgressBadge value={progress} label={projectHealth(project).label} />
                     </div>
                     <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${progress}%` }} /></div>
+                    <UnassignedProgressNote count={getProjectUnassignedCount(project)} />
                     <div style={inlineMetaStyle}>
                       <span>{project.workstreams.flatMap((item) => item.subtasks).length} đầu việc con</span>
                       <span title={toFullDate(project.dueDate)}>{formatDeadlineLabel(project.dueDate, projectHealth(project).label === 'Hoàn thành' ? 'COMPLETED' : 'NOT_STARTED')}</span>

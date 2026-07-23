@@ -2,6 +2,8 @@
 
 import React from 'react'
 import { createPortal } from 'react-dom'
+import { ConfirmDialog } from '@/components/feedback/Modal'
+import { OverlayPortal } from '@/components/feedback/OverlayPortal'
 import type { CommandCenterPersonRow } from '@/lib/database.types'
 import {
   STATUS_META,
@@ -26,8 +28,12 @@ import {
 import { SubtaskSignalBadges } from './ui-primitives'
 import type { ProjectFilters, ProjectWorkspace, SubtaskItem, TaskStatus } from './types'
 
-const KANBAN_COLUMNS = TASK_STATUS_ORDER
-const CORE_KANBAN_COLUMNS: TaskStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
+const KANBAN_COLUMNS: TaskStatus[] = ['UNASSIGNED', ...TASK_STATUS_ORDER]
+const KANBAN_STATUS_OPTIONS = [
+  { value: 'UNASSIGNED' as const, ...STATUS_META.UNASSIGNED },
+  ...TASK_STATUS_OPTIONS,
+]
+const CORE_KANBAN_COLUMNS: TaskStatus[] = ['UNASSIGNED', 'NOT_STARTED', 'IN_PROGRESS', 'COMPLETED']
 
 export function KanbanTab({
   project,
@@ -51,6 +57,7 @@ export function KanbanTab({
   const [mouseDragSourceStatus, setMouseDragSourceStatus] = React.useState<TaskStatus | null>(null)
   const [dragOverStatus, setDragOverStatus] = React.useState<TaskStatus | null>(null)
   const [showAllColumns, setShowAllColumns] = React.useState(false)
+  const [pendingUnassignedCompletion, setPendingUnassignedCompletion] = React.useState<SubtaskItem | null>(null)
   const subtasks = project.workstreams.flatMap((workstream) =>
     workstream.subtasks
       .filter((subtask) => matchesProjectWorkFilter(subtask, filters, { project, workstream }))
@@ -78,7 +85,7 @@ export function KanbanTab({
     setDragOverStatus(null)
     const subtask = subtasks.find((item) => item.id === subtaskId)
     if (!subtask || subtask.status === status) return
-    await onChangeStatus(subtask, status)
+    await requestStatusChange(subtask, status)
   }
 
   function beginMouseDrag(event: React.MouseEvent<HTMLElement>, subtask: SubtaskItem) {
@@ -95,7 +102,15 @@ export function KanbanTab({
     setMouseDragSourceStatus(null)
     setDragOverStatus(null)
     if (!subtask || sourceStatus === status || subtask.status === status) return
-    await onChangeStatus(subtask, status)
+    await requestStatusChange(subtask, status)
+  }
+
+  async function requestStatusChange(subtask: SubtaskItem, nextStatus: TaskStatus) {
+    if (subtask.status === 'UNASSIGNED' && nextStatus === 'COMPLETED') {
+      setPendingUnassignedCompletion(subtask)
+      return false
+    }
+    return onChangeStatus(subtask, nextStatus)
   }
 
   return (
@@ -120,7 +135,12 @@ export function KanbanTab({
         return (
           <section
             key={status}
-            style={{ ...kanbanColumn, ...(dragOverStatus === status ? kanbanColumnDropActive : {}) }}
+            data-kanban-status={status}
+            style={{
+              ...kanbanColumn,
+              ...(status === 'UNASSIGNED' ? kanbanUnassignedColumn : {}),
+              ...(dragOverStatus === status ? kanbanColumnDropActive : {}),
+            }}
             onDragOver={(event) => {
               event.preventDefault()
               event.dataTransfer.dropEffect = 'move'
@@ -134,7 +154,10 @@ export function KanbanTab({
             onMouseUp={() => void handleMouseDrop(status)}
           >
             <div style={kanbanHead}>
-              <span>{STATUS_META[status].label}</span>
+              <span style={kanbanHeadLabel}>
+                {status === 'UNASSIGNED' ? <i className="ti ti-inbox" aria-hidden="true" /> : null}
+                {STATUS_META[status].label}
+              </span>
               <span style={progressBadgeStyle}>{items.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 80 }}>
@@ -142,6 +165,7 @@ export function KanbanTab({
               {items.map((subtask) => (
                 <div key={subtask.id} style={subtaskInlineItem}>
                 <div
+                  data-kanban-card={subtask.id}
                   draggable
                   role="button"
                   tabIndex={0}
@@ -179,11 +203,11 @@ export function KanbanTab({
                     onMouseDown={(event) => event.stopPropagation()}
                     onChange={(event) => {
                       event.stopPropagation()
-                      void onChangeStatus(subtask, event.target.value as TaskStatus)
+                      void requestStatusChange(subtask, event.target.value as TaskStatus)
                     }}
                     style={kanbanStatusSelect}
                   >
-                    {TASK_STATUS_OPTIONS.map((option) => (
+                    {KANBAN_STATUS_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
@@ -221,8 +245,36 @@ export function KanbanTab({
           {renderSubtaskDetail(selectedKanbanSubtask)}
         </aside>
       ), document.body) : null}
+      <OverlayPortal isOpen={Boolean(pendingUnassignedCompletion)}>
+        <ConfirmDialog
+          open={Boolean(pendingUnassignedCompletion)}
+          onClose={() => setPendingUnassignedCompletion(null)}
+          onConfirm={() => {
+            if (pendingUnassignedCompletion) {
+              void onChangeStatus(pendingUnassignedCompletion, 'COMPLETED')
+            }
+          }}
+          title="Đánh dấu hoàn thành (bỏ qua yêu cầu)?"
+          message={pendingUnassignedCompletion
+            ? buildUnassignedCompletionMessage(pendingUnassignedCompletion)
+            : ''}
+          confirmLabel="Đánh dấu hoàn thành"
+          cancelLabel="Hủy"
+        />
+      </OverlayPortal>
     </div>
   )
+}
+
+function buildUnassignedCompletionMessage(subtask: SubtaskItem) {
+  const missingOwner = !subtask.ownerId
+  const missingDueDate = !subtask.dueDate || subtask.missingDueDate
+  const missing = missingOwner && missingDueDate
+    ? 'người phụ trách và deadline'
+    : missingOwner
+      ? 'người phụ trách'
+      : 'deadline'
+  return `Đầu việc ${subtask.title} chưa có ${missing}. Sẽ BỎ QUA yêu cầu file/báo cáo và các bước bắt buộc. Chỉ dùng cho việc vặt không cần bàn giao. Hành động này được ghi lại trong audit trail.`
 }
 
 function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): React.CSSProperties {
@@ -230,6 +282,7 @@ function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): R
   const urgent = deadline === 'overdue' || deadline === 'today'
   const unassigned = subtask ? isUnassignedSubtask(subtask) : false
   const alert = urgent && unassigned
+  const isUnassignedStatus = subtask?.status === 'UNASSIGNED'
   return {
     width: '100%',
     minWidth: 0,
@@ -238,8 +291,8 @@ function kanbanCard(active: boolean, dragging = false, subtask?: SubtaskItem): R
     gap: 10,
     padding: 14,
     borderRadius: 14,
-    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : alert ? 'rgba(184,64,64,.42)' : urgent ? 'rgba(184,139,62,.42)' : 'var(--line)'}`,
-    background: active ? 'rgba(218,223,33,.06)' : alert ? 'rgba(184,64,64,.12)' : urgent ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
+    border: `1px solid ${active ? 'rgba(218,223,33,.45)' : isUnassignedStatus ? 'var(--line)' : alert ? 'rgba(184,64,64,.42)' : urgent ? 'rgba(184,139,62,.42)' : 'var(--line)'}`,
+    background: isUnassignedStatus ? 'var(--surface-2)' : active ? 'rgba(218,223,33,.06)' : alert ? 'rgba(184,64,64,.12)' : urgent ? 'rgba(184,139,62,.10)' : 'var(--surface-2)',
     textAlign: 'left',
     cursor: dragging ? 'grabbing' : 'grab',
     opacity: dragging ? 0.62 : 1,
@@ -255,7 +308,7 @@ function kanbanGridStyle(columnCount: number, showAllColumns: boolean): React.CS
   return {
     display: 'grid',
     gridTemplateColumns: showAllColumns
-      ? 'repeat(8, minmax(240px, 1fr))'
+      ? `repeat(${Math.max(columnCount, 1)}, minmax(240px, 1fr))`
       : `repeat(${Math.max(columnCount, 1)}, minmax(260px, 1fr))`,
     gap: 14,
     overflowX: 'auto',
@@ -300,6 +353,10 @@ const kanbanColumn: React.CSSProperties = {
   minWidth: 0,
 }
 
+const kanbanUnassignedColumn: React.CSSProperties = {
+  border: '1px dashed var(--color-border-strong)',
+}
+
 const kanbanColumnDropActive: React.CSSProperties = {
   borderColor: 'rgba(218,223,33,.5)',
   background: 'rgba(218,223,33,.06)',
@@ -325,6 +382,12 @@ const kanbanHead: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
   color: 'var(--txt)',
+}
+
+const kanbanHeadLabel: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 7,
 }
 
 const kanbanTitle: React.CSSProperties = {

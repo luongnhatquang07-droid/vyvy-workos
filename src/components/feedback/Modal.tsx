@@ -95,15 +95,25 @@ interface ConfirmDialogProps {
   title: string
   message: string
   confirmLabel?: string
+  cancelLabel?: string
   danger?: boolean
 }
 
-export function ConfirmDialog({ open, onClose, onConfirm, title, message, confirmLabel = 'Xác nhận', danger }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = 'Xác nhận',
+  cancelLabel = 'Huỷ',
+  danger,
+}: ConfirmDialogProps) {
   return (
     <Modal open={open} onClose={onClose} title={title} width={420}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Huỷ</Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>{cancelLabel}</Button>
           <Button variant={danger ? 'danger' : 'primary'} size="sm" onClick={() => { onConfirm(); onClose() }}>{confirmLabel}</Button>
         </>
       }

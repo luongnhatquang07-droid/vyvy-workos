@@ -111,8 +111,9 @@ export function getSubtaskProgressText(subtask: SubtaskItem) {
 export function getWorkstreamProgress(workstream: WorkstreamItem) {
   const cached = workstreamProgressMemo.get(workstream)
   if (cached !== undefined) return cached
-  const progress = workstream.subtasks.length
-    ? Math.round(workstream.subtasks.reduce((sum, subtask) => sum + getSubtaskProgress(subtask), 0) / workstream.subtasks.length)
+  const plannedSubtasks = workstream.subtasks.filter((subtask) => subtask.status !== 'UNASSIGNED')
+  const progress = plannedSubtasks.length
+    ? Math.round(plannedSubtasks.reduce((sum, subtask) => sum + getSubtaskProgress(subtask), 0) / plannedSubtasks.length)
     : 0
   workstreamProgressMemo.set(workstream, progress)
   return progress
@@ -121,11 +122,23 @@ export function getWorkstreamProgress(workstream: WorkstreamItem) {
 export function getProjectProgress(project: ProjectWorkspace) {
   const cached = projectProgressMemo.get(project)
   if (cached !== undefined) return cached
-  const progress = project.workstreams.length
-    ? Math.round(project.workstreams.reduce((sum, workstream) => sum + getWorkstreamProgress(workstream), 0) / project.workstreams.length)
+  const plannedWorkstreams = project.workstreams.filter((workstream) =>
+    workstream.subtasks.length === 0
+    || workstream.subtasks.some((subtask) => subtask.status !== 'UNASSIGNED'),
+  )
+  const progress = plannedWorkstreams.length
+    ? Math.round(plannedWorkstreams.reduce((sum, workstream) => sum + getWorkstreamProgress(workstream), 0) / plannedWorkstreams.length)
     : 0
   projectProgressMemo.set(project, progress)
   return progress
+}
+
+export function getWorkstreamUnassignedCount(workstream: WorkstreamItem) {
+  return workstream.subtasks.filter((subtask) => subtask.status === 'UNASSIGNED').length
+}
+
+export function getProjectUnassignedCount(project: ProjectWorkspace) {
+  return project.workstreams.reduce((total, workstream) => total + getWorkstreamUnassignedCount(workstream), 0)
 }
 
 export function projectHealth(project: ProjectWorkspace) {

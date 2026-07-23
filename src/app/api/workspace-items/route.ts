@@ -19,6 +19,11 @@ import {
   normalizeTaskStatusForAssignment,
   type TaskStatus,
 } from '@/lib/tasks/taskStatusService'
+import {
+  completeTask,
+  TaskCompletionServiceError,
+  type TaskCompletionRpcClient,
+} from '@/lib/tasks/taskCompletionService'
 
 type EntityType = 'project' | 'workstream' | 'task' | 'step' | 'meeting'
 type StepTemplate = 'none' | 'basic' | 'approval'
@@ -434,6 +439,18 @@ async function updateTaskEntity(
   input: Record<string, unknown>,
 ) {
   const patch = mapTaskPatch(input)
+  if (patch.status === 'COMPLETED' && Object.keys(patch).length === 1) {
+    const completion = await completeTask(
+      auth.sb as unknown as TaskCompletionRpcClient,
+      {
+        taskId: id,
+        workspaceId: auth.workspaceId,
+        actorPersonId: auth.actor.personId,
+      },
+    )
+    return completion.task
+  }
+
   if (!Object.prototype.hasOwnProperty.call(patch, 'status')) {
     return updateEntity(auth, 'tasks', id, patch)
   }
@@ -1150,6 +1167,8 @@ function workspaceItemErrorResponse(error: unknown) {
     {
       status: error instanceof WorkspaceItemValidationError
         ? 400
+        : error instanceof TaskCompletionServiceError
+          ? error.status
         : error instanceof WorkspaceItemConflictError
           ? 409
           : 500,

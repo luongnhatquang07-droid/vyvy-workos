@@ -9,6 +9,7 @@ import {
   getDeadlineSignal,
   getSubtaskProgress,
   getWorkstreamProgress,
+  getWorkstreamUnassignedCount,
   isUnassignedSubtask,
   matchesProjectWorkFilter,
   sortSubtasksForOperations,
@@ -27,7 +28,7 @@ import {
   workstreamCard,
   workstreamHead,
 } from './styles'
-import { DangerButton, GhostButton, ProgressBadge, SubtaskSignalBadges } from './ui-primitives'
+import { DangerButton, GhostButton, ProgressBadge, SubtaskSignalBadges, UnassignedProgressNote } from './ui-primitives'
 import type { ProjectFilters, ProjectWorkspace, SubtaskItem } from './types'
 
 export function OverviewTab({
@@ -70,6 +71,7 @@ export function OverviewTab({
               <div style={miniProgressWrap}>
                 <div style={progressTrack}><span data-vyvy-bar="true" style={{ ...progressFill, width: `${getWorkstreamProgress(workstream)}%` }} /></div>
                 <span style={mutedMetaStyle}>{getWorkstreamProgress(workstream)}%</span>
+                <UnassignedProgressNote count={getWorkstreamUnassignedCount(workstream)} />
               </div>
               <GhostButton icon="ti-pencil" onClick={() => onEditWorkstream(workstream.id)}>Sửa</GhostButton>
               <DangerButton icon="ti-trash" onClick={() => onDeleteWorkstream(workstream.id)}>Xóa đầu việc lớn</DangerButton>
