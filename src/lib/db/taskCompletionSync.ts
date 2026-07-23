@@ -1,8 +1,8 @@
 import 'server-only'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { TaskStatus } from '@/lib/tasks/taskStatusService'
 
-type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
 type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'APPROVED' | 'REVISION_REQUIRED' | 'MISSING_INFORMATION'
 
 interface StaleTaskRow {

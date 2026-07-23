@@ -35,7 +35,6 @@ import type {
 import {
   STATUS_META,
   TASK_STATUS_OPTIONS,
-  TASK_STATUS_ORDER,
   createDefaultProjectFilters,
   formatDeadlineLabel,
   getCompactBlockerText,
@@ -61,6 +60,7 @@ import {
   toFullDate,
   toShortDate,
 } from './helpers'
+import { isTaskStatus as isCanonicalTaskStatus } from '@/lib/tasks/taskStatusService'
 import {
   detailMeta,
   emptyInline,
@@ -3056,6 +3056,7 @@ function getDeliverableEvidenceState(
 }
 
 function normalizeStatus(value: string): TaskStatus {
+  if (value === 'UNASSIGNED') return 'UNASSIGNED'
   if (value === 'COMPLETED' || value === 'DONE') return 'COMPLETED'
   if (value === 'PENDING_APPROVAL' || value === 'WAITING_APPROVAL') return 'PENDING_APPROVAL'
   if (value === 'BLOCKED') return 'BLOCKED'
@@ -3075,7 +3076,7 @@ function formatPeopleOption(person: CommandCenterPersonRow) {
 }
 
 function isTaskStatus(value: string | null | undefined): value is TaskStatus {
-  return Boolean(value && TASK_STATUS_ORDER.includes(value as TaskStatus))
+  return isCanonicalTaskStatus(value)
 }
 
 function parseStepText(value: string | null | undefined) {

@@ -16,7 +16,13 @@ import type {
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string }> = {
+export const STATUS_META: Record<TaskStatus, { label: string; bg: string; color: string; icon?: string }> = {
+  UNASSIGNED: {
+    label: 'Chưa giao việc',
+    bg: 'var(--color-warning-bg)',
+    color: 'var(--color-warning)',
+    icon: 'ti-user-off',
+  },
   NOT_STARTED: { label: 'Chưa bắt đầu', bg: 'var(--surface-3)', color: 'var(--txt-2)' },
   IN_PROGRESS: { label: 'Đang làm', bg: 'var(--color-waiting-bg)', color: 'var(--color-waiting)' },
   WAITING: { label: 'Đang chờ', bg: 'rgba(107,138,153,0.16)', color: '#6B8A99' },

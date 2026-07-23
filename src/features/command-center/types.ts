@@ -3,7 +3,8 @@
 // ============================================================
 
 // ---- Enums ----
-export type TaskStatus = 'NOT_STARTED'|'IN_PROGRESS'|'WAITING'|'BLOCKED'|'PENDING_APPROVAL'|'REVISION_REQUIRED'|'COMPLETED'|'CANCELLED'
+import type { TaskStatus } from '@/lib/tasks/taskStatusService'
+export type { TaskStatus } from '@/lib/tasks/taskStatusService'
 export type DeliverableStatus = 'REQUIRED'|'NOT_SUBMITTED'|'SUBMITTED'|'MISSING_INFORMATION'|'REVISION_REQUIRED'|'APPROVED'
 export type ProjectHealth = 'NO_DATA'|'ON_TRACK'|'WARNING'|'AT_RISK'|'CRITICAL'
 export type ReminderResponse = 'NOT_REMINDED'|'SENT'|'SEEN'|'WAITING_RESPONSE'|'PROMISED'|'EXTENSION_REQUESTED'|'FILE_SUBMITTED'|'NO_RESPONSE'|'ESCALATED'|'CLOSED'

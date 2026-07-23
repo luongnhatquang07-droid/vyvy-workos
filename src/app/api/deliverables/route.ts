@@ -24,6 +24,7 @@ import {
   canViewDeliverable,
   RBAC_FORBIDDEN_MESSAGE,
 } from '@/lib/rbac/workspaceResourceAccess'
+import type { TaskStatus } from '@/lib/tasks/taskStatusService'
 
 type WorkspaceContext =
   | { ok: true; workspaceId: string; profileId: string; personId: string | null; actor: RbacUserContext }
@@ -32,8 +33,6 @@ type WorkspaceContext =
 type DeliverableStatus = 'REQUIRED' | 'NOT_SUBMITTED' | 'SUBMITTED' | 'MISSING_INFORMATION' | 'REVISION_REQUIRED' | 'APPROVED'
 type ReviewStatus = VersionReviewStatus
 type ServiceClient = ReturnType<typeof createServiceClient>
-type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
-
 interface TaskSyncResult {
   taskId: string | null
   status: TaskStatus | null

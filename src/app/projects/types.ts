@@ -1,7 +1,8 @@
 import type { VersionReviewStatus } from '@/lib/deliverableVersionStatus'
 import type { CommandCenterDeliverableRow } from '@/lib/database.types'
+import type { TaskStatus } from '@/lib/tasks/taskStatusService'
 
-export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'WAITING' | 'BLOCKED' | 'PENDING_APPROVAL' | 'REVISION_REQUIRED' | 'COMPLETED' | 'CANCELLED'
+export type { TaskStatus } from '@/lib/tasks/taskStatusService'
 export type ProjectQuickFilter = 'all' | 'unassigned'
 export type ProjectStatusFilter = 'all' | 'overdue' | TaskStatus
 export type ProjectDeadlineFilter = 'all' | 'today' | 'this_week' | 'next_week' | 'overdue' | 'this_month' | 'none'

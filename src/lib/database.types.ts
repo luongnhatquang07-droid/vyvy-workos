@@ -1,6 +1,8 @@
 // DB row types - handwritten from the current Supabase schema.
 // Replace with generated types once CLI access is available.
 
+import type { TaskStatus } from '@/lib/tasks/taskStatusService'
+
 export interface ProfileRow {
   id: string
   workspace_id: string | null
@@ -67,15 +69,7 @@ export interface TaskRow {
   title: string
   owner_id: string | null
   reviewer_id?: string | null
-  status:
-    | 'NOT_STARTED'
-    | 'IN_PROGRESS'
-    | 'WAITING'
-    | 'BLOCKED'
-    | 'PENDING_APPROVAL'
-    | 'REVISION_REQUIRED'
-    | 'COMPLETED'
-    | 'CANCELLED'
+  status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   due_date: string | null
   waiting_for_person_id: string | null
@@ -222,15 +216,7 @@ export interface CommandCenterTaskRow {
   workstream_id: string | null
   start_date: string | null
   due_date: string | null
-  status:
-    | 'NOT_STARTED'
-    | 'IN_PROGRESS'
-    | 'WAITING'
-    | 'BLOCKED'
-    | 'PENDING_APPROVAL'
-    | 'REVISION_REQUIRED'
-    | 'COMPLETED'
-    | 'CANCELLED'
+  status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   waiting_for_person_id: string | null
   waiting_for_content: string | null
@@ -262,15 +248,7 @@ export interface CommandCenterTaskStepRow {
   description: string | null
   owner_id: string | null
   reviewer_id?: string | null
-  status:
-    | 'NOT_STARTED'
-    | 'IN_PROGRESS'
-    | 'WAITING'
-    | 'BLOCKED'
-    | 'PENDING_APPROVAL'
-    | 'REVISION_REQUIRED'
-    | 'COMPLETED'
-    | 'CANCELLED'
+  status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   start_date: string | null
   due_date: string | null
