@@ -622,7 +622,11 @@ function ProjectsPageContent() {
   function openComposer(mode: ComposerMode, parentId?: string) {
     setComposerMode(mode)
     setComposerParentId(parentId ?? null)
-    setComposerDraft(createDraft(selectedProject?.ownerId ?? null, selectedProject?.dueDate, selectedProject?.reviewerId ?? null))
+    setComposerDraft(createDraft(
+      mode === 'subtask' ? null : selectedProject?.ownerId ?? null,
+      mode === 'subtask' ? '' : selectedProject?.dueDate,
+      selectedProject?.reviewerId ?? null,
+    ))
   }
 
   async function saveComposer() {
@@ -653,6 +657,7 @@ function ProjectsPageContent() {
         type: 'task',
         payload: {
           ...composerDraft,
+          status: composerDraft.ownerId && composerDraft.dueDate ? 'NOT_STARTED' : 'UNASSIGNED',
           projectId: selectedProject.sourceProjectId ?? selectedProject.id,
           workstreamId: composerParentId,
         },
@@ -1433,6 +1438,13 @@ function ProjectsPageContent() {
           onSubmit={saveComposer}
           submitLabel="Lưu"
         >
+          {composerMode === 'subtask' ? (
+            <SubtaskAssignmentWarning
+              ownerId={composerDraft.ownerId}
+              dueDate={composerDraft.dueDate}
+              isNew
+            />
+          ) : null}
           <div style={formGrid}>
             <Field label={composerMode === 'meeting' ? 'Tên cuộc họp' : 'Tên'}>
               <input value={composerDraft.name} onChange={(e) => setComposerDraft((current) => ({ ...current, name: e.target.value }))} style={inputStyle} />
@@ -1444,14 +1456,22 @@ function ProjectsPageContent() {
               </Field>
             ) : null}
 
-            <Field label="Người phụ trách">
-              <select value={composerDraft.ownerId} onChange={(e) => setComposerDraft((current) => ({ ...current, ownerId: e.target.value }))} style={inputStyle}>
-                <option value="">Chưa gắn người</option>
-                {assignablePeople.map((person) => (
-                  <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
-                ))}
-              </select>
-            </Field>
+            {composerMode === 'subtask' ? (
+              <SubtaskOwnerField
+                value={composerDraft.ownerId}
+                people={assignablePeople}
+                onChange={(ownerId) => setComposerDraft((current) => ({ ...current, ownerId }))}
+              />
+            ) : (
+              <Field label="Người phụ trách">
+                <select value={composerDraft.ownerId} onChange={(e) => setComposerDraft((current) => ({ ...current, ownerId: e.target.value }))} style={inputStyle}>
+                  <option value="">Chưa gắn người</option>
+                  {assignablePeople.map((person) => (
+                    <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             <Field label="Người duyệt">
               <select value={composerDraft.reviewerId} onChange={(e) => setComposerDraft((current) => ({ ...current, reviewerId: e.target.value }))} style={inputStyle}>
@@ -1466,9 +1486,16 @@ function ProjectsPageContent() {
               <input type="date" value={composerDraft.startDate} onChange={(e) => setComposerDraft((current) => ({ ...current, startDate: e.target.value }))} style={inputStyle} />
             </Field>
 
-            <Field label="Deadline">
-              <input type="date" value={composerDraft.dueDate} onChange={(e) => setComposerDraft((current) => ({ ...current, dueDate: e.target.value }))} style={inputStyle} />
-            </Field>
+            {composerMode === 'subtask' ? (
+              <SubtaskDeadlineField
+                value={composerDraft.dueDate}
+                onChange={(dueDate) => setComposerDraft((current) => ({ ...current, dueDate }))}
+              />
+            ) : (
+              <Field label="Deadline">
+                <input type="date" value={composerDraft.dueDate} onChange={(e) => setComposerDraft((current) => ({ ...current, dueDate: e.target.value }))} style={inputStyle} />
+              </Field>
+            )}
 
             {composerMode === 'subtask' ? (
               <>
@@ -2525,18 +2552,33 @@ function EditWorkItemDrawerBody({
         <i className="ti ti-info-circle" />
         <span>Thông tin</span>
       </div>
+      {kind === 'subtask' ? (
+        <SubtaskAssignmentWarning
+          ownerId={draft.ownerId}
+          dueDate={draft.dueDate}
+          status={context.subtask?.status}
+        />
+      ) : null}
       <div style={formGrid}>
         <Field label={getTitleFieldLabel(kind)}>
           <input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} style={inputStyle} />
         </Field>
-        <Field label="Owner / người phụ trách">
-          <select value={draft.ownerId} onChange={(event) => setDraft((current) => ({ ...current, ownerId: event.target.value }))} style={inputStyle}>
-            <option value="">Chưa gắn người</option>
-            {assignablePeople.map((person) => (
-              <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
-            ))}
-          </select>
-        </Field>
+        {kind === 'subtask' ? (
+          <SubtaskOwnerField
+            value={draft.ownerId}
+            people={assignablePeople}
+            onChange={(ownerId) => setDraft((current) => ({ ...current, ownerId }))}
+          />
+        ) : (
+          <Field label="Owner / người phụ trách">
+            <select value={draft.ownerId} onChange={(event) => setDraft((current) => ({ ...current, ownerId: event.target.value }))} style={inputStyle}>
+              <option value="">Chưa gắn người</option>
+              {assignablePeople.map((person) => (
+                <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Người duyệt">
           <select value={draft.reviewerId} onChange={(event) => setDraft((current) => ({ ...current, reviewerId: event.target.value }))} style={inputStyle}>
             <option value="">Chưa gắn người duyệt</option>
@@ -2562,21 +2604,28 @@ function EditWorkItemDrawerBody({
             />
           </Field>
         ) : null}
-        <Field label="Deadline">
-          <input
-            type="date"
+        {kind === 'subtask' ? (
+          <SubtaskDeadlineField
             value={draft.dueDate}
-            onInput={(event) => {
-              const { value } = event.currentTarget
-              setDraft((current) => ({ ...current, dueDate: value }))
-            }}
-            onChange={(event) => {
-              const { value } = event.target
-              setDraft((current) => ({ ...current, dueDate: value }))
-            }}
-            style={inputStyle}
+            onChange={(dueDate) => setDraft((current) => ({ ...current, dueDate }))}
           />
-        </Field>
+        ) : (
+          <Field label="Deadline">
+            <input
+              type="date"
+              value={draft.dueDate}
+              onInput={(event) => {
+                const { value } = event.currentTarget
+                setDraft((current) => ({ ...current, dueDate: value }))
+              }}
+              onChange={(event) => {
+                const { value } = event.target
+                setDraft((current) => ({ ...current, dueDate: value }))
+              }}
+              style={inputStyle}
+            />
+          </Field>
+        )}
         <Field label="Trạng thái">
           <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))} style={inputStyle}>
             {TASK_STATUS_OPTIONS.map((option) => (
@@ -2697,7 +2746,91 @@ function ModalShell({
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function SubtaskOwnerField({
+  value,
+  people,
+  onChange,
+}: {
+  value: string
+  people: CommandCenterPersonRow[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <Field label={<OptionalFieldLabel label="Người phụ trách" />}>
+      <select value={value} onChange={(event) => onChange(event.target.value)} style={inputStyle}>
+        <option value="">— Chưa giao —</option>
+        {people.map((person) => (
+          <option key={person.id} value={person.id}>{formatPeopleOption(person)}</option>
+        ))}
+      </select>
+    </Field>
+  )
+}
+
+function SubtaskDeadlineField({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Field label={<OptionalFieldLabel label="Deadline" />}>
+      <input
+        type="date"
+        value={value}
+        placeholder="Chưa xác định"
+        onInput={(event) => onChange(event.currentTarget.value)}
+        onChange={(event) => onChange(event.target.value)}
+        style={inputStyle}
+      />
+    </Field>
+  )
+}
+
+function OptionalFieldLabel({ label }: { label: string }) {
+  return (
+    <>
+      {label} <span style={optionalFieldLabelStyle}>(có thể trống)</span>
+    </>
+  )
+}
+
+function SubtaskAssignmentWarning({
+  ownerId,
+  dueDate,
+  status,
+  isNew = false,
+}: {
+  ownerId: string
+  dueDate: string
+  status?: TaskStatus
+  isNew?: boolean
+}) {
+  const missing = getMissingAssignmentText(ownerId, dueDate)
+  if (!missing) return null
+
+  const message = isNew || status === 'UNASSIGNED'
+    ? `Đầu việc chưa có ${missing}. Sẽ được đặt trạng thái 'Chưa giao việc'.`
+    : `Đầu việc chưa có ${missing}. Trạng thái hiện tại vẫn được giữ nguyên; yêu cầu hoàn thành vẫn áp dụng đầy đủ.`
+
+  return (
+    <div style={subtaskAssignmentWarningStyle} role="status" aria-live="polite">
+      <i className="ti ti-info-circle" aria-hidden="true" />
+      <span>{message}</span>
+    </div>
+  )
+}
+
+function getMissingAssignmentText(ownerId: string, dueDate: string) {
+  const missingOwner = !ownerId.trim()
+  const missingDueDate = !dueDate.trim()
+  if (!missingOwner && !missingDueDate) return null
+  if (missingOwner && missingDueDate) return 'người phụ trách và deadline'
+  return missingOwner ? 'người phụ trách' : 'deadline'
+}
+
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <span style={fieldLabel}>{label}</span>
@@ -3257,7 +3390,7 @@ function editContextToDraft(context: EditContext): EditDraft {
       ownerId: context.subtask.ownerId ?? '',
       reviewerId: context.subtask.reviewerId ?? '',
       startDate: context.subtask.startDate,
-      dueDate: context.subtask.dueDate,
+      dueDate: context.subtask.missingDueDate ? '' : context.subtask.dueDate,
       status: context.subtask.status,
       expectedResult: context.subtask.reportText,
       isRequired: true,
@@ -4484,6 +4617,27 @@ const fieldLabel: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   color: 'var(--txt-3)',
+}
+
+const optionalFieldLabelStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  fontWeight: 500,
+  color: 'var(--color-text-muted)',
+}
+
+const subtaskAssignmentWarningStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '10px 12px',
+  marginBottom: 14,
+  borderRadius: 12,
+  border: '1px solid var(--color-warning)',
+  background: 'var(--color-warning-bg)',
+  color: 'var(--color-warning)',
+  fontSize: 12.5,
+  fontWeight: 600,
+  lineHeight: 1.5,
 }
 
 const progressBigRow: React.CSSProperties = {
