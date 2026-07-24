@@ -69,6 +69,18 @@ export function getEffectiveDeadlineForSubtask(
   return maxDate(subtask.due_date, childDeadline)
 }
 
+/**
+ * Keeps an explicitly missing UNASSIGNED task deadline visible to consumers.
+ * Project/workstream rollups still use the full child-step deadline graph.
+ */
+export function resolveTaskDeadlineAfterRollup(
+  task: DeadlineTask,
+  rolledUpDeadline: string | null | undefined,
+) {
+  if (task.status === 'UNASSIGNED' && task.due_date === null) return null
+  return rolledUpDeadline ?? task.due_date
+}
+
 export function getEffectiveDeadlineForWorkstream(
   workstream: DeadlineWorkstream,
   subtasks: DeadlineTask[],

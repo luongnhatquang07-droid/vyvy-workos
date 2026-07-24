@@ -7,7 +7,7 @@ import type {
   CommandCenterVisibilitySummary,
   RawCommandCenterData,
 } from '@/lib/database.types'
-import { buildDeadlineRollups } from '@/lib/deadlineRollup'
+import { buildDeadlineRollups, resolveTaskDeadlineAfterRollup } from '@/lib/deadlineRollup'
 import { filterCommandCenterDataByUser } from '@/lib/rbac/commandDataFilter'
 import { isExecutive, type RbacUserContext } from '@/lib/rbac/permissions'
 import { createClient } from '@/lib/supabase/server'
@@ -170,7 +170,7 @@ export async function getCommandCenterData(
   }))
   tasks = tasks.map((task) => ({
     ...task,
-    due_date: deadlineRollups.taskDeadlines.get(task.id) ?? task.due_date,
+    due_date: resolveTaskDeadlineAfterRollup(task, deadlineRollups.taskDeadlines.get(task.id)),
   }))
   taskSteps = taskSteps.map((step) => ({
     ...step,
