@@ -2,6 +2,11 @@
 -- Direction is fixed across the codebase:
 --   from_subtask_id = prerequisite
 --   to_subtask_id   = dependent
+-- All lifecycle mutations (create, soft-delete and bulk replace) must go
+-- through the SECURITY DEFINER RPCs introduced by A1b. An authenticated role
+-- is intentionally unable to UPDATE deleted_at directly because the active-row
+-- SELECT policy also checks the proposed UPDATE row. Context:
+-- audit/A1A_RLS_4C_BUG_INVESTIGATION.md.
 
 begin;
 
