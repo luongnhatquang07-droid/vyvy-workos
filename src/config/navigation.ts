@@ -6,6 +6,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'task-inbox',     label: 'Inbox đầu việc',       href: '/task-inbox',     icon: 'ti-inbox',           group: 'Điều hành', badge: { count: 0, variant: 'hot' } },
   { key: 'follow-ups',     label: 'Theo dõi & Nhắc việc', href: '/follow-ups',     icon: 'ti-bell-ringing',    group: 'Điều hành', badge: { count: 0, variant: 'hot' } },
   { key: 'projects',       label: 'Dự án',                href: '/projects',       icon: 'ti-folders',         group: 'Công việc', badge: { count: 0, variant: 'default' } },
+  { key: 'timeline',       label: 'Timeline CĐS',          href: '/timeline',       icon: 'ti-timeline-event',  group: 'Công việc' },
   { key: 'approvals',      label: 'Phê duyệt',            href: '/approvals',      icon: 'ti-checkup-list',    group: 'Công việc', badge: { count: 0, variant: 'default' } },
   { key: 'deliverables',   label: 'Tài liệu & Bàn giao',  href: '/deliverables',   icon: 'ti-files',           group: 'Công việc', badge: { count: 0, variant: 'hot' } },
   { key: 'file-library',   label: 'Kho file',             href: '/file-library',   icon: 'ti-folder-open',     group: 'Tổng hợp' },
