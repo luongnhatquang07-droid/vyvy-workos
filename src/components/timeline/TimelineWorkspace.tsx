@@ -403,7 +403,7 @@ function TimelineEmpty({ filtered }: { filtered: boolean }) {
         <div className={styles.emptyText}>
           {filtered
             ? 'Hãy đổi người phụ trách, hạng mục hoặc trạng thái trong bộ lọc.'
-            : 'Chạy seed Timeline chuyển đổi số để tạo project, hai hạng mục và danh sách đầu việc ban đầu.'}
+            : 'Chạy seed Timeline chuyển đổi số để tạo project, 5 đầu việc lớn theo người và danh sách đầu việc ban đầu.'}
         </div>
       </div>
     </div>

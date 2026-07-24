@@ -7,7 +7,7 @@ Thêm route `/timeline` để lập lịch và theo dõi 47 đầu việc chuy�
 ### Kiến trúc
 
 - `src/app/timeline/page.tsx` là Server Component, resolve session/RBAC và tải dữ liệu ban đầu.
-- `src/features/timeline/timelineService.ts` chỉ đọc project `Timeline chuyển đổi số`, hai workstream `Mục 6`/`Mục 9` và graph liên quan.
+- `src/features/timeline/timelineService.ts` chỉ đọc project `Timeline chuyển đổi số`, năm workstream theo người phụ trách và graph liên quan.
 - Loader dùng service client sau khi đã resolve actor, luôn scope theo `workspace_id`, sau đó tái sử dụng `filterCommandCenterDataByUser()` để giữ cùng quy tắc visibility với Command Center.
 - Mutation tái sử dụng `PATCH /api/workspace-items`; route hiện có tiếp tục chịu trách nhiệm cho local-production guard, RBAC, workspace scope, activity log và completion quality gate.
 - UI dựng Gantt bằng CSS Grid, không thêm thư viện Gantt.
@@ -23,7 +23,8 @@ Thêm route `/timeline` để lập lịch và theo dõi 47 đầu việc chuy�
 - Timeline hiển thị đầy đủ `TaskStatus` hiện hành, nhưng seed khởi tạo `NOT_STARTED`.
 - `COMPLETED` luôn được gửi thành mutation riêng để đi qua completion RPC/quality gate. Timeline không tạo bypass mới.
 - Riêng `UNASSIGNED → COMPLETED` tái sử dụng confirm flow hiện có: cảnh báo rõ việc bỏ qua yêu cầu bàn giao và chỉ gọi bypass đã có sau khi người dùng xác nhận.
-- `Mục 6` và `Mục 9` là hai `workstreams`; không thêm cột `phase`.
+- Năm người/nhóm (`Vũ`, `Ân`, `Chi`, `Long`, `Team / Nhóm chung`) là năm `workstreams`; từng action item là `task` bên dưới.
+- `Mục 6` và `Mục 9` chỉ là nguồn phân loại trong tài liệu gốc, không còn là tầng `workstream` sau bước reclassify.
 - Hai mảng `steps` trong dataset trở thành tám row `task_steps`.
 - Hai trường gợi ý deadline được lưu vào `tasks.description`, không chuyển thành ngày thật.
 
@@ -33,9 +34,11 @@ File seed:
 
 `supabase/seeds/202607240001_seed_digital_transformation_timeline.sql`
 
+`supabase/seeds/202607240002_reclassify_timeline_by_owner.sql`
+
 Seed chưa được tự động chạy bởi migration. Cách làm này có chủ đích vì Vũ/Ân/Chi/Long là dữ liệu môi trường và phải được xác minh trên database đích.
 
-Trong nhánh này seed chỉ được kiểm tra tĩnh (dataset, idempotency, preflight và postcondition); chưa được apply lên staging hoặc production.
+Seed `001` và bước reclassify `002` đã được apply lên database thật ngày 24/07/2026.
 
 ### Trước khi chạy
 
@@ -46,16 +49,17 @@ Trong nhánh này seed chỉ được kiểm tra tĩnh (dataset, idempotency, pr
 
 ### Chạy
 
-Chạy toàn bộ file trong Supabase Dashboard SQL Editor hoặc một PostgreSQL client đã được cấp quyền phù hợp.
+Chạy `001` trước, sau đó chạy `002` trong Supabase Dashboard SQL Editor hoặc một PostgreSQL client đã được cấp quyền phù hợp. Sau khi `002` đã hoàn tất, không chạy lại `001`; chỉ `002` được thiết kế để rerun trên cấu trúc owner-workstream.
 
 Seed thực hiện trong một transaction và có advisory transaction lock. Nó:
 
 - kiểm tra catalog/cột cần dùng trước mutation;
 - tạo/reuse đúng một people row `Team / Nhóm chung`;
 - tạo/reuse project `Timeline chuyển đổi số`;
-- tạo/reuse hai workstream `Mục 6`, `Mục 9`;
+- `001` tạo/reuse hai workstream nguồn `Mục 6`, `Mục 9`;
 - tạo thiếu 47 task và 8 step bằng deterministic UUID;
-- không `UPDATE` hoặc `DELETE` row production đã có;
+- `002` tạo/reuse năm workstream theo người, chuyển 47 task sang đúng người và soft-delete hai workstream nguồn sau khi chuyển thành công;
+- không hard-delete task, step hoặc workstream;
 - không reset ngày, status hoặc description khi chạy lại;
 - kiểm tra postcondition trước `COMMIT`.
 

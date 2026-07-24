@@ -44,13 +44,13 @@ export function FilterBar({
         </label>
 
         <label className={styles.filterField}>
-          <span className={styles.filterLabel}>Hạng mục</span>
+          <span className={styles.filterLabel}>Đầu việc lớn</span>
           <select
             className={styles.select}
             value={filters.workstreamId}
             onChange={(event) => onFiltersChange({ ...filters, workstreamId: event.target.value })}
           >
-            <option value="all">Mục 6 và Mục 9</option>
+            <option value="all">Tất cả đầu việc lớn</option>
             {workstreams.map((workstream) => (
               <option key={workstream.id} value={workstream.id}>{workstream.name}</option>
             ))}

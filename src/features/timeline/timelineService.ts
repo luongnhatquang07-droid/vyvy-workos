@@ -27,8 +27,6 @@ import type {
 
 export const TIMELINE_PROJECT_NAME = 'Timeline chuyển đổi số'
 
-const TIMELINE_WORKSTREAM_NAMES = ['Mục 6', 'Mục 9'] as const
-
 export class TimelineAuthenticationError extends Error {
   constructor() {
     super('Bạn cần đăng nhập để xem Timeline chuyển đổi số.')
@@ -111,7 +109,6 @@ export async function getTimelinePageData(): Promise<TimelinePageDataResult> {
         .select('id,project_id,name,description,owner_id,reviewer_id,status,priority,start_date,due_date,sort_order,deleted_at')
         .eq('workspace_id', workspaceId)
         .eq('project_id', project.id)
-        .in('name', [...TIMELINE_WORKSTREAM_NAMES])
         .is('deleted_at', null)
         .order('sort_order', { ascending: true }),
       service
@@ -130,17 +127,6 @@ export async function getTimelinePageData(): Promise<TimelinePageDataResult> {
     if (workstreamsResult.error || tasksResult.error || peopleResult.error) return timelineReadError()
 
     const workstreams = (workstreamsResult.data ?? []) as CommandCenterWorkstreamRow[]
-    if (!hasExactlyOneTimelineWorkstreamEach(workstreams)) {
-      return {
-        kind: 'missing',
-        message: 'Dữ liệu Timeline chưa có đủ hai đầu việc lớn Mục 6 và Mục 9.',
-      }
-    }
-
-    const timelineWorkstreamIds = new Set(workstreams.map((workstream) => workstream.id))
-    const tasks = ((tasksResult.data ?? []) as CommandCenterTaskRow[]).filter(
-      (task) => task.workstream_id !== null && timelineWorkstreamIds.has(task.workstream_id),
-    )
     const people = ((peopleResult.data ?? []) as Array<{
       id: string
       full_name: string
@@ -155,6 +141,28 @@ export async function getTimelinePageData(): Promise<TimelinePageDataResult> {
       phone: null,
       messenger_url: null,
     }))
+    const peopleById = new Map(people.map((person) => [person.id, person]))
+    if (!hasOwnerWorkstreamHierarchy(workstreams, peopleById)) {
+      return {
+        kind: 'missing',
+        message: 'Dữ liệu Timeline chưa có đủ năm đầu việc lớn theo người phụ trách.',
+      }
+    }
+
+    const workstreamsById = new Map(workstreams.map((workstream) => [workstream.id, workstream]))
+    const projectTasks = (tasksResult.data ?? []) as CommandCenterTaskRow[]
+    const invalidProjectTask = projectTasks.find((task) => {
+      if (!task.owner_id || !task.workstream_id) return true
+      const workstream = workstreamsById.get(task.workstream_id)
+      return !workstream || workstream.owner_id !== task.owner_id
+    })
+    if (invalidProjectTask) {
+      return {
+        kind: 'error',
+        message: 'Có đầu việc Timeline chưa nằm đúng đầu việc lớn của người phụ trách.',
+      }
+    }
+    const tasks = projectTasks
 
     const taskIds = tasks.map((task) => task.id)
     const [stepsResult, assigneesResult] = taskIds.length
@@ -217,8 +225,6 @@ export async function getTimelinePageData(): Promise<TimelinePageDataResult> {
       }
     }
 
-    const peopleById = new Map(people.map((person) => [person.id, person]))
-    const workstreamsById = new Map(workstreams.map((workstream) => [workstream.id, workstream]))
     const visibleStepsByTask = groupVisibleSteps(visibleData.taskSteps)
     const incompleteTask = visibleData.tasks.find(
       (task) =>
@@ -331,10 +337,19 @@ function groupVisibleSteps(steps: CommandCenterTaskStepRow[]) {
   return byTask
 }
 
-function hasExactlyOneTimelineWorkstreamEach(workstreams: CommandCenterWorkstreamRow[]) {
-  return TIMELINE_WORKSTREAM_NAMES.every(
-    (name) => workstreams.filter((workstream) => workstream.name === name).length === 1,
-  )
+function hasOwnerWorkstreamHierarchy(
+  workstreams: CommandCenterWorkstreamRow[],
+  peopleById: Map<string, CommandCenterPersonRow>,
+) {
+  if (workstreams.length !== 5) return false
+  const ownerIds = new Set<string>()
+  return workstreams.every((workstream) => {
+    if (!workstream.owner_id || ownerIds.has(workstream.owner_id)) return false
+    const owner = peopleById.get(workstream.owner_id)
+    if (!owner) return false
+    ownerIds.add(workstream.owner_id)
+    return true
+  })
 }
 
 function compareTimelineTasks(left: TimelineTask, right: TimelineTask) {
@@ -350,12 +365,6 @@ function compareTimelineWorkstreams(left: TimelineWorkstream, right: TimelineWor
 }
 
 function compareTimelineWorkstreamNames(left: string, right: string) {
-  const leftIndex = TIMELINE_WORKSTREAM_NAMES.indexOf(left as (typeof TIMELINE_WORKSTREAM_NAMES)[number])
-  const rightIndex = TIMELINE_WORKSTREAM_NAMES.indexOf(right as (typeof TIMELINE_WORKSTREAM_NAMES)[number])
-  if (leftIndex !== -1 || rightIndex !== -1) {
-    return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
-      (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
-  }
   return left.localeCompare(right, 'vi')
 }
 
